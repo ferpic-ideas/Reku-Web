@@ -2320,67 +2320,73 @@
 </form>
 
 <script>
-  (() => {
-    const form = document.getElementById('contact-form');
-    const status = document.getElementById('contact-status');
-    if (!form || !status) return;
+      (() => {
+        const form = document.getElementById('contact-form');
+        const status = document.getElementById('contact-status');
+        if (!form || !status) return;
 
-    const genericDomains = new Set([
-      'gmail.com',
-      'googlemail.com',
-      'hotmail.com',
-      'outlook.com',
-      'live.com',
-      'msn.com',
-      'yahoo.com',
-      'icloud.com',
-      'me.com',
-      'mac.com',
-      'aol.com',
-      'gmx.com',
-      'mail.com',
-      'proton.me',
-      'protonmail.com',
-      'yandex.com'
-    ]);
+        const genericDomains = new Set([
+          'gmail.com',
+          'googlemail.com',
+          'hotmail.com',
+          'outlook.com',
+          'live.com',
+          'msn.com',
+          'yahoo.com',
+          'icloud.com',
+          'me.com',
+          'mac.com',
+          'aol.com',
+          'gmx.com',
+          'mail.com',
+          'proton.me',
+          'protonmail.com',
+          'yandex.com',
+        ]);
 
-    const setStatus = (message, type) => {
-      status.textContent = message;
-      status.className = 'contact-status';
-      if (type) status.classList.add(`is-${type}`);
-    };
+        const setStatus = (message, type) => {
+          status.textContent = message;
+          status.className = 'contact-status';
+          if (type) {
+            status.classList.add(`is-${type}`);
+          }
+        };
 
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      setStatus('');
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          setStatus('');
 
-      if (!form.reportValidity()) return;
+          if (!form.reportValidity()) return;
 
-      const formData = new FormData(form);
-      const email = String(formData.get('email') || '').trim().toLowerCase();
-      const emailDomain = email.split('@')[1] || '';
+          const formData = new FormData(form);
+          const email = String(formData.get('email') || '').trim().toLowerCase();
+          const emailDomain = email.split('@')[1] || '';
 
-      if (!emailDomain || genericDomains.has(emailDomain)) {
-        setStatus('Por favor ingresá un email corporativo válido.', 'error');
-        return;
-      }
+          if (!emailDomain || genericDomains.has(emailDomain)) {
+            setStatus('Por favor ingresá un email corporativo válido.', 'error');
+            return;
+          }
 
-      try {
-        await fetch('/', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: new URLSearchParams(formData).toString()
+          try {
+            const response = await fetch('/', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams(formData).toString(),
+            });
+
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+
+            setStatus('Formulario enviado!', 'success');
+            form.reset();
+          } catch (error) {
+            setStatus('No se pudo enviar el formulario. Probá de nuevo.', 'error');
+          }
         });
-
-        setStatus('Formulario enviado!', 'success');
-        form.reset();
-      } catch (error) {
-        setStatus('No se pudo enviar el formulario. Probá de nuevo.', 'error');
-      }
-    });
-  })();
+      })();
 </script>
 
 
@@ -2517,45 +2523,6 @@
         iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`;
       })();
 
-      (() => {
-        const form = document.getElementById('contact-form');
-        const status = document.getElementById('contact-status');
-        if (!form || !status) return;
-
-        const genericDomains = new Set([
-          'gmail.com',
-          'googlemail.com',
-          'hotmail.com',
-          'outlook.com',
-          'live.com',
-          'msn.com',
-          'yahoo.com',
-          'icloud.com',
-          'me.com',
-          'mac.com',
-          'aol.com',
-          'gmx.com',
-          'mail.com',
-          'proton.me',
-          'protonmail.com',
-          'yandex.com',
-        ]);
-
-        const setStatus = (message, type) => {
-          status.textContent = message;
-          status.className = 'contact-status';
-          if (type) {
-            status.classList.add(`is-${type}`);
-          }
-        };
-
-        form.addEventListener('submit', (event) => {
-          event.preventDefault();
-          setStatus('');
-
-          form.reset();
-        });
-      })();
     </script>
   </body>
 </html>
