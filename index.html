@@ -993,7 +993,11 @@
         padding: 6px 14px;
         font-size: 12px;
         color: rgba(255, 255, 255, 0.45);
-        cursor: default;
+        cursor: help;
+        outline: none;
+      }
+      .footer-badge:focus-visible {
+        box-shadow: 0 0 0 3px rgba(111, 197, 210, 0.24);
       }
       .footer-badge-copy {
         position: absolute;
@@ -1266,6 +1270,24 @@
       @media (max-width: 560px) {
         html {
           scroll-padding-top: var(--nav-offset);
+        }
+
+        .footer-badge-copy {
+          left: 50%;
+          right: auto;
+          width: min(340px, calc(100vw - 40px));
+          transform: translate(-50%, 8px);
+        }
+
+        .footer-badge-copy::after {
+          left: 50%;
+          right: auto;
+          transform: translateX(-50%);
+        }
+
+        .footer-badge:hover .footer-badge-copy,
+        .footer-badge:focus-within .footer-badge-copy {
+          transform: translate(-50%, 0);
         }
 
         .btn,
@@ -2423,9 +2445,18 @@
           >Evidencia Científica</a
         >
       </div>
-      <div class="footer-badge" tabindex="0" aria-label="Reconocimiento de la Legislatura de la Ciudad Autónoma de Buenos Aires">
+      <div
+        class="footer-badge"
+        tabindex="0"
+        aria-label="Reconocimiento de la Legislatura de la Ciudad Autónoma de Buenos Aires"
+        aria-describedby="footer-legislatura-tooltip"
+      >
         <span>Legislatura CABA · 922/2024</span>
-        <div class="footer-badge-copy" role="tooltip">
+        <div
+          class="footer-badge-copy"
+          id="footer-legislatura-tooltip"
+          role="tooltip"
+        >
           Reku ha sido declarada de Interés por la Legislatura de la Ciudad
           Autónoma de Buenos Aires, destacando su impacto en la digitalización
           y accesibilidad de la atención kinésica online.
