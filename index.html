@@ -1015,20 +1015,21 @@
         opacity: 0;
         visibility: hidden;
         transform: translateY(8px);
-        transition: opacity 0.2s ease, transform 0.2s ease,
+        transition:
+          opacity 0.2s ease,
+          transform 0.2s ease,
           visibility 0.2s ease;
         pointer-events: none;
         z-index: 20;
       }
       .footer-badge-copy::after {
-        content: "";
+        content: '';
         position: absolute;
         right: 24px;
         top: 100%;
         border-width: 8px;
         border-style: solid;
-        border-color: rgba(8, 10, 15, 0.96) transparent transparent
-          transparent;
+        border-color: rgba(8, 10, 15, 0.96) transparent transparent transparent;
       }
       .footer-badge-copy strong {
         display: block;
@@ -1085,6 +1086,145 @@
         height: 22px;
       }
 
+      /* COMO GALLERY */
+      .como-gallery {
+        margin-top: 40px;
+      }
+      .como-carousel {
+        position: relative;
+        --slide-size: clamp(336px, 54%, 608px);
+        --side-offset: clamp(188px, 23vw, 300px);
+        --far-offset: clamp(320px, 34vw, 480px);
+      }
+      .como-carousel-viewport {
+        position: relative;
+        overflow: hidden;
+        padding: 12px 0;
+      }
+      .como-carousel-track {
+        position: relative;
+        height: clamp(228px, 35vw, 438px);
+      }
+      .como-carousel-slide {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        width: min(var(--slide-size), 100%);
+        transition:
+          transform 0.4s ease,
+          opacity 0.4s ease,
+          filter 0.4s ease;
+        transform: translateX(calc(-50% + var(--far-offset))) scale(0.76);
+        opacity: 0;
+        filter: saturate(0.85);
+        pointer-events: none;
+        z-index: 1;
+      }
+      .como-carousel-slide.is-active {
+        transform: translateX(-50%) scale(1);
+        opacity: 1;
+        filter: none;
+        pointer-events: auto;
+        z-index: 3;
+      }
+      .como-carousel-slide.is-prev {
+        transform: translateX(calc(-50% - var(--side-offset))) scale(0.84);
+        opacity: 0.92;
+        pointer-events: auto;
+        z-index: 2;
+      }
+      .como-carousel-slide.is-next {
+        transform: translateX(calc(-50% + var(--side-offset))) scale(0.84);
+        opacity: 0.92;
+        pointer-events: auto;
+        z-index: 2;
+      }
+      .como-carousel-slide.is-before {
+        transform: translateX(calc(-50% - var(--far-offset))) scale(0.76);
+      }
+      .como-carousel-slide.is-after {
+        transform: translateX(calc(-50% + var(--far-offset))) scale(0.76);
+      }
+      .como-carousel-card {
+        position: relative;
+        height: 100%;
+        overflow: hidden;
+        border-radius: 24px;
+        box-shadow: 0 20px 42px rgba(47, 58, 104, 0.16);
+      }
+      .como-carousel-card img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .como-carousel-button {
+        position: absolute;
+        top: 50%;
+        z-index: 3;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        height: 48px;
+        border: none;
+        border-radius: 50%;
+        background: white;
+        color: var(--navy);
+        cursor: pointer;
+        box-shadow: 0 12px 30px rgba(47, 58, 104, 0.12);
+        transform: translateY(-50%);
+        transition:
+          opacity 0.2s ease,
+          box-shadow 0.2s ease,
+          background 0.2s ease;
+      }
+      .como-carousel-button[data-action='prev'] {
+        left: 16px;
+      }
+      .como-carousel-button[data-action='next'] {
+        right: 16px;
+      }
+      .como-carousel-button:hover {
+        background: var(--cyan-light);
+        box-shadow: 0 16px 32px rgba(47, 58, 104, 0.16);
+      }
+      .como-carousel-button:disabled {
+        opacity: 0.38;
+        cursor: default;
+        box-shadow: 0 10px 20px rgba(47, 58, 104, 0.08);
+      }
+      .como-carousel-button:focus-visible,
+      .como-carousel-dot:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 2px;
+      }
+      .como-carousel-dots {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .como-carousel-dot {
+        width: 10px;
+        height: 10px;
+        border: none;
+        border-radius: 999px;
+        background: rgba(47, 58, 104, 0.16);
+        cursor: pointer;
+        transition:
+          width 0.2s ease,
+          background 0.2s ease,
+          transform 0.2s ease;
+      }
+      .como-carousel-dot.is-active {
+        width: 28px;
+        background: var(--cyan);
+        transform: scale(1.02);
+      }
+
       /* RESPONSIVE */
       @media (max-width: 1024px) {
         nav,
@@ -1115,13 +1255,27 @@
           grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
-        #como-funciona > div:last-child {
+        #como-funciona .como-steps-grid {
           grid-template-columns: repeat(2, 1fr) !important;
           gap: 20px !important;
         }
 
-        #como-funciona > div:last-child > div:first-child {
+        #como-funciona .como-steps-line {
           display: none;
+        }
+
+        .como-gallery {
+          margin-top: 34px;
+        }
+
+        .como-carousel {
+          --slide-size: clamp(288px, 58%, 512px);
+          --side-offset: clamp(154px, 20vw, 220px);
+          --far-offset: clamp(250px, 30vw, 360px);
+        }
+
+        .como-carousel-track {
+          height: clamp(210px, 38vw, 368px);
         }
       }
 
@@ -1200,9 +1354,23 @@
 
         .forwho-grid,
         .dash-grid,
-        #como-funciona > div:last-child,
+        #como-funciona .como-steps-grid,
         .contact-form-grid {
           grid-template-columns: 1fr !important;
+        }
+
+        .como-gallery {
+          margin-top: 28px;
+        }
+
+        .como-carousel {
+          --slide-size: calc(100% - 132px);
+          --side-offset: clamp(88px, 20vw, 116px);
+          --far-offset: clamp(156px, 38vw, 228px);
+        }
+
+        .como-carousel-track {
+          height: clamp(184px, 49vw, 280px);
         }
 
         .dycare-certificates {
@@ -1288,6 +1456,29 @@
         .footer-badge:hover .footer-badge-copy,
         .footer-badge:focus-within .footer-badge-copy {
           transform: translate(-50%, 0);
+        }
+
+        .como-carousel {
+          --slide-size: calc(100% - 96px);
+          --side-offset: clamp(70px, 18vw, 86px);
+          --far-offset: clamp(126px, 34vw, 186px);
+        }
+
+        .como-carousel-track {
+          height: clamp(166px, 50vw, 228px);
+        }
+
+        .como-carousel-button {
+          width: 44px;
+          height: 44px;
+        }
+
+        .como-carousel-button[data-action='prev'] {
+          left: 8px;
+        }
+
+        .como-carousel-button[data-action='next'] {
+          right: 8px;
         }
 
         .btn,
@@ -1454,6 +1645,7 @@
       </p>
 
       <div
+        class="como-steps-grid"
         style="
           display: grid;
           grid-template-columns: repeat(4, 1fr);
@@ -1463,6 +1655,7 @@
       >
         <!-- Línea conectora -->
         <div
+          class="como-steps-line"
           style="
             position: absolute;
             top: 52px;
@@ -1927,6 +2120,151 @@
                 >Fidelización del paciente.
               </li>
             </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="como-gallery">
+        <div
+          class="como-carousel"
+          data-como-carousel
+          tabindex="0"
+          aria-label="Galería de imágenes del proceso clínico"
+        >
+          <div class="como-carousel-viewport" data-como-viewport>
+            <button
+              class="como-carousel-button"
+              type="button"
+              data-action="prev"
+              aria-label="Ver imagen anterior"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+            <div class="como-carousel-track" data-como-track>
+              <figure class="como-carousel-slide is-active" data-slide>
+                <div class="como-carousel-card">
+                  <img
+                    src="images/como1.png"
+                    alt="Pantalla del flujo clínico Reku 1"
+                    loading="lazy"
+                  />
+                </div>
+              </figure>
+              <figure class="como-carousel-slide" data-slide>
+                <div class="como-carousel-card">
+                  <img
+                    src="images/como2.png"
+                    alt="Pantalla del flujo clínico Reku 2"
+                    loading="lazy"
+                  />
+                </div>
+              </figure>
+              <figure class="como-carousel-slide" data-slide>
+                <div class="como-carousel-card">
+                  <img
+                    src="images/como3.png"
+                    alt="Pantalla del flujo clínico Reku 3"
+                    loading="lazy"
+                  />
+                </div>
+              </figure>
+              <figure class="como-carousel-slide" data-slide>
+                <div class="como-carousel-card">
+                  <img
+                    src="images/como4.png"
+                    alt="Pantalla del flujo clínico Reku 4"
+                    loading="lazy"
+                  />
+                </div>
+              </figure>
+              <figure class="como-carousel-slide" data-slide>
+                <div class="como-carousel-card">
+                  <img
+                    src="images/como5.png"
+                    alt="Pantalla del flujo clínico Reku 5"
+                    loading="lazy"
+                  />
+                </div>
+              </figure>
+              <figure class="como-carousel-slide" data-slide>
+                <div class="como-carousel-card">
+                  <img
+                    src="images/como6.png"
+                    alt="Pantalla del flujo clínico Reku 6"
+                    loading="lazy"
+                  />
+                </div>
+              </figure>
+            </div>
+            <button
+              class="como-carousel-button"
+              type="button"
+              data-action="next"
+              aria-label="Ver imagen siguiente"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="como-carousel-dots" aria-label="Seleccionar imagen">
+            <button
+              class="como-carousel-dot is-active"
+              type="button"
+              data-dot="0"
+              aria-label="Ir a la imagen 1"
+            ></button>
+            <button
+              class="como-carousel-dot"
+              type="button"
+              data-dot="1"
+              aria-label="Ir a la imagen 2"
+            ></button>
+            <button
+              class="como-carousel-dot"
+              type="button"
+              data-dot="2"
+              aria-label="Ir a la imagen 3"
+            ></button>
+            <button
+              class="como-carousel-dot"
+              type="button"
+              data-dot="3"
+              aria-label="Ir a la imagen 4"
+            ></button>
+            <button
+              class="como-carousel-dot"
+              type="button"
+              data-dot="4"
+              aria-label="Ir a la imagen 5"
+            ></button>
+            <button
+              class="como-carousel-dot"
+              type="button"
+              data-dot="5"
+              aria-label="Ir a la imagen 6"
+            ></button>
           </div>
         </div>
       </div>
@@ -2458,8 +2796,8 @@
           role="tooltip"
         >
           Reku ha sido declarada de Interés por la Legislatura de la Ciudad
-          Autónoma de Buenos Aires, destacando su impacto en la digitalización
-          y accesibilidad de la atención kinésica online.
+          Autónoma de Buenos Aires, destacando su impacto en la digitalización y
+          accesibilidad de la atención kinésica online.
           <strong>Declaración 922/2024</strong>
         </div>
       </div>
@@ -2526,6 +2864,111 @@
             }
           });
         });
+      })();
+
+      (() => {
+        const carousel = document.querySelector('[data-como-carousel]');
+        if (!carousel) return;
+
+        const slides = Array.from(carousel.querySelectorAll('[data-slide]'));
+        const dots = Array.from(carousel.querySelectorAll('[data-dot]'));
+        const prevButton = carousel.querySelector('[data-action="prev"]');
+        const nextButton = carousel.querySelector('[data-action="next"]');
+        const viewport = carousel.querySelector('[data-como-viewport]');
+
+        if (!slides.length || !prevButton || !nextButton || !viewport) return;
+
+        let activeIndex = 0;
+        let touchStartX = 0;
+        let touchDeltaX = 0;
+
+        const updateSlides = () => {
+          slides.forEach((slide, index) => {
+            slide.classList.toggle('is-active', index === activeIndex);
+            slide.classList.toggle('is-prev', index === activeIndex - 1);
+            slide.classList.toggle('is-next', index === activeIndex + 1);
+            slide.classList.toggle('is-before', index < activeIndex - 1);
+            slide.classList.toggle('is-after', index > activeIndex + 1);
+            slide.setAttribute(
+              'aria-hidden',
+              index === activeIndex ? 'false' : 'true',
+            );
+          });
+
+          dots.forEach((dot, index) => {
+            const isActive = index === activeIndex;
+            dot.classList.toggle('is-active', isActive);
+            dot.setAttribute('aria-current', isActive ? 'true' : 'false');
+          });
+
+          prevButton.disabled = activeIndex === 0;
+          nextButton.disabled = activeIndex === slides.length - 1;
+        };
+
+        const goTo = (index) => {
+          activeIndex = Math.max(0, Math.min(index, slides.length - 1));
+          updateSlides();
+        };
+
+        prevButton.addEventListener('click', () => {
+          goTo(activeIndex - 1);
+        });
+
+        nextButton.addEventListener('click', () => {
+          goTo(activeIndex + 1);
+        });
+
+        dots.forEach((dot, index) => {
+          dot.addEventListener('click', () => {
+            goTo(index);
+          });
+        });
+
+        slides.forEach((slide, index) => {
+          slide.addEventListener('click', () => {
+            if (index !== activeIndex) {
+              goTo(index);
+            }
+          });
+        });
+
+        carousel.addEventListener('keydown', (event) => {
+          if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            goTo(activeIndex - 1);
+          }
+
+          if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            goTo(activeIndex + 1);
+          }
+        });
+
+        viewport.addEventListener(
+          'touchstart',
+          (event) => {
+            touchStartX = event.changedTouches[0]?.clientX ?? 0;
+            touchDeltaX = 0;
+          },
+          { passive: true },
+        );
+
+        viewport.addEventListener(
+          'touchmove',
+          (event) => {
+            const currentX = event.changedTouches[0]?.clientX ?? touchStartX;
+            touchDeltaX = currentX - touchStartX;
+          },
+          { passive: true },
+        );
+
+        viewport.addEventListener('touchend', () => {
+          if (Math.abs(touchDeltaX) < 40) return;
+          goTo(activeIndex + (touchDeltaX < 0 ? 1 : -1));
+          touchDeltaX = 0;
+        });
+
+        updateSlides();
       })();
 
       (() => {
