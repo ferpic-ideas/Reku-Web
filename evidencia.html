@@ -66,6 +66,7 @@
         --muted: #6b7a99;
         --white: #ffffff;
         --gray: #f7f8fc;
+        --nav-offset: 68px;
         --border: rgba(47, 58, 104, 0.08);
         --shadow: 0 20px 42px rgba(47, 58, 104, 0.12);
       }
@@ -84,6 +85,7 @@
         font-family: 'DM Sans', sans-serif;
         color: var(--navy);
         background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 240px);
+        font-size: 16px;
         line-height: 1.6;
       }
 
@@ -94,13 +96,13 @@
       nav {
         position: sticky;
         top: 0;
-        z-index: 20;
+        z-index: 100;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        height: 72px;
-        padding: 0 32px;
-        background: rgba(255, 255, 255, 0.92);
+        padding: 0 60px;
+        height: 68px;
+        background: rgba(255, 255, 255, 0.96);
         backdrop-filter: blur(12px);
         border-bottom: 1px solid var(--border);
       }
@@ -127,7 +129,7 @@
         font-size: 14px;
         color: var(--muted);
         text-decoration: none;
-        font-weight: 500;
+        font-weight: 400;
       }
 
       .nav-actions {
@@ -139,27 +141,31 @@
       .btn {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        gap: 8px;
-        min-height: 44px;
-        padding: 0 18px;
+        gap: 6px;
+        padding: 9px 20px;
         border: none;
-        border-radius: 10px;
+        border-radius: 8px;
         font-size: 14px;
-        font-weight: 600;
+        font-weight: 500;
         text-decoration: none;
         cursor: pointer;
+        transition: all 0.2s;
+        font-family: 'DM Sans', sans-serif;
       }
 
       .btn-ghost {
         color: var(--navy);
         background: transparent;
-        border: 1px solid rgba(47, 58, 104, 0.18);
+        border: 1.5px solid rgba(47, 58, 104, 0.2);
       }
 
       .btn-navy {
         color: white;
         background: var(--navy);
+      }
+
+      .btn-navy:hover {
+        background: var(--navy-mid);
       }
 
       main {
