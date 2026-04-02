@@ -2219,13 +2219,13 @@
 
       <div class="contact-form-shell">
         <form
+  action="/gracias/"
   class="contact-form-card"
   id="contact-form"
   name="contact"
   method="POST"
   data-netlify="true"
   netlify-honeypot="bot-field"
-  action="/gracias/"
 >
   <input type="hidden" name="form-name" value="contact" />
   <input type="hidden" name="bot-field" />
@@ -2554,40 +2554,6 @@
           event.preventDefault();
           setStatus('');
 
-          if (!form.reportValidity()) return;
-
-          const formData = new FormData(form);
-          const email = String(formData.get('email') || '')
-            .trim()
-            .toLowerCase();
-          const emailDomain = email.split('@')[1] || '';
-
-          if (!emailDomain || genericDomains.has(emailDomain)) {
-            setStatus(
-              'Por favor ingresá un email corporativo válido.',
-              'error',
-            );
-            return;
-          }
-
-          const subject = 'Nueva consulta desde reku.io';
-          const body = [
-            'Nueva consulta desde el formulario web:',
-            '',
-            `Nombre: ${formData.get('nombre')}`,
-            `Apellido: ${formData.get('apellido')}`,
-            `Email corporativo: ${formData.get('email')}`,
-            `Telefono: ${formData.get('telefono')}`,
-            `Tipo de organizacion: ${formData.get('organizacion')}`,
-            `Rol: ${formData.get('rol')}`,
-            `Pacientes por mes: ${formData.get('pacientes')}`,
-          ].join('\n');
-
-          window.location.href = `mailto:hola@reku.io?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-          setStatus(
-            'Formulario enviado!',
-            'success',
-          );
           form.reset();
         });
       })();
