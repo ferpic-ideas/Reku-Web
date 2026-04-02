@@ -750,6 +750,75 @@
         color: var(--muted);
         line-height: 1.65;
       }
+      .forwho-applications {
+        margin-top: 36px;
+        position: relative;
+        overflow: hidden;
+        padding: 39px 32px 34px;
+        border-radius: 27px;
+        background: linear-gradient(
+          180deg,
+          #35b9d1 0%,
+          #4c8dc7 54%,
+          #6a67c7 100%
+        );
+        box-shadow: 0 28px 56px rgba(47, 58, 104, 0.14);
+      }
+      .forwho-applications::before,
+      .forwho-applications::after {
+        content: '';
+        position: absolute;
+        border-radius: 50%;
+        pointer-events: none;
+        opacity: 0.28;
+      }
+      .forwho-applications::before {
+        top: -72px;
+        left: -48px;
+        width: 220px;
+        height: 220px;
+        background: rgba(255, 255, 255, 0.18);
+      }
+      .forwho-applications::after {
+        right: -70px;
+        bottom: -90px;
+        width: 260px;
+        height: 260px;
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .forwho-applications h3 {
+        position: relative;
+        z-index: 1;
+        font-size: 27px;
+        line-height: 1.2;
+        text-align: center;
+        color: white;
+        margin-bottom: 29px;
+      }
+      .forwho-applications-grid {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 19px;
+      }
+      .forwho-application-card {
+        padding: 10px 7px;
+        text-align: center;
+      }
+      .forwho-application-card img {
+        display: block;
+        width: min(100%, 128px);
+        margin: 0 auto 17px;
+        aspect-ratio: 1 / 1;
+        object-fit: contain;
+        filter: brightness(0) invert(1);
+      }
+      .forwho-application-card h4 {
+        font-size: 17px;
+        font-weight: 500;
+        color: white;
+      }
 
       /* DYCARE */
       #dycare {
@@ -1408,6 +1477,10 @@
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
+        .forwho-applications-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
         .solution-tech-visual {
           order: -1;
         }
@@ -1519,6 +1592,25 @@
         .contact-form-grid,
         .solution-tech-column {
           grid-template-columns: 1fr !important;
+        }
+
+        .forwho-applications {
+          padding: 27px 17px 24px;
+          border-radius: 24px;
+        }
+
+        .forwho-applications h3 {
+          font-size: 24px;
+          margin-bottom: 24px;
+        }
+
+        .forwho-application-card img {
+          width: min(100%, 112px);
+          margin-bottom: 12px;
+        }
+
+        .forwho-application-card h4 {
+          font-size: 15px;
         }
 
         .como-gallery {
@@ -1696,6 +1788,14 @@
         .cert-banner,
         .contact-form-card {
           padding: 20px;
+        }
+
+        .forwho-applications-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .forwho-applications h3 {
+          font-size: 20px;
         }
 
         .contact-actions {
@@ -2652,6 +2752,43 @@
             métricas de evolución funcional que respaldan cada decisión clínica
             y administrativa.
           </p>
+        </div>
+      </div>
+      <div class="forwho-applications">
+        <h3>Plataforma transversal para múltiples aplicaciones</h3>
+        <div class="forwho-applications-grid">
+          <article class="forwho-application-card">
+            <img
+              src="images/musculo.png"
+              alt="Aplicación musculoesquelética"
+              loading="lazy"
+            />
+            <h4>Musculoesquelético</h4>
+          </article>
+          <article class="forwho-application-card">
+            <img
+              src="images/logopedia.png"
+              alt="Aplicación de logopedia"
+              loading="lazy"
+            />
+            <h4>Logopedia</h4>
+          </article>
+          <article class="forwho-application-card">
+            <img
+              src="images/suelo.png"
+              alt="Aplicación para suelo pélvico"
+              loading="lazy"
+            />
+            <h4>Suelo pélvico</h4>
+          </article>
+          <article class="forwho-application-card">
+            <img
+              src="images/respiratorio.png"
+              alt="Aplicación respiratoria"
+              loading="lazy"
+            />
+            <h4>Respiratorio</h4>
+          </article>
         </div>
       </div>
     </section>
