@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Evidencia científica, casos de éxito y white papers sobre telerehabilitación y la tecnología ReHub."
+    />
+    <title>Reku | Evidencia Científica</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --navy: #2f3a68;
+        --navy-mid: #3d4d80;
+        --navy-light: #eceef5;
+        --cyan: #6fc5d2;
+        --cyan-dark: #4aa8b8;
+        --cyan-light: #edf8fa;
+        --muted: #6b7a99;
+        --white: #ffffff;
+        --gray: #f7f8fc;
+        --border: rgba(47, 58, 104, 0.08);
+        --shadow: 0 20px 42px rgba(47, 58, 104, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        font-family: 'DM Sans', sans-serif;
+        color: var(--navy);
+        background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 240px);
+        line-height: 1.6;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 72px;
+        padding: 0 32px;
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .nav-logo {
+        display: flex;
+        align-items: center;
+        text-decoration: none;
+      }
+
+      .nav-logo img {
+        display: block;
+        height: 48px;
+        width: auto;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 28px;
+      }
+
+      .nav-links a {
+        font-size: 14px;
+        color: var(--muted);
+        text-decoration: none;
+        font-weight: 500;
+      }
+
+      .nav-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 44px;
+        padding: 0 18px;
+        border: none;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      .btn-ghost {
+        color: var(--navy);
+        background: transparent;
+        border: 1px solid rgba(47, 58, 104, 0.18);
+      }
+
+      .btn-navy {
+        color: white;
+        background: var(--navy);
+      }
+
+      main {
+        padding: 48px 32px 72px;
+      }
+
+      .layout {
+        max-width: 1240px;
+        margin: 0 auto;
+        display: grid;
+        gap: 28px;
+      }
+
+      .section {
+        padding: 36px;
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        background: white;
+        box-shadow: var(--shadow);
+      }
+
+      .section-header {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 26px;
+      }
+
+      .section-label {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--cyan-dark);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .section h2 {
+        margin-top: 8px;
+        font-size: 34px;
+        line-height: 1.1;
+        letter-spacing: -0.03em;
+      }
+
+      .section-copy {
+        max-width: 680px;
+        color: var(--muted);
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .cards.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .card {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 100%;
+        padding: 24px;
+        border-radius: 22px;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafd 100%);
+        border: 1px solid rgba(47, 58, 104, 0.08);
+      }
+
+      .card-tag {
+        display: inline-flex;
+        width: fit-content;
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: var(--cyan-light);
+        color: var(--cyan-dark);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .card h3 {
+        font-size: 22px;
+        line-height: 1.2;
+      }
+
+      .card p {
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .card-actions {
+        margin-top: auto;
+        padding-top: 10px;
+      }
+
+      .card-actions a {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--navy);
+        font-size: 14px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .note {
+        margin-top: 20px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      footer {
+        background: var(--navy);
+        padding: 32px 60px;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .footer-left {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+        justify-self: start;
+      }
+
+      .footer-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .footer-logo {
+        display: block;
+        height: 28px;
+        width: auto;
+      }
+
+      .footer-text {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.4);
+      }
+
+      .footer-links {
+        display: flex;
+        gap: 20px;
+      }
+
+      .footer-links a {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.4);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+
+      .footer-links a:hover {
+        color: var(--cyan);
+      }
+
+      .footer-center a {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.4);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+
+      .footer-center a:hover {
+        color: var(--cyan);
+      }
+
+      .footer-badge {
+        position: relative;
+        justify-self: end;
+        display: inline-flex;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 6px 14px;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.45);
+        cursor: help;
+        outline: none;
+      }
+
+      .footer-badge:focus-visible {
+        box-shadow: 0 0 0 3px rgba(111, 197, 210, 0.24);
+      }
+
+      .footer-badge-copy {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 14px);
+        width: min(340px, 72vw);
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: rgba(8, 10, 15, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+        font-size: 13px;
+        line-height: 1.55;
+        color: rgba(255, 255, 255, 0.82);
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(8px);
+        transition:
+          opacity 0.2s ease,
+          transform 0.2s ease,
+          visibility 0.2s ease;
+        pointer-events: none;
+        z-index: 20;
+      }
+
+      .footer-badge-copy::after {
+        content: '';
+        position: absolute;
+        right: 24px;
+        top: 100%;
+        border-width: 8px;
+        border-style: solid;
+        border-color: rgba(8, 10, 15, 0.96) transparent transparent transparent;
+      }
+
+      .footer-badge-copy strong {
+        display: block;
+        margin-top: 10px;
+        color: rgba(255, 255, 255, 0.98);
+        font-weight: 600;
+      }
+
+      .footer-badge:hover .footer-badge-copy,
+      .footer-badge:focus-within .footer-badge-copy {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+
+      @media (max-width: 980px) {
+        h1 {
+          font-size: 46px;
+        }
+
+        .cards,
+        .cards.two {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 720px) {
+        nav,
+        main,
+        nav,
+        main,
+        footer {
+          padding-left: 20px;
+          padding-right: 20px;
+        }
+
+        .section {
+          padding: 24px;
+          border-radius: 24px;
+        }
+
+        .section-header {
+          flex-direction: column;
+          align-items: start;
+        }
+
+        .nav-links {
+          display: none;
+        }
+
+        .nav-actions {
+          display: none;
+        }
+
+        footer {
+          grid-template-columns: 1fr;
+          justify-items: center;
+          text-align: center;
+        }
+
+        .footer-left,
+        .footer-badge {
+          justify-self: center;
+        }
+
+        .footer-left {
+          justify-content: center;
+        }
+
+        .footer-links {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a class="nav-logo" href="/index.html" aria-label="Ir al inicio de Reku">
+        <img src="images/logo-reku.svg" alt="Reku" />
+      </a>
+      <div class="nav-links">
+        <a href="/index.html#como-funciona">Cómo funciona</a>
+        <a href="/index.html#solution">Solución</a>
+        <a href="/index.html#forwho">Para quién</a>
+        <a href="/index.html#dycare">Tecnología</a>
+        <a href="/index.html#founder">Nosotros</a>
+      </div>
+      <div class="nav-actions">
+        <a class="btn btn-navy" href="/index.html#cta-final">Contactar</a>
+      </div>
+    </nav>
+
+    <main>
+      <div class="layout">
+        <section class="section" id="estudios">
+          <div class="section-header">
+            <div>
+              <div class="section-label">Estudios Clínicos</div>
+              <h2>Ensayos y publicaciones sobre eficacia, seguridad y adherencia.</h2>
+            </div>
+            <p class="section-copy">
+              Selección de trabajos académicos y clínicos sobre el uso de ReHub
+              en artroplastias, atención domiciliaria y rehabilitación digital.
+            </p>
+          </div>
+
+          <div class="cards">
+            <article class="card">
+              <span class="card-tag">Ensayo clínico</span>
+              <h3>Efectividad de ReHub en pacientes con artroplastia de cadera</h3>
+              <p>
+                Estudio que propone evaluar la eficacia de ReHub para mejorar la
+                función física y los resultados clínicos tras una artroplastia total de cadera.
+              </p>
+              <div class="card-actions">
+                <a href="https://trialsjournal.biomedcentral.com/" target="_blank" rel="noopener noreferrer">Leer estudio</a>
+              </div>
+            </article>
+
+            <article class="card">
+              <span class="card-tag">Seguridad y eficacia</span>
+              <h3>ReHub tras artroplastia total de rodilla de recuperación rápida</h3>
+              <p>
+                Publicación enfocada en la eficacia clínica y la reducción de la
+                estancia hospitalaria en protocolos acelerados de recuperación.
+              </p>
+              <div class="card-actions">
+                <a href="https://www.tandfonline.com/" target="_blank" rel="noopener noreferrer">Leer estudio</a>
+              </div>
+            </article>
+
+            <article class="card">
+              <span class="card-tag">PubMed</span>
+              <h3>Evaluación de la seguridad y eficacia tras artroplastia primaria de rodilla</h3>
+              <p>
+                Análisis sobre seguridad y eficacia de la herramienta de
+                telerehabilitación en pacientes sometidos a artroplastia total de rodilla.
+              </p>
+              <div class="card-actions">
+                <a href="https://pubmed.ncbi.nlm.nih.gov/" target="_blank" rel="noopener noreferrer">Ver publicación</a>
+              </div>
+            </article>
+
+            <article class="card">
+              <span class="card-tag">Adherencia</span>
+              <h3>Factores sociodemográficos y de salud en la adherencia domiciliaria</h3>
+              <p>
+                Trabajo sobre cómo diferentes variables impactan en la adherencia
+                a la rehabilitación remota después de una artroplastia de rodilla.
+              </p>
+              <div class="card-actions">
+                <a href="https://www.tandfonline.com/" target="_blank" rel="noopener noreferrer">Leer journal</a>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="casos">
+          <div class="section-header">
+            <div>
+              <div class="section-label">Casos de Éxito</div>
+              <h2>Implementaciones reales en hospitales, aseguradoras y atención primaria.</h2>
+            </div>
+            <p class="section-copy">
+              Casos institucionales que muestran adopción real de ReHub en
+              organizaciones de salud con distintos modelos de atención.
+            </p>
+          </div>
+
+          <div class="cards">
+            <article class="card">
+              <span class="card-tag">Hospital</span>
+              <h3>Hospital de Vall d’Hebron</h3>
+              <p>
+                Implementación de la plataforma ReHub para ofrecer servicios de
+                telerehabilitación a pacientes con lesiones músculo-esqueléticas.
+              </p>
+              <div class="card-actions">
+                <a href="https://www.dycare.com/evidencia-cientifica-de-rehub" target="_blank" rel="noopener noreferrer">Ver caso</a>
+              </div>
+            </article>
+
+            <article class="card">
+              <span class="card-tag">Aseguradora</span>
+              <h3>DKV</h3>
+              <p>
+                Integración de fisioterapia digital con ReHub como servicio a
+                distancia dentro de la plataforma de bienestar de la aseguradora.
+              </p>
+              <div class="card-actions">
+                <a href="https://www.dycare.com/evidencia-cientifica-de-rehub" target="_blank" rel="noopener noreferrer">Ver caso</a>
+              </div>
+            </article>
+
+            <article class="card">
+              <span class="card-tag">Atención primaria</span>
+              <h3>Telerehabilitación en atención primaria</h3>
+              <p>
+                Caso enfocado en seguridad y eficacia para pacientes sometidos a
+                artroplastia total de rodilla dentro de un contexto ambulatorio.
+              </p>
+              <div class="card-actions">
+                <a href="https://www.dycare.com/evidencia-cientifica-de-rehub" target="_blank" rel="noopener noreferrer">Ver caso</a>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="white-papers">
+          <div class="section-header">
+            <div>
+              <div class="section-label">White Papers</div>
+              <h2>Material descargable para equipos clínicos y de innovación.</h2>
+            </div>
+            <p class="section-copy">
+              Documentos orientados a implementación, transformación de servicios
+              y casos de aplicación en rehabilitación músculo-esquelética.
+            </p>
+          </div>
+
+          <div class="cards two">
+            <article class="card">
+              <span class="card-tag">Shoulder rehab</span>
+              <h3>Un nuevo enfoque para la rehabilitación de capsulitis adhesiva de hombro</h3>
+              <p>
+                White paper sobre protocolos de rehabilitación digital aplicados
+                a hombro, con foco en adherencia y seguimiento remoto.
+              </p>
+              <div class="card-actions">
+                <a href="https://share-eu1.hsforms.com/" target="_blank" rel="noopener noreferrer">Descargar</a>
+              </div>
+            </article>
+
+            <article class="card">
+              <span class="card-tag">Case study</span>
+              <h3>Mutua ACHS: transformación de la rehabilitación músculo-esquelética en Chile</h3>
+              <p>
+                Caso de estudio sobre adopción institucional y digitalización de
+                programas de rehabilitación a escala.
+              </p>
+              <div class="card-actions">
+                <a href="https://share-eu1.hsforms.com/" target="_blank" rel="noopener noreferrer">Descargar</a>
+              </div>
+            </article>
+
+            <article class="card">
+              <span class="card-tag">Seguro de salud</span>
+              <h3>Implementando telerehabilitación en políticas de seguros de salud</h3>
+              <p>
+                Documento enfocado en integración del servicio dentro de modelos
+                aseguradores y prestaciones remotas.
+              </p>
+              <div class="card-actions">
+                <a href="https://share-eu1.hsforms.com/" target="_blank" rel="noopener noreferrer">Descargar</a>
+              </div>
+            </article>
+          </div>
+
+        </section>
+      </div>
+    </main>
+
+    <footer>
+      <div class="footer-left">
+        <div class="footer-brand">
+          <img class="footer-logo" src="images/logo-reku.svg" alt="Reku" />
+          <span class="footer-text">© 2026 Reku · hola@reku.io</span>
+        </div>
+        <div class="footer-links">
+          <a
+            href="https://www.instagram.com/reku_online/"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Instagram</a
+          >
+          <a
+            href="https://www.linkedin.com/company/reku"
+            target="_blank"
+            rel="noopener noreferrer"
+            >LinkedIn</a
+          >
+        </div>
+      </div>
+      <div class="footer-center">
+        <a href="evidencia.html">Evidencia Científica</a>
+      </div>
+      <div
+        class="footer-badge"
+        tabindex="0"
+        aria-label="Reconocimiento de la Legislatura de la Ciudad Autónoma de Buenos Aires"
+      >
+        <span>Legislatura CABA · 922/2024</span>
+        <div class="footer-badge-copy" role="tooltip">
+          Reku ha sido declarada de Interés por la Legislatura de la Ciudad
+          Autónoma de Buenos Aires, destacando su impacto en la digitalización y
+          accesibilidad de la atención kinésica online.
+          <strong>Declaración 922/2024</strong>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
