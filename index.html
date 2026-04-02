@@ -979,13 +979,60 @@
         color: var(--cyan);
       }
       .footer-badge {
+        position: relative;
         justify-self: end;
+        display: inline-flex;
+        align-items: center;
         background: rgba(255, 255, 255, 0.06);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 8px;
         padding: 6px 14px;
         font-size: 12px;
         color: rgba(255, 255, 255, 0.45);
+        cursor: default;
+      }
+      .footer-badge-copy {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 14px);
+        width: min(340px, 72vw);
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: rgba(8, 10, 15, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+        font-size: 13px;
+        line-height: 1.55;
+        color: rgba(255, 255, 255, 0.82);
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(8px);
+        transition: opacity 0.2s ease, transform 0.2s ease,
+          visibility 0.2s ease;
+        pointer-events: none;
+        z-index: 20;
+      }
+      .footer-badge-copy::after {
+        content: "";
+        position: absolute;
+        right: 24px;
+        top: 100%;
+        border-width: 8px;
+        border-style: solid;
+        border-color: rgba(8, 10, 15, 0.96) transparent transparent
+          transparent;
+      }
+      .footer-badge-copy strong {
+        display: block;
+        margin-top: 10px;
+        color: rgba(255, 255, 255, 0.98);
+        font-weight: 600;
+      }
+      .footer-badge:hover .footer-badge-copy,
+      .footer-badge:focus-within .footer-badge-copy {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
       }
 
       /* ANIMATIONS */
@@ -2289,7 +2336,15 @@
           >Evidencia Científica</a
         >
       </div>
-      <div class="footer-badge">Legislatura CABA · 922/2024</div>
+      <div class="footer-badge" tabindex="0" aria-label="Reconocimiento de la Legislatura de la Ciudad Autónoma de Buenos Aires">
+        <span>Legislatura CABA · 922/2024</span>
+        <div class="footer-badge-copy" role="tooltip">
+          Reku ha sido declarada de Interés por la Legislatura de la Ciudad
+          Autónoma de Buenos Aires, destacando su impacto en la digitalización
+          y accesibilidad de la atención kinésica online.
+          <strong>Declaración 922/2024</strong>
+        </div>
+      </div>
     </footer>
     <script>
       (() => {
