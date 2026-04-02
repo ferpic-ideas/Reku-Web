@@ -2218,8 +2218,7 @@
       </p>
 
       <div class="contact-form-shell">
-        <form
-  action="/gracias/"
+       <form
   class="contact-form-card"
   id="contact-form"
   name="contact"
@@ -2351,8 +2350,6 @@
       if (type) status.classList.add(`is-${type}`);
     };
 
-    const encode = (data) => new URLSearchParams(data).toString();
-
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       setStatus('');
@@ -2374,16 +2371,18 @@
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded'
           },
-          body: encode(formData)
+          body: new URLSearchParams(formData).toString()
         });
 
-        window.location.href = '/gracias/';
+        setStatus('Formulario enviado!', 'success');
+        form.reset();
       } catch (error) {
         setStatus('No se pudo enviar el formulario. Probá de nuevo.', 'error');
       }
     });
   })();
 </script>
+
 
       </div>
     </section>
