@@ -1,0 +1,2459 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>Reku — El #1 en telerehabilitación de Argentina</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --navy: #2f3a68;
+        --navy-mid: #3d4d80;
+        --navy-light: #eceef5;
+        --cyan: #6fc5d2;
+        --cyan-dark: #4aa8b8;
+        --cyan-light: #edf8fa;
+        --cyan-mid: #d4eff3;
+        --muted: #6b7a99;
+        --white: #ffffff;
+        --gray: #f7f8fc;
+        --nav-offset: 68px;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        font-family: 'DM Sans', sans-serif;
+        color: var(--navy);
+        background: white;
+        font-size: 16px;
+        line-height: 1.6;
+      }
+
+      /* NAV */
+      nav {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 60px;
+        height: 68px;
+        background: rgba(255, 255, 255, 0.96);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(47, 58, 104, 0.08);
+      }
+      .nav-logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+      }
+      .nav-logo img {
+        display: block;
+        height: 48px;
+        width: auto;
+      }
+      .nav-links {
+        display: flex;
+        gap: 32px;
+      }
+      .nav-links a {
+        font-size: 14px;
+        color: var(--muted);
+        text-decoration: none;
+        font-weight: 400;
+        transition: color 0.2s;
+      }
+      .nav-links a:hover {
+        color: var(--navy);
+      }
+      .nav-ctas {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 9px 20px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s;
+        border: none;
+        font-family: 'DM Sans', sans-serif;
+      }
+      .btn-ghost {
+        background: transparent;
+        color: var(--navy);
+        border: 1.5px solid rgba(47, 58, 104, 0.2);
+      }
+      .btn-ghost:hover {
+        border-color: var(--navy);
+      }
+      .btn-navy {
+        background: var(--navy);
+        color: white;
+      }
+      .btn-navy:hover {
+        background: var(--navy-mid);
+      }
+      .btn-cyan {
+        background: var(--cyan);
+        color: white;
+      }
+      .btn-cyan:hover {
+        background: var(--cyan-dark);
+      }
+      .btn-outline-white {
+        background: transparent;
+        color: white;
+        border: 1.5px solid rgba(255, 255, 255, 0.3);
+      }
+      .btn-outline-white:hover {
+        border-color: rgba(255, 255, 255, 0.6);
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .btn-lg {
+        padding: 14px 28px;
+        font-size: 15px;
+        border-radius: 10px;
+      }
+
+      /* BADGES */
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 14px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .badge-cyan {
+        background: rgba(111, 197, 210, 0.15);
+        color: var(--cyan-dark);
+      }
+      .badge-white {
+        background: rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.75);
+      }
+      .badge-link {
+        text-decoration: none;
+      }
+      .badge-link:hover {
+        background: rgba(255, 255, 255, 0.16);
+        color: white;
+      }
+      .badge-navy {
+        background: var(--navy-light);
+        color: var(--navy);
+      }
+      .badge-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      /* SECTIONS */
+      section {
+        padding: 80px 60px;
+      }
+      html {
+        scroll-padding-top: var(--nav-offset);
+      }
+      section[id],
+      div[id] {
+        scroll-margin-top: var(--nav-offset);
+      }
+      .section-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--cyan-dark);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 12px;
+      }
+      h1 {
+        font-size: 52px;
+        font-weight: 500;
+        line-height: 1.08;
+        letter-spacing: -1.5px;
+      }
+      h2 {
+        font-size: 36px;
+        font-weight: 500;
+        line-height: 1.2;
+        letter-spacing: -0.8px;
+      }
+      h3 {
+        font-size: 18px;
+        font-weight: 500;
+        letter-spacing: -0.3px;
+      }
+      p.lead {
+        font-size: 17px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      p.body {
+        font-size: 15px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      /* HERO */
+      #hero {
+        background: var(--navy);
+        padding: 0 60px;
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 60px;
+        align-items: center;
+        min-height: 600px;
+        position: relative;
+        overflow: hidden;
+      }
+      .hero-video-bg {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 0;
+      }
+      .hero-video-bg iframe {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 177.78vh;
+        min-width: 100%;
+        height: 56.25vw;
+        min-height: 100%;
+        transform: translate(-50%, -50%) scale(1.04);
+        border: 0;
+        opacity: 0.9;
+      }
+      .hero-video-overlay {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          rgba(32, 40, 74, 0.94) 0%,
+          rgba(36, 46, 82, 0.88) 44%,
+          rgba(34, 45, 80, 0.78) 100%
+        );
+        z-index: 0;
+      }
+      #hero::before {
+        content: '';
+        position: absolute;
+        top: -100px;
+        right: -100px;
+        width: 500px;
+        height: 500px;
+        background: radial-gradient(
+          circle,
+          rgba(111, 197, 210, 0.12) 0%,
+          transparent 70%
+        );
+        pointer-events: none;
+        z-index: 1;
+      }
+      .hero-content {
+        padding: 80px 0;
+        position: relative;
+        z-index: 1;
+      }
+      .hero-badges {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 28px;
+      }
+      .hero-title {
+        font-size: 52px;
+        font-weight: 500;
+        color: white;
+        line-height: 1.08;
+        letter-spacing: -1.5px;
+        margin-bottom: 20px;
+      }
+      .hero-title span {
+        color: var(--cyan);
+      }
+      .hero-sub {
+        font-size: 17px;
+        color: rgba(255, 255, 255, 0.55);
+        line-height: 1.7;
+        max-width: 460px;
+        margin-bottom: 36px;
+      }
+      .hero-ctas {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+      }
+      .hero-tagline {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.28);
+      }
+      .hero-tagline span {
+        margin: 0 6px;
+      }
+
+      /* DASHBOARD MOCK */
+      .dashboard-mock {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(111, 197, 210, 0.2);
+        border-radius: 16px;
+        padding: 24px;
+        position: relative;
+        z-index: 1;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 30px 60px rgba(13, 18, 37, 0.28);
+      }
+      .dash-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+      .dash-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.4);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .dash-live {
+        background: rgba(111, 197, 210, 0.15);
+        color: var(--cyan);
+        font-size: 11px;
+        font-weight: 500;
+        padding: 3px 10px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .dash-live::before {
+        content: '';
+        width: 5px;
+        height: 5px;
+        background: var(--cyan);
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+      .dash-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .dash-card {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 14px;
+      }
+      .dash-card-label {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.35);
+        margin-bottom: 4px;
+      }
+      .dash-card-value {
+        font-size: 24px;
+        font-weight: 500;
+        color: white;
+      }
+      .dash-card-value.cyan {
+        color: var(--cyan);
+      }
+      .dash-progress {
+        background: rgba(111, 197, 210, 0.1);
+        border: 1px solid rgba(111, 197, 210, 0.2);
+        border-radius: 10px;
+        padding: 14px;
+      }
+      .dash-progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .dash-progress-info {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.55);
+      }
+      .dash-progress-status {
+        font-size: 11px;
+        color: var(--cyan);
+        font-weight: 500;
+      }
+      .progress-bar {
+        height: 4px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 2px;
+        margin-bottom: 6px;
+      }
+      .progress-fill {
+        height: 100%;
+        background: var(--cyan);
+        border-radius: 2px;
+        width: 68%;
+      }
+      .progress-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+      }
+      .progress-labels span:first-child {
+        color: rgba(255, 255, 255, 0.3);
+      }
+      .progress-labels span:last-child {
+        color: var(--cyan);
+      }
+
+      /* STATS BAR */
+      #stats {
+        background: var(--cyan-light);
+        border-bottom: 1px solid var(--cyan-mid);
+        padding: 28px 60px;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        align-items: start;
+        gap: 20px;
+      }
+      .stat-item {
+        text-align: center;
+      }
+      .stat-value {
+        font-size: 28px;
+        font-weight: 600;
+        color: var(--navy);
+        letter-spacing: -0.5px;
+      }
+      .stat-label {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .stat-divider {
+        display: none;
+      }
+
+      /* SOLUTION */
+      #solution {
+        background: var(--gray);
+      }
+      .solution-intro {
+        max-width: 600px;
+        margin-bottom: 48px;
+      }
+      .pillars-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        margin-bottom: 24px;
+      }
+      .pillar-card {
+        background: white;
+        border: 1px solid rgba(47, 58, 104, 0.1);
+        border-radius: 16px;
+        padding: 28px;
+        transition:
+          box-shadow 0.2s,
+          transform 0.2s;
+      }
+      .pillar-card:hover {
+        box-shadow: 0 8px 32px rgba(47, 58, 104, 0.1);
+        transform: translateY(-2px);
+      }
+      .pillar-card.featured {
+        border-color: var(--cyan);
+        border-width: 1.5px;
+      }
+      .pillar-number {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 14px;
+      }
+      .pillar-number.cyan {
+        color: var(--cyan-dark);
+      }
+      .pillar-number.navy {
+        color: var(--navy);
+      }
+      .pillar-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .pillar-icon.cyan-bg {
+        background: var(--cyan-light);
+      }
+      .pillar-icon.navy-bg {
+        background: var(--navy-light);
+      }
+      .pillar-card h3 {
+        margin-bottom: 10px;
+      }
+      .pillar-card p {
+        font-size: 14px;
+        color: var(--muted);
+        line-height: 1.65;
+        margin-bottom: 16px;
+      }
+      .pillar-tag {
+        font-size: 12px;
+        font-weight: 500;
+        padding: 4px 12px;
+        border-radius: 6px;
+        display: inline-block;
+      }
+      .pillar-tag.cyan {
+        background: var(--cyan-light);
+        color: var(--cyan-dark);
+      }
+      .pillar-tag.navy {
+        background: var(--navy-light);
+        color: var(--navy);
+      }
+      .cert-banner {
+        background: var(--navy-light);
+        border-radius: 12px;
+        padding: 18px 24px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .cert-dot {
+        width: 10px;
+        height: 10px;
+        background: var(--navy);
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .cert-banner p {
+        font-size: 14px;
+        color: var(--navy);
+        line-height: 1.5;
+      }
+      .cert-banner strong {
+        font-weight: 600;
+      }
+
+      /* FOR WHO */
+      #forwho {
+        background: white;
+      }
+      .forwho-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .forwho-card {
+        background: white;
+        border: 1px solid rgba(47, 58, 104, 0.08);
+        border-radius: 14px;
+        padding: 28px;
+        transition: border-color 0.2s;
+      }
+      .forwho-card:hover {
+        border-color: var(--cyan);
+      }
+      .forwho-card h3 {
+        color: var(--cyan-dark);
+        margin-bottom: 8px;
+      }
+      .forwho-card p {
+        font-size: 14px;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      /* DYCARE */
+      #dycare {
+        background: var(--gray);
+      }
+      .dycare-grid {
+        display: grid;
+        grid-template-columns: 1.3fr 1fr;
+        gap: 60px;
+        align-items: center;
+      }
+      .dycare-points {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        margin-top: 24px;
+      }
+      .dycare-point {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .dycare-point-dot {
+        width: 20px;
+        height: 20px;
+        background: var(--cyan-light);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+      .dycare-point-dot::after {
+        content: '';
+        width: 8px;
+        height: 8px;
+        background: var(--cyan);
+        border-radius: 50%;
+      }
+      .dycare-point p {
+        font-size: 14px;
+        color: var(--navy);
+        line-height: 1.55;
+      }
+      .dycare-badge {
+        background: var(--navy);
+        border-radius: 20px;
+        padding: 40px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+      }
+      .ce-mark {
+        width: 72px;
+        height: 72px;
+        background: var(--cyan);
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        font-weight: 700;
+        color: white;
+        letter-spacing: -1px;
+      }
+      .dycare-badge h3 {
+        color: white;
+        font-size: 20px;
+      }
+      .dycare-badge p {
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 13px;
+        line-height: 1.7;
+      }
+      .dycare-certificates {
+        margin-top: 36px;
+        padding: 24px;
+        border-radius: 28px;
+        background: linear-gradient(
+          135deg,
+          rgba(236, 238, 245, 0.85) 0%,
+          rgba(244, 247, 255, 0.95) 50%,
+          rgba(233, 241, 252, 0.85) 100%
+        );
+      }
+      .dycare-cert-grid {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 16px;
+      }
+      .dycare-cert-card {
+        background: linear-gradient(180deg, #ffffff 0%, var(--gray) 100%);
+        border: 1px solid rgba(47, 58, 104, 0.08);
+        border-radius: 22px;
+        padding: 10px;
+        width: 164px;
+        height: 116px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 16px 40px rgba(47, 58, 104, 0.07);
+      }
+      .dycare-cert-image {
+        max-width: 100%;
+        max-height: 82px;
+        display: block;
+        object-fit: contain;
+      }
+      .dycare-cert-image.is-tall {
+        max-height: 94px;
+      }
+      .dycare-cert-image.is-compact {
+        max-height: 90px;
+      }
+
+      /* FOUNDER */
+      #founder {
+        background: var(--navy);
+        padding: 60px;
+      }
+      .founder-inner {
+        display: flex;
+        gap: 40px;
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .founder-top {
+        display: flex;
+        gap: 48px;
+        align-items: center;
+        flex-wrap: wrap;
+        width: 100%;
+      }
+      .founder-avatar {
+        width: 72px;
+        height: 72px;
+        background: var(--cyan);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        font-weight: 600;
+        color: white;
+        flex-shrink: 0;
+        letter-spacing: -1px;
+      }
+      .founder-info {
+        flex: 1;
+        min-width: 200px;
+      }
+      .founder-role {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--cyan);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 6px;
+      }
+      .founder-name {
+        display: inline-block;
+        font-size: 40px;
+        font-weight: 600;
+        color: white;
+        margin-bottom: 14px;
+        line-height: 1.1;
+        letter-spacing: -0.8px;
+        text-decoration: none;
+      }
+      .founder-creds {
+        font-size: 15px;
+        color: rgba(255, 255, 255, 0.5);
+        line-height: 1.75;
+        max-width: 560px;
+      }
+      .founder-quote {
+        width: 100%;
+        border-left: 1px solid rgba(111, 197, 210, 0.2);
+        padding-left: 40px;
+        max-width: 920px;
+      }
+      .founder-quote p {
+        font-size: 18px;
+        color: rgba(255, 255, 255, 0.82);
+        line-height: 1.65;
+        font-style: italic;
+        font-family: 'DM Serif Display', serif;
+      }
+
+      /* CTA FINAL */
+      #cta-final {
+        background: var(--cyan-light);
+        text-align: center;
+        padding: 80px 60px;
+      }
+      #cta-final h2 {
+        margin-bottom: 14px;
+      }
+      #cta-final .lead {
+        max-width: 620px;
+        margin: 0 auto 36px;
+      }
+      .contact-form-shell {
+        max-width: 920px;
+        margin: 0 auto;
+      }
+      .contact-form-card {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(47, 58, 104, 0.08);
+        border-radius: 24px;
+        padding: 32px;
+        text-align: left;
+        box-shadow: 0 20px 50px rgba(47, 58, 104, 0.08);
+      }
+      .contact-form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+      .contact-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .contact-field.full-width {
+        grid-column: 1 / -1;
+      }
+      .contact-field label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--navy);
+      }
+      .contact-field input,
+      .contact-field select {
+        width: 100%;
+        border: 1px solid rgba(47, 58, 104, 0.14);
+        border-radius: 12px;
+        padding: 14px 16px;
+        font: inherit;
+        color: var(--navy);
+        background: white;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+        appearance: none;
+      }
+      .contact-field input::placeholder {
+        color: rgba(107, 122, 153, 0.7);
+      }
+      .contact-field input:focus,
+      .contact-field select:focus {
+        outline: none;
+        border-color: rgba(74, 168, 184, 0.8);
+        box-shadow: 0 0 0 4px rgba(111, 197, 210, 0.18);
+      }
+      .contact-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 24px;
+        flex-wrap: wrap;
+      }
+      .contact-note {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .contact-note a {
+        color: var(--navy);
+      }
+      .contact-status {
+        margin-top: 16px;
+        min-height: 24px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--navy);
+      }
+      .contact-status.is-error {
+        color: #b54747;
+      }
+      .contact-status.is-success {
+        color: var(--cyan-dark);
+      }
+      .cta-buttons {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      /* PARTNERS */
+      #partners {
+        background: white;
+        padding: 40px 60px;
+        border-top: 1px solid rgba(47, 58, 104, 0.07);
+      }
+      .partners-label {
+        font-size: 12px;
+        color: var(--muted);
+        text-align: center;
+        margin-bottom: 24px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 500;
+      }
+      .partners-row {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 32px;
+        flex-wrap: wrap;
+      }
+      .partner-pill {
+        background: var(--gray);
+        border-radius: 8px;
+        padding: 8px 18px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--muted);
+      }
+
+      /* FOOTER */
+      footer {
+        background: var(--navy);
+        padding: 32px 60px;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 16px;
+      }
+      .footer-left {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+        justify-self: start;
+      }
+      .footer-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .footer-logo {
+        display: block;
+        height: 28px;
+        width: auto;
+      }
+      .footer-text {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.4);
+      }
+      .footer-links {
+        display: flex;
+        gap: 20px;
+      }
+      .footer-links a {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.4);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+      .footer-links a:hover {
+        color: var(--cyan);
+      }
+      .footer-center a {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.4);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+      .footer-center a:hover {
+        color: var(--cyan);
+      }
+      .footer-badge {
+        justify-self: end;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 6px 14px;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.45);
+      }
+
+      /* ANIMATIONS */
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .fade-up {
+        animation: fadeUp 0.6s ease forwards;
+      }
+      .fade-up-delay-1 {
+        animation-delay: 0.1s;
+        opacity: 0;
+        animation-fill-mode: forwards;
+        animation-name: fadeUp;
+        animation-duration: 0.6s;
+      }
+      .fade-up-delay-2 {
+        animation-delay: 0.2s;
+        opacity: 0;
+        animation-fill-mode: forwards;
+        animation-name: fadeUp;
+        animation-duration: 0.6s;
+      }
+      .fade-up-delay-3 {
+        animation-delay: 0.3s;
+        opacity: 0;
+        animation-fill-mode: forwards;
+        animation-name: fadeUp;
+        animation-duration: 0.6s;
+      }
+
+      /* SVG ICONS */
+      .icon {
+        width: 22px;
+        height: 22px;
+      }
+
+      /* RESPONSIVE */
+      @media (max-width: 1024px) {
+        nav,
+        section,
+        #stats,
+        #partners,
+        footer {
+          padding-left: 32px;
+          padding-right: 32px;
+        }
+
+        #hero,
+        .dycare-grid {
+          grid-template-columns: 1fr;
+          gap: 36px;
+        }
+
+        .dycare-cert-card {
+          width: 152px;
+          height: 110px;
+        }
+
+        .pillars-grid {
+          grid-template-columns: 1fr;
+        }
+
+        #stats {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        #como-funciona > div:last-child {
+          grid-template-columns: repeat(2, 1fr) !important;
+          gap: 20px !important;
+        }
+
+        #como-funciona > div:last-child > div:first-child {
+          display: none;
+        }
+      }
+
+      @media (max-width: 768px) {
+        html {
+          scroll-padding-top: var(--nav-offset);
+        }
+
+        nav {
+          height: auto;
+          padding-top: 18px;
+          padding-bottom: 18px;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .nav-links,
+        .nav-ctas,
+        .hero-ctas,
+        .cta-buttons {
+          width: 100%;
+          justify-content: center;
+          flex-wrap: wrap;
+        }
+
+        .footer-links {
+          justify-content: center;
+          flex-wrap: wrap;
+        }
+
+        section,
+        #stats,
+        #partners,
+        footer,
+        #founder .founder-inner,
+        #cta-final,
+        #como-funciona {
+          padding-left: 20px !important;
+          padding-right: 20px !important;
+        }
+
+        section {
+          padding-top: 48px;
+          padding-bottom: 48px;
+        }
+
+        #hero {
+          padding: 0 20px;
+          min-height: auto;
+          gap: 28px;
+        }
+        .hero-video-bg,
+        .hero-video-overlay {
+          display: none;
+        }
+
+        .hero-content {
+          padding: 48px 0 0;
+        }
+
+        .dashboard-mock {
+          padding: 18px;
+          margin-bottom: 40px;
+        }
+
+        h1,
+        .hero-title {
+          font-size: 38px;
+          letter-spacing: -1px;
+        }
+
+        h2 {
+          font-size: 30px;
+          letter-spacing: -0.5px;
+        }
+
+        .forwho-grid,
+        .dash-grid,
+        #como-funciona > div:last-child,
+        .contact-form-grid {
+          grid-template-columns: 1fr !important;
+        }
+
+        .dycare-certificates {
+          padding: 18px;
+        }
+
+        .dycare-cert-grid {
+          gap: 12px;
+        }
+
+        .dycare-cert-card {
+          width: calc(50% - 6px);
+          min-width: 136px;
+          height: 104px;
+          padding: 10px;
+        }
+
+        .dycare-cert-image {
+          max-height: 68px;
+        }
+
+        .dycare-cert-image.is-tall {
+          max-height: 82px;
+        }
+
+        .dycare-cert-image.is-compact {
+          max-height: 78px;
+        }
+
+        #stats {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 28px 20px;
+        }
+
+        .stat-item:last-child {
+          grid-column: 1 / -1;
+          max-width: 260px;
+          margin: 0 auto;
+        }
+
+        .founder-quote {
+          border-left: none;
+          border-top: 1px solid rgba(111, 197, 210, 0.2);
+          padding-left: 0;
+          padding-top: 24px;
+          min-width: 0;
+        }
+
+        footer {
+          grid-template-columns: 1fr;
+          justify-items: center;
+          text-align: center;
+        }
+
+        .footer-left,
+        .footer-badge {
+          justify-self: center;
+        }
+
+        .footer-left {
+          justify-content: center;
+        }
+      }
+
+      @media (max-width: 560px) {
+        html {
+          scroll-padding-top: var(--nav-offset);
+        }
+
+        .btn,
+        .btn-lg {
+          width: 100%;
+          justify-content: center;
+        }
+
+        .nav-links {
+          gap: 16px;
+        }
+
+        .hero-badges,
+        .hero-ctas,
+        .cta-buttons {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        h1,
+        .hero-title {
+          font-size: 32px;
+          line-height: 1.12;
+        }
+
+        h2 {
+          font-size: 26px;
+          line-height: 1.2;
+        }
+
+        p.lead,
+        .hero-sub {
+          font-size: 16px;
+        }
+
+        .dashboard-mock,
+        .pillar-card,
+        .forwho-card,
+        .dycare-badge,
+        .cert-banner,
+        .contact-form-card {
+          padding: 20px;
+        }
+
+        .contact-actions {
+          align-items: stretch;
+        }
+
+        #stats {
+          grid-template-columns: 1fr;
+        }
+
+        .stat-item:last-child {
+          grid-column: auto;
+          max-width: none;
+        }
+
+        .partners-row {
+          gap: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- NAV -->
+    <nav>
+      <a class="nav-logo" href="#">
+        <img src="images/logo-reku.svg" alt="Reku" />
+      </a>
+      <div class="nav-links">
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#solution">Solución</a>
+        <a href="#forwho">Para quién</a>
+        <a href="#dycare">Tecnología</a>
+        <a href="#founder">Nosotros</a>
+      </div>
+      <div class="nav-ctas">
+        <a href="#cta-final" class="btn btn-navy">Contactar</a>
+      </div>
+    </nav>
+
+    <!-- HERO -->
+    <section id="hero">
+      <div class="hero-video-bg" aria-hidden="true">
+        <iframe
+          data-video-id="UqePHEdjJis"
+          title="Reku hero background video"
+          allow="autoplay; encrypted-media; picture-in-picture"
+          referrerpolicy="strict-origin-when-cross-origin"
+          tabindex="-1"
+        ></iframe>
+      </div>
+      <div class="hero-video-overlay" aria-hidden="true"></div>
+      <div class="hero-content">
+        <div class="hero-badges fade-up">
+          <span class="badge badge-cyan"
+            ><span class="badge-dot"></span>#1 en telerehabilitación de
+            Argentina</span
+          >
+          <a class="badge badge-white badge-link" href="#dycare-certificates"
+            >DyCare · CE Clase IIa</a
+          >
+        </div>
+        <h1 class="hero-title fade-up-delay-1">
+          El <span>#1</span> en<br />telerehabilitación<br />de Argentina.
+        </h1>
+        <p class="hero-sub fade-up-delay-2">
+          Tecnología europea certificada, red de kinesiólogos especializados y
+          panel de control institucional — todo integrado en tu organización de
+          salud.
+        </p>
+        <div class="hero-ctas fade-up-delay-3">
+          <a href="#cta-final" class="btn btn-cyan btn-lg">Solicitar demo</a>
+          <a href="#forwho" class="btn btn-outline-white btn-lg"
+            >Ver casos de uso</a
+          >
+        </div>
+        <p class="hero-tagline fade-up-delay-3">
+          Clínicas<span>·</span>Hospitales<span>·</span>Obras sociales
+          <span>·</span>Prepagas<span>·</span>Centros
+          deportivos<span>·</span>Instituciones
+        </p>
+      </div>
+    </section>
+
+    <!-- STATS -->
+    <div id="stats">
+      <div class="stat-item">
+        <div class="stat-value">+300</div>
+        <div class="stat-label">Profesionales en la red</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-item">
+        <div class="stat-value">+50</div>
+        <div class="stat-label">Centros adheridos</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-item">
+        <div class="stat-value">+50.000</div>
+        <div class="stat-label">Pacientes tratados globalmente</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-item">
+        <div class="stat-value">CE IIa</div>
+        <div class="stat-label">Certificación médica europea</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-item">
+        <div class="stat-value">#1</div>
+        <div class="stat-label">Telerehabilitación en Argentina</div>
+      </div>
+    </div>
+
+    <!-- CÓMO FUNCIONA -->
+    <section id="como-funciona" style="background: white; padding: 80px 60px">
+      <p class="section-label">Cómo funciona</p>
+      <h2 style="margin-bottom: 16px">
+        El proceso clínico completo,<br />desde cualquier lugar del país
+      </h2>
+      <p class="lead" style="max-width: 580px; margin-bottom: 56px">
+        Cuatro etapas diseñadas para garantizar la calidad clínica de cada
+        tratamiento, con tecnología DyCare y kinesiólogos especializados en cada
+        paso.
+      </p>
+
+      <div
+        style="
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 0;
+          position: relative;
+        "
+      >
+        <!-- Línea conectora -->
+        <div
+          style="
+            position: absolute;
+            top: 52px;
+            left: calc(12.5% + 12px);
+            right: calc(12.5% + 12px);
+            height: 2px;
+            background: linear-gradient(to right, #6fc5d2, #6fc5d2);
+            z-index: 0;
+          "
+        ></div>
+
+        <!-- PASO 1 -->
+        <div
+          style="
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 0 16px;
+            position: relative;
+            z-index: 1;
+          "
+        >
+          <div
+            style="
+              width: 104px;
+              height: 104px;
+              background: var(--cyan-light);
+              border: 3px solid var(--cyan);
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 28px;
+              flex-shrink: 0;
+              background: white;
+              box-shadow: 0 0 0 6px var(--cyan-light);
+            "
+          >
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#6fc5d2"
+              stroke-width="1.8"
+            >
+              <path
+                d="M15 10l4.553-2.069A1 1 0 0 1 21 8.87v6.26a1 1 0 0 1-1.447.894L15 14"
+              />
+              <rect x="1" y="6" width="14" height="12" rx="2" />
+            </svg>
+          </div>
+          <div
+            style="
+              background: #f7f8fc;
+              border-radius: 16px;
+              padding: 24px;
+              width: 100%;
+              flex: 1;
+            "
+          >
+            <div
+              style="
+                display: inline-block;
+                background: var(--cyan-light);
+                color: var(--cyan-dark);
+                font-size: 11px;
+                font-weight: 600;
+                padding: 3px 10px;
+                border-radius: 6px;
+                letter-spacing: 0.06em;
+                margin-bottom: 12px;
+              "
+            >
+              PASO 01
+            </div>
+            <h3 style="font-size: 16px; margin-bottom: 10px; line-height: 1.35">
+              Video-consulta Valoración Inicial con Fisio
+            </h3>
+            <ul
+              style="
+                list-style: none;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              "
+            >
+              <li
+                style="
+                  display: flex;
+                  gap: 8px;
+                  font-size: 13px;
+                  color: var(--muted);
+                  line-height: 1.5;
+                "
+              >
+                <span
+                  style="color: var(--cyan); flex-shrink: 0; font-weight: 600"
+                  >—</span
+                >Evaluación 'one to one' con el fisio sin necesidad de
+                desplazarse.
+              </li>
+              <li
+                style="
+                  display: flex;
+                  gap: 8px;
+                  font-size: 13px;
+                  color: var(--muted);
+                  line-height: 1.5;
+                "
+              >
+                <span
+                  style="color: var(--cyan); flex-shrink: 0; font-weight: 600"
+                  >—</span
+                >Programación y explicación de ejercicios personalizados.
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- PASO 2 -->
+        <div
+          style="
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 0 16px;
+            position: relative;
+            z-index: 1;
+          "
+        >
+          <div
+            style="
+              width: 104px;
+              height: 104px;
+              background: white;
+              border: 3px solid var(--cyan);
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 28px;
+              flex-shrink: 0;
+              box-shadow: 0 0 0 6px var(--cyan-light);
+            "
+          >
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#6fc5d2"
+              stroke-width="1.8"
+            >
+              <rect x="5" y="2" width="14" height="20" rx="2" />
+              <path d="M9 7h6M9 11h6M9 15h4" />
+            </svg>
+          </div>
+          <div
+            style="
+              background: #f7f8fc;
+              border-radius: 16px;
+              padding: 24px;
+              width: 100%;
+              flex: 1;
+            "
+          >
+            <div
+              style="
+                display: inline-block;
+                background: var(--cyan-light);
+                color: var(--cyan-dark);
+                font-size: 11px;
+                font-weight: 600;
+                padding: 3px 10px;
+                border-radius: 6px;
+                letter-spacing: 0.06em;
+                margin-bottom: 12px;
+              "
+            >
+              PASO 02
+            </div>
+            <h3 style="font-size: 16px; margin-bottom: 10px; line-height: 1.35">
+              Tratamiento personalizado para el paciente
+            </h3>
+            <ul
+              style="
+                list-style: none;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              "
+            >
+              <li
+                style="
+                  display: flex;
+                  gap: 8px;
+                  font-size: 13px;
+                  color: var(--muted);
+                  line-height: 1.5;
+                "
+              >
+                <span
+                  style="color: var(--cyan); flex-shrink: 0; font-weight: 600"
+                  >—</span
+                >El programa se realiza en cualquier lugar usando móvil, tablet
+                o portátil.
+              </li>
+              <li
+                style="
+                  display: flex;
+                  gap: 8px;
+                  font-size: 13px;
+                  color: var(--muted);
+                  line-height: 1.5;
+                "
+              >
+                <span
+                  style="color: var(--cyan); flex-shrink: 0; font-weight: 600"
+                  >—</span
+                >Asistente virtual basada en IA para correcciones en tiempo
+                real.
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- PASO 3 -->
+        <div
+          style="
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 0 16px;
+            position: relative;
+            z-index: 1;
+          "
+        >
+          <div
+            style="
+              width: 104px;
+              height: 104px;
+              background: white;
+              border: 3px solid var(--cyan);
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 28px;
+              flex-shrink: 0;
+              box-shadow: 0 0 0 6px var(--cyan-light);
+            "
+          >
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#6fc5d2"
+              stroke-width="1.8"
+            >
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            </svg>
+          </div>
+          <div
+            style="
+              background: #f7f8fc;
+              border-radius: 16px;
+              padding: 24px;
+              width: 100%;
+              flex: 1;
+            "
+          >
+            <div
+              style="
+                display: inline-block;
+                background: var(--cyan-light);
+                color: var(--cyan-dark);
+                font-size: 11px;
+                font-weight: 600;
+                padding: 3px 10px;
+                border-radius: 6px;
+                letter-spacing: 0.06em;
+                margin-bottom: 12px;
+              "
+            >
+              PASO 03
+            </div>
+            <h3 style="font-size: 16px; margin-bottom: 10px; line-height: 1.35">
+              Seguimiento Continuo y Ajustes
+            </h3>
+            <ul
+              style="
+                list-style: none;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              "
+            >
+              <li
+                style="
+                  display: flex;
+                  gap: 8px;
+                  font-size: 13px;
+                  color: var(--muted);
+                  line-height: 1.5;
+                "
+              >
+                <span
+                  style="color: var(--cyan); flex-shrink: 0; font-weight: 600"
+                  >—</span
+                >Evaluación final 'one to one' con el fisio a través de
+                video-consulta.
+              </li>
+              <li
+                style="
+                  display: flex;
+                  gap: 8px;
+                  font-size: 13px;
+                  color: var(--muted);
+                  line-height: 1.5;
+                "
+              >
+                <span
+                  style="color: var(--cyan); flex-shrink: 0; font-weight: 600"
+                  >—</span
+                >Informe del progreso y la recuperación.
+              </li>
+              <li
+                style="
+                  display: flex;
+                  gap: 8px;
+                  font-size: 13px;
+                  color: var(--muted);
+                  line-height: 1.5;
+                "
+              >
+                <span
+                  style="color: var(--cyan); flex-shrink: 0; font-weight: 600"
+                  >—</span
+                >Si es necesario, el paciente es referido a visita presencial.
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- PASO 4 -->
+        <div
+          style="
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 0 16px;
+            position: relative;
+            z-index: 1;
+          "
+        >
+          <div
+            style="
+              width: 104px;
+              height: 104px;
+              background: white;
+              border: 3px solid var(--cyan);
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-bottom: 28px;
+              flex-shrink: 0;
+              box-shadow: 0 0 0 6px var(--cyan-light);
+            "
+          >
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#6fc5d2"
+              stroke-width="1.8"
+            >
+              <path d="M9 11l3 3L22 4" />
+              <path
+                d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
+              />
+            </svg>
+          </div>
+          <div
+            style="
+              background: #f7f8fc;
+              border-radius: 16px;
+              padding: 24px;
+              width: 100%;
+              flex: 1;
+            "
+          >
+            <div
+              style="
+                display: inline-block;
+                background: var(--cyan-light);
+                color: var(--cyan-dark);
+                font-size: 11px;
+                font-weight: 600;
+                padding: 3px 10px;
+                border-radius: 6px;
+                letter-spacing: 0.06em;
+                margin-bottom: 12px;
+              "
+            >
+              PASO 04
+            </div>
+            <h3 style="font-size: 16px; margin-bottom: 10px; line-height: 1.35">
+              Alta Clínica e Informe Médico
+            </h3>
+            <ul
+              style="
+                list-style: none;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              "
+            >
+              <li
+                style="
+                  display: flex;
+                  gap: 8px;
+                  font-size: 13px;
+                  color: var(--muted);
+                  line-height: 1.5;
+                "
+              >
+                <span
+                  style="color: var(--cyan); flex-shrink: 0; font-weight: 600"
+                  >—</span
+                >Ejercicios terapéuticos post-recuperación.
+              </li>
+              <li
+                style="
+                  display: flex;
+                  gap: 8px;
+                  font-size: 13px;
+                  color: var(--muted);
+                  line-height: 1.5;
+                "
+              >
+                <span
+                  style="color: var(--cyan); flex-shrink: 0; font-weight: 600"
+                  >—</span
+                >Menos probabilidad de recaídas.
+              </li>
+              <li
+                style="
+                  display: flex;
+                  gap: 8px;
+                  font-size: 13px;
+                  color: var(--muted);
+                  line-height: 1.5;
+                "
+              >
+                <span
+                  style="color: var(--cyan); flex-shrink: 0; font-weight: 600"
+                  >—</span
+                >Fidelización del paciente.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SOLUTION -->
+    <section id="solution">
+      <div class="solution-intro">
+        <p class="section-label">La solución</p>
+        <h2>
+          Tecnología + red especializada,<br />integradas en tu institución
+        </h2>
+        <p class="lead" style="margin-top: 14px">
+          No es solo software. Es la infraestructura completa para que tu
+          organización ofrezca telerehabilitación de primer nivel mundial.
+        </p>
+      </div>
+      <div class="pillars-grid">
+        <div class="pillar-card featured">
+          <p class="pillar-number cyan">01 · Tecnología</p>
+          <div class="pillar-icon cyan-bg">
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#6fc5d2"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4l3 3" />
+            </svg>
+          </div>
+          <h3>Computer Vision certificada</h3>
+          <p>
+            Plataforma DyCare con Marcado CE Clase IIa. Detección biomecánica de
+            precisión milimétrica, corrección en tiempo real y reportes clínicos
+            automáticos.
+          </p>
+          <span class="pillar-tag cyan">Único con CE IIa en Argentina</span>
+        </div>
+        <div class="pillar-card">
+          <p class="pillar-number navy">02 · Red profesional</p>
+          <div class="pillar-icon navy-bg">
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#2f3a68"
+              stroke-width="2"
+            >
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </div>
+          <h3>Kinesiólogos especializados</h3>
+          <p>
+            Red de +300 profesionales para escalar la capacidad de tu
+            institución. Seguimiento clínico continuo por chat y videollamada
+            incluido.
+          </p>
+          <span class="pillar-tag navy">Cobertura federal</span>
+        </div>
+        <div class="pillar-card featured">
+          <p class="pillar-number cyan">03 · Panel institucional</p>
+          <div class="pillar-icon cyan-bg">
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#6fc5d2"
+              stroke-width="2"
+            >
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+            </svg>
+          </div>
+          <h3>Control y métricas en tiempo real</h3>
+          <p>
+            Dashboard centralizado con evolución funcional, adherencia y
+            movilidad. Reportes automáticos para auditores y aseguradoras.
+          </p>
+          <span class="pillar-tag cyan">Integración con flujos existentes</span>
+        </div>
+      </div>
+      <div class="cert-banner">
+        <div class="cert-dot"></div>
+        <p>
+          Tecnología <strong>DyCare</strong> con Marcado CE Clase IIa — el
+          estándar regulatorio más exigente de Europa para dispositivos médicos
+          digitales. Presente en más de 200 instituciones sanitarias en Europa y
+          Sudamérica.
+        </p>
+      </div>
+    </section>
+
+    <!-- FOR WHO -->
+    <section id="forwho">
+      <p class="section-label">Para quién</p>
+      <h2 style="margin-bottom: 14px">
+        Diseñado para instituciones que<br />quieren escalar su oferta clínica
+      </h2>
+      <p class="lead" style="margin-bottom: 40px; max-width: 580px">
+        Cualquier organización que necesite ofrecer rehabilitación remota con
+        respaldo clínico real y tecnología certificada.
+      </p>
+      <div class="forwho-grid">
+        <div class="forwho-card">
+          <h3>Clínicas y hospitales</h3>
+          <p>
+            Extendé tu servicio de kinesiología más allá del consultorio.
+            Aumentá la capacidad de atención sin sumar infraestructura física y
+            mejorá la adherencia post-alta.
+          </p>
+        </div>
+        <div class="forwho-card">
+          <h3>Obras sociales y prepagos</h3>
+          <p>
+            Incorporá telerehabilitación certificada como prestación. Reducí
+            costos de traslado, mejorá resultados funcionales y ofrecé cobertura
+            federal a tu red de afiliados.
+          </p>
+        </div>
+        <div class="forwho-card">
+          <h3>Centros deportivos e instituciones</h3>
+          <p>
+            Programas de prevención de lesiones y readaptación con tecnología de
+            alto rendimiento. El mismo sistema que usan centros deportivos de
+            élite en Europa.
+          </p>
+        </div>
+        <div class="forwho-card">
+          <h3>Aseguradoras de riesgo laboral</h3>
+          <p>
+            Optimizá tiempos de rehabilitación con seguimiento objetivo y
+            métricas de evolución funcional que respaldan cada decisión clínica
+            y administrativa.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- DYCARE -->
+    <section id="dycare">
+      <div class="dycare-grid">
+        <div>
+          <p class="section-label">Tecnología europea</p>
+          <h2>
+            Alianza con DyCare —<br />el estándar global en<br />rehabilitación
+            digital
+          </h2>
+          <p class="lead" style="margin-top: 14px">
+            DyCare es la única plataforma de su categoría con Marcado CE Clase
+            IIa bajo normativa MDR — el mismo estándar que un dispositivo médico
+            hospitalario. Reku es el partner exclusivo para Argentina.
+          </p>
+          <div class="dycare-points">
+            <div class="dycare-point">
+              <div class="dycare-point-dot"></div>
+              <p>
+                Presente en +200 instituciones sanitarias en Europa y Sudamérica
+              </p>
+            </div>
+            <div class="dycare-point">
+              <div class="dycare-point-dot"></div>
+              <p>Precisión milimétrica en detección de movimiento 2D y 3D</p>
+            </div>
+            <div class="dycare-point">
+              <div class="dycare-point-dot"></div>
+              <p>Validado clínicamente con más de 50.000 pacientes</p>
+            </div>
+            <div class="dycare-point">
+              <div class="dycare-point-dot"></div>
+              <p>Compatible con smartphone o laptop — sin hardware adicional</p>
+            </div>
+          </div>
+        </div>
+        <div class="dycare-badge">
+          <div class="ce-mark">CE</div>
+          <h3>Marcado CE Clase IIa</h3>
+          <p>
+            Normativa MDR europea<br />Dispositivo médico digital<br />Estándar
+            hospitalario certificado
+          </p>
+          <span class="badge badge-cyan" style="margin-top: 8px"
+            >Partner exclusivo en Argentina</span
+          >
+        </div>
+      </div>
+      <div class="dycare-certificates" id="dycare-certificates">
+        <div class="dycare-cert-grid">
+          <div class="dycare-cert-card">
+            <img
+              class="dycare-cert-image"
+              src="images/cert1.png"
+              alt="Certificación DyCare 1"
+            />
+          </div>
+          <div class="dycare-cert-card">
+            <img
+              class="dycare-cert-image"
+              src="images/cert2.png"
+              alt="Certificación DyCare 2"
+            />
+          </div>
+          <div class="dycare-cert-card">
+            <img
+              class="dycare-cert-image"
+              src="images/cert3.png"
+              alt="Certificación DyCare 3"
+            />
+          </div>
+          <div class="dycare-cert-card">
+            <img
+              class="dycare-cert-image"
+              src="images/cert4.png"
+              alt="Certificación DyCare 4"
+            />
+          </div>
+          <div class="dycare-cert-card">
+            <img
+              class="dycare-cert-image"
+              src="images/cert5.png"
+              alt="Certificación DyCare 5"
+            />
+          </div>
+          <div class="dycare-cert-card">
+            <img
+              class="dycare-cert-image"
+              src="images/cert6.png"
+              alt="Certificación DyCare 6"
+            />
+          </div>
+          <div class="dycare-cert-card">
+            <img
+              class="dycare-cert-image"
+              src="images/cert7.png"
+              alt="Certificación DyCare 7"
+            />
+          </div>
+          <div class="dycare-cert-card">
+            <img
+              class="dycare-cert-image is-tall"
+              src="images/cert8.png"
+              alt="Certificación DyCare 8"
+            />
+          </div>
+          <div class="dycare-cert-card">
+            <img
+              class="dycare-cert-image is-tall"
+              src="images/cert9.png"
+              alt="Certificación DyCare 9"
+            />
+          </div>
+          <div class="dycare-cert-card">
+            <img
+              class="dycare-cert-image is-tall is-compact"
+              src="images/cert10.png"
+              alt="Certificación DyCare 10"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOUNDER -->
+    <section id="founder" style="padding: 0">
+      <div class="founder-inner" style="padding: 60px">
+        <div class="founder-top">
+          <div class="founder-avatar">DR</div>
+          <div class="founder-info">
+            <p class="founder-role">Fundador</p>
+            <a
+              href="https://www.instagram.com/diegorivas_ok/"
+              class="founder-name"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Diego Rivas</a
+            >
+            <p class="founder-creds">
+              Copa Davis · Fed Cup · ATP Buenos Aires (desde 1997)<br />JJ.OO.
+              Atenas 2004 y Beijing 2008<br />Cleveland Clinic · Hospital for
+              Special Surgery, Nueva York
+            </p>
+          </div>
+        </div>
+        <div class="founder-quote">
+          <p>
+            "Nuestro objetivo es que ningún paciente en Argentina tenga que
+            renunciar a una rehabilitación de calidad por vivir lejos de un
+            centro especializado."
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA FINAL -->
+    <section id="cta-final">
+      <span
+        class="badge badge-navy"
+        style="margin-bottom: 20px; display: inline-block"
+        >¿Querés sumar Reku a tu institución?</span
+      >
+      <h2>Sumá al #1 en telerehabilitación<br />a tu oferta de salud</h2>
+      <p class="lead">
+        Demo personalizada sin compromiso. Te mostramos cómo integramos la
+        plataforma en tu flujo clínico en menos de 30 días.
+      </p>
+      <div class="contact-form-shell">
+        <form class="contact-form-card" id="contact-form">
+          <div class="contact-form-grid">
+            <div class="contact-field">
+              <label for="nombre">Nombre</label>
+              <input
+                id="nombre"
+                name="nombre"
+                type="text"
+                autocomplete="given-name"
+                required
+              />
+            </div>
+            <div class="contact-field">
+              <label for="apellido">Apellido</label>
+              <input
+                id="apellido"
+                name="apellido"
+                type="text"
+                autocomplete="family-name"
+                required
+              />
+            </div>
+            <div class="contact-field">
+              <label for="email">Email corporativo</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autocomplete="email"
+                placeholder="nombre@empresa.com"
+                required
+              />
+            </div>
+            <div class="contact-field">
+              <label for="telefono">Número de teléfono</label>
+              <input
+                id="telefono"
+                name="telefono"
+                type="tel"
+                autocomplete="tel"
+                placeholder="+54 9 11 1234 5678"
+                required
+              />
+            </div>
+            <div class="contact-field full-width">
+              <label for="organizacion"
+                >¿A qué tipo de organización perteneces?</label
+              >
+              <select id="organizacion" name="organizacion" required>
+                <option value="">Seleccionar</option>
+                <option>Clínica</option>
+                <option>Hospital</option>
+                <option>Aseguradora de Riesgo Laboral</option>
+                <option>Obra Social</option>
+                <option>Medicina Prepaga</option>
+                <option>Centro Deportivo</option>
+                <option>Otros</option>
+              </select>
+            </div>
+            <div class="contact-field">
+              <label for="rol">Tu rol en la organización</label>
+              <select id="rol" name="rol" required>
+                <option value="">Seleccionar</option>
+                <option>Médico</option>
+                <option>Gerente/CEO</option>
+                <option>Coordinador/Supervisor</option>
+                <option>Otro</option>
+              </select>
+            </div>
+            <div class="contact-field">
+              <label for="pacientes">¿Cuántos pacientes atienden al mes?</label>
+              <select id="pacientes" name="pacientes" required>
+                <option value="">Seleccionar</option>
+                <option>Menos de 100</option>
+                <option>Entre 100 y 200</option>
+                <option>Más de 200</option>
+              </select>
+            </div>
+          </div>
+          <div class="contact-actions">
+            <p class="contact-note">
+              Si preferís, también podés escribirnos directo a
+              <a href="mailto:hola@reku.io">hola@reku.io</a>.
+            </p>
+            <button type="submit" class="btn btn-navy btn-lg">
+              Solicitar demo
+            </button>
+          </div>
+          <p class="contact-status" id="contact-status" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer>
+      <div class="footer-left">
+        <div class="footer-brand">
+          <img class="footer-logo" src="images/logo-reku.svg" alt="Reku" />
+          <span class="footer-text">© 2026 Reku · hola@reku.io</span>
+        </div>
+        <div class="footer-links">
+          <a
+            href="https://www.instagram.com/reku_online/"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Instagram</a
+          >
+          <a
+            href="https://www.linkedin.com/company/reku"
+            target="_blank"
+            rel="noopener noreferrer"
+            >LinkedIn</a
+          >
+        </div>
+      </div>
+      <div class="footer-center">
+        <a
+          href="https://www.dycare.com/evidencia-cientifica-de-rehub"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Evidencia Científica</a
+        >
+      </div>
+      <div class="footer-badge">Legislatura CABA · 922/2024</div>
+    </footer>
+    <script>
+      (() => {
+        const root = document.documentElement;
+        const nav = document.querySelector('nav');
+        const internalLinks = document.querySelectorAll('a[href^="#"]');
+        if (!nav || !internalLinks.length) return;
+
+        const updateNavOffset = () => {
+          const navHeight = Math.ceil(nav.getBoundingClientRect().height);
+          root.style.setProperty('--nav-offset', `${navHeight}px`);
+          return navHeight;
+        };
+
+        const scrollToHash = (hash) => {
+          if (!hash || hash === '#') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            return;
+          }
+
+          const target = document.querySelector(hash);
+          if (!target) return;
+
+          const navHeight = updateNavOffset();
+          const targetTop =
+            target.getBoundingClientRect().top + window.scrollY - navHeight;
+
+          window.scrollTo({
+            top: Math.max(targetTop, 0),
+            behavior: 'smooth',
+          });
+        };
+
+        updateNavOffset();
+        window.addEventListener('resize', updateNavOffset);
+
+        if ('ResizeObserver' in window) {
+          const observer = new ResizeObserver(updateNavOffset);
+          observer.observe(nav);
+        }
+
+        internalLinks.forEach((link) => {
+          link.addEventListener('click', (event) => {
+            const hash = link.getAttribute('href');
+            if (!hash) return;
+
+            event.preventDefault();
+            scrollToHash(hash);
+
+            if (hash === '#') {
+              window.history.pushState(
+                null,
+                '',
+                `${window.location.pathname}${window.location.search}`,
+              );
+              return;
+            }
+
+            if (window.location.hash !== hash) {
+              window.history.pushState(null, '', hash);
+            }
+          });
+        });
+      })();
+
+      (() => {
+        const iframe = document.querySelector('.hero-video-bg iframe');
+        if (!iframe) return;
+
+        const videoId = iframe.dataset.videoId;
+        const hasHttpOrigin =
+          window.location.protocol === 'http:' ||
+          window.location.protocol === 'https:';
+        const origin = hasHttpOrigin
+          ? window.location.origin
+          : 'https://www.reku.com.ar';
+        const params = new URLSearchParams({
+          autoplay: '1',
+          mute: '1',
+          controls: '0',
+          rel: '0',
+          modestbranding: '1',
+          playsinline: '1',
+          loop: '1',
+          playlist: videoId,
+          origin,
+        });
+
+        iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`;
+      })();
+
+      (() => {
+        const form = document.getElementById('contact-form');
+        const status = document.getElementById('contact-status');
+        if (!form || !status) return;
+
+        const genericDomains = new Set([
+          'gmail.com',
+          'googlemail.com',
+          'hotmail.com',
+          'outlook.com',
+          'live.com',
+          'msn.com',
+          'yahoo.com',
+          'icloud.com',
+          'me.com',
+          'mac.com',
+          'aol.com',
+          'gmx.com',
+          'mail.com',
+          'proton.me',
+          'protonmail.com',
+          'yandex.com',
+        ]);
+
+        const setStatus = (message, type) => {
+          status.textContent = message;
+          status.className = 'contact-status';
+          if (type) {
+            status.classList.add(`is-${type}`);
+          }
+        };
+
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          setStatus('');
+
+          if (!form.reportValidity()) return;
+
+          const formData = new FormData(form);
+          const email = String(formData.get('email') || '')
+            .trim()
+            .toLowerCase();
+          const emailDomain = email.split('@')[1] || '';
+
+          if (!emailDomain || genericDomains.has(emailDomain)) {
+            setStatus(
+              'Por favor ingresá un email corporativo válido.',
+              'error',
+            );
+            return;
+          }
+
+          const subject = 'Nueva consulta desde reku.io';
+          const body = [
+            'Nueva consulta desde el formulario web:',
+            '',
+            `Nombre: ${formData.get('nombre')}`,
+            `Apellido: ${formData.get('apellido')}`,
+            `Email corporativo: ${formData.get('email')}`,
+            `Telefono: ${formData.get('telefono')}`,
+            `Tipo de organizacion: ${formData.get('organizacion')}`,
+            `Rol: ${formData.get('rol')}`,
+            `Pacientes por mes: ${formData.get('pacientes')}`,
+          ].join('\n');
+
+          window.location.href = `mailto:hola@reku.io?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+          setStatus(
+            'Abrimos tu cliente de correo para enviar la consulta a hola@reku.io.',
+            'success',
+          );
+          form.reset();
+        });
+      })();
+    </script>
+  </body>
+</html>
