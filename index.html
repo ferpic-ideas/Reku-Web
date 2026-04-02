@@ -57,6 +57,34 @@
         backdrop-filter: blur(12px);
         border-bottom: 1px solid rgba(47, 58, 104, 0.08);
       }
+      .nav-toggle {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        width: 46px;
+        height: 46px;
+        border: 1px solid rgba(47, 58, 104, 0.14);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--navy);
+        cursor: pointer;
+      }
+      .nav-toggle span {
+        display: block;
+        width: 18px;
+        height: 2px;
+        border-radius: 999px;
+        background: currentColor;
+        transition:
+          transform 0.2s ease,
+          opacity 0.2s ease;
+      }
+      .nav-toggle span + span {
+        margin-top: 4px;
+      }
+      .nav-mobile-panel {
+        display: none;
+      }
       .nav-logo {
         display: flex;
         align-items: center;
@@ -1519,15 +1547,94 @@
         }
 
         nav {
-          height: auto;
-          padding-top: 18px;
-          padding-bottom: 18px;
-          flex-direction: column;
-          gap: 16px;
+          position: fixed;
+          left: 0;
+          right: 0;
+          top: 0;
+          height: 68px;
+          padding: 0 20px;
+          flex-direction: row;
+          gap: 12px;
+        }
+
+        body {
+          padding-top: var(--nav-offset);
+        }
+
+        .nav-logo {
+          flex: 1 1 auto;
+        }
+
+        .nav-logo img {
+          height: 42px;
         }
 
         .nav-links,
-        .nav-ctas,
+        .nav-ctas {
+          display: none;
+        }
+
+        .nav-toggle {
+          display: inline-flex;
+          flex-direction: column;
+        }
+
+        .nav-toggle[aria-expanded='true'] span:nth-child(1) {
+          transform: translateY(6px) rotate(45deg);
+        }
+
+        .nav-toggle[aria-expanded='true'] span:nth-child(2) {
+          opacity: 0;
+        }
+
+        .nav-toggle[aria-expanded='true'] span:nth-child(3) {
+          transform: translateY(-6px) rotate(-45deg);
+        }
+
+        .nav-mobile-panel {
+          position: absolute;
+          top: calc(100% + 10px);
+          left: 20px;
+          right: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          padding: 16px;
+          border: 1px solid rgba(47, 58, 104, 0.08);
+          border-radius: 18px;
+          background: rgba(255, 255, 255, 0.98);
+          box-shadow: 0 18px 40px rgba(47, 58, 104, 0.14);
+          opacity: 0;
+          visibility: hidden;
+          transform: translateY(-8px);
+          pointer-events: none;
+          transition:
+            opacity 0.2s ease,
+            transform 0.2s ease,
+            visibility 0.2s ease;
+        }
+
+        .nav-mobile-panel a {
+          display: block;
+          padding: 10px 12px;
+          border-radius: 10px;
+          font-size: 15px;
+          color: var(--navy);
+          text-decoration: none;
+          font-weight: 500;
+        }
+
+        .nav-mobile-panel a:hover {
+          background: var(--navy-light);
+        }
+
+        nav.is-menu-open .nav-mobile-panel {
+          opacity: 1;
+          visibility: visible;
+          transform: translateY(0);
+          pointer-events: auto;
+        }
+
         .hero-ctas,
         .cta-buttons {
           width: 100%;
@@ -1823,6 +1930,17 @@
       <a class="nav-logo" href="#">
         <img src="images/logo-reku.svg" alt="Reku" />
       </a>
+      <button
+        class="nav-toggle"
+        type="button"
+        aria-label="Abrir menú"
+        aria-expanded="false"
+        aria-controls="mobile-menu"
+      >
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
       <div class="nav-links">
         <a href="#como-funciona">Cómo funciona</a>
         <a href="#solution">Solución</a>
@@ -1832,6 +1950,14 @@
       </div>
       <div class="nav-ctas">
         <a href="#cta-final" class="btn btn-navy">Contactar</a>
+      </div>
+      <div class="nav-mobile-panel" id="mobile-menu">
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#solution">Solución</a>
+        <a href="#forwho">Para quién</a>
+        <a href="#dycare">Tecnología</a>
+        <a href="#founder">Nosotros</a>
+        <a href="#cta-final">Contactar</a>
       </div>
     </nav>
 
@@ -3186,6 +3312,55 @@
       </div>
     </footer>
     <script>
+      (() => {
+        const nav = document.querySelector('nav');
+        const toggle = nav?.querySelector('.nav-toggle');
+        const mobileLinks = nav?.querySelectorAll('.nav-mobile-panel a');
+        if (!nav || !toggle || !mobileLinks?.length) return;
+
+        const closeMenu = () => {
+          nav.classList.remove('is-menu-open');
+          toggle.setAttribute('aria-expanded', 'false');
+          toggle.setAttribute('aria-label', 'Abrir menú');
+        };
+
+        const openMenu = () => {
+          nav.classList.add('is-menu-open');
+          toggle.setAttribute('aria-expanded', 'true');
+          toggle.setAttribute('aria-label', 'Cerrar menú');
+        };
+
+        toggle.addEventListener('click', () => {
+          if (nav.classList.contains('is-menu-open')) {
+            closeMenu();
+            return;
+          }
+          openMenu();
+        });
+
+        mobileLinks.forEach((link) => {
+          link.addEventListener('click', closeMenu);
+        });
+
+        document.addEventListener('click', (event) => {
+          if (!nav.classList.contains('is-menu-open')) return;
+          if (nav.contains(event.target)) return;
+          closeMenu();
+        });
+
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            closeMenu();
+          }
+        });
+
+        window.addEventListener('resize', () => {
+          if (window.innerWidth > 768) {
+            closeMenu();
+          }
+        });
+      })();
+
       (() => {
         const root = document.documentElement;
         const nav = document.querySelector('nav');
