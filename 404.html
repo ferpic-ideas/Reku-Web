@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="robots" content="noindex, nofollow" />
+
+    <title>Página no encontrada | Reku</title>
+    <meta
+      name="description"
+      content="La página que buscás no existe o fue movida. Volvé al sitio principal de Reku."
+    />
+    <meta property="og:locale" content="es_AR" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Página no encontrada | Reku" />
+    <meta
+      property="og:description"
+      content="La página que buscás no existe o fue movida. Volvé al sitio principal de Reku."
+    />
+    <meta property="og:url" content="https://www.reku.io/404.html" />
+    <meta property="og:site_name" content="Reku" />
+    <meta property="og:image" content="https://www.reku.io/images/og-reku.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Reku, plataforma de telerehabilitación asistida por AI para instituciones de salud"
+    />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Página no encontrada | Reku" />
+    <meta
+      name="twitter:description"
+      content="La página que buscás no existe o fue movida. Volvé al sitio principal de Reku."
+    />
+    <meta name="twitter:image" content="https://www.reku.io/images/og-reku.jpg" />
+    <meta
+      name="twitter:image:alt"
+      content="Reku, plataforma de telerehabilitación asistida por AI para instituciones de salud"
+    />
+
+    <link rel="icon" href="favicon-32x32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="favicon-16x16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180" />
+    <link rel="shortcut icon" href="favicon.ico" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --navy: #2f3a68;
+        --navy-mid: #3d4d80;
+        --navy-light: #eceef5;
+        --cyan: #6fc5d2;
+        --cyan-dark: #4aa8b8;
+        --cyan-light: #edf8fa;
+        --muted: #6b7a99;
+        --white: #ffffff;
+        --gray: #f7f8fc;
+        --nav-offset: 68px;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        font-family: 'DM Sans', sans-serif;
+        color: var(--navy);
+        background:
+          radial-gradient(circle at top left, rgba(111, 197, 210, 0.2), transparent 28%),
+          linear-gradient(180deg, #f8fbfd 0%, #ffffff 240px);
+        font-size: 16px;
+        line-height: 1.6;
+      }
+
+      nav {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 60px;
+        height: 68px;
+        background: rgba(255, 255, 255, 0.96);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(47, 58, 104, 0.08);
+      }
+
+      .nav-toggle {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        width: 46px;
+        height: 46px;
+        border: 1px solid rgba(47, 58, 104, 0.14);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--navy);
+        cursor: pointer;
+      }
+
+      .nav-toggle span {
+        display: block;
+        width: 18px;
+        height: 2px;
+        border-radius: 999px;
+        background: currentColor;
+        transition:
+          transform 0.2s ease,
+          opacity 0.2s ease;
+      }
+
+      .nav-toggle span + span {
+        margin-top: 4px;
+      }
+
+      .nav-mobile-panel {
+        display: none;
+      }
+
+      .nav-logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+      }
+
+      .nav-logo img {
+        display: block;
+        height: 48px;
+        width: auto;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 32px;
+      }
+
+      .nav-links a {
+        font-size: 14px;
+        color: var(--muted);
+        text-decoration: none;
+        font-weight: 400;
+        transition: color 0.2s;
+      }
+
+      .nav-links a:hover {
+        color: var(--navy);
+      }
+
+      .nav-ctas {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 9px 20px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s;
+        border: none;
+        font-family: 'DM Sans', sans-serif;
+      }
+
+      .btn-navy {
+        background: var(--navy);
+        color: white;
+      }
+
+      .btn-navy:hover {
+        background: var(--navy-mid);
+      }
+
+      .btn-ghost {
+        background: transparent;
+        color: var(--navy);
+        border: 1.5px solid rgba(47, 58, 104, 0.2);
+      }
+
+      .btn-ghost:hover {
+        border-color: var(--navy);
+      }
+
+      main {
+        min-height: calc(100vh - 68px - 108px);
+        display: flex;
+        align-items: center;
+        padding: 48px 32px 72px;
+      }
+
+      .error-shell {
+        width: min(1180px, 100%);
+        margin: 0 auto;
+      }
+
+      .error-copy {
+        max-width: 1040px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: rgba(111, 197, 210, 0.14);
+        color: var(--cyan-dark);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .error-code {
+        margin-top: 16px;
+        font-size: clamp(68px, 10vw, 112px);
+        line-height: 0.92;
+        letter-spacing: -0.06em;
+        font-weight: 500;
+      }
+
+      h1 {
+        margin-top: 20px;
+        max-width: 980px;
+        font-size: clamp(30px, 4.2vw, 48px);
+        line-height: 1.06;
+        letter-spacing: -0.05em;
+        font-weight: 500;
+      }
+
+      .lead {
+        margin-top: 18px;
+        max-width: 980px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.8;
+      }
+
+      .error-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 28px;
+      }
+
+      footer {
+        background: var(--navy);
+        padding: 32px 60px;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .footer-left {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+        justify-self: start;
+      }
+
+      .footer-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .footer-logo {
+        display: block;
+        height: 28px;
+        width: auto;
+      }
+
+      .footer-text {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.4);
+      }
+
+      .footer-links {
+        display: flex;
+        gap: 20px;
+      }
+
+      .footer-links a {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.4);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+
+      .footer-links a:hover {
+        color: var(--cyan);
+      }
+
+      .footer-center a {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.4);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+
+      .footer-center a:hover {
+        color: var(--cyan);
+      }
+
+      .footer-badge {
+        position: relative;
+        justify-self: end;
+        display: inline-flex;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 6px 14px;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.45);
+        cursor: help;
+        outline: none;
+      }
+
+      .footer-badge:focus-visible {
+        box-shadow: 0 0 0 3px rgba(111, 197, 210, 0.24);
+      }
+
+      .footer-badge-copy {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 14px);
+        width: min(340px, 72vw);
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: rgba(8, 10, 15, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+        font-size: 13px;
+        line-height: 1.55;
+        color: rgba(255, 255, 255, 0.82);
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(8px);
+        transition:
+          opacity 0.2s ease,
+          transform 0.2s ease,
+          visibility 0.2s ease;
+        pointer-events: none;
+        z-index: 20;
+      }
+
+      .footer-badge-copy::after {
+        content: '';
+        position: absolute;
+        right: 24px;
+        top: 100%;
+        border-width: 8px;
+        border-style: solid;
+        border-color: rgba(8, 10, 15, 0.96) transparent transparent transparent;
+      }
+
+      .footer-badge-copy strong {
+        display: block;
+        margin-top: 10px;
+        color: rgba(255, 255, 255, 0.98);
+        font-weight: 600;
+      }
+
+      .footer-badge:hover .footer-badge-copy,
+      .footer-badge:focus-within .footer-badge-copy {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+
+      @media (max-width: 768px) {
+        html {
+          scroll-padding-top: var(--nav-offset);
+        }
+
+        nav {
+          position: fixed;
+          left: 0;
+          right: 0;
+          top: 0;
+          height: 68px;
+          padding: 0 20px;
+          flex-direction: row;
+          gap: 12px;
+        }
+
+        body {
+          padding-top: var(--nav-offset);
+        }
+
+        .nav-logo {
+          flex: 1 1 auto;
+        }
+
+        .nav-logo img {
+          height: 42px;
+        }
+
+        .nav-links,
+        .nav-ctas {
+          display: none;
+        }
+
+        .nav-toggle {
+          display: inline-flex;
+          flex-direction: column;
+        }
+
+        .nav-toggle[aria-expanded='true'] span:nth-child(1) {
+          transform: translateY(6px) rotate(45deg);
+        }
+
+        .nav-toggle[aria-expanded='true'] span:nth-child(2) {
+          opacity: 0;
+        }
+
+        .nav-toggle[aria-expanded='true'] span:nth-child(3) {
+          transform: translateY(-6px) rotate(-45deg);
+        }
+
+        .nav-mobile-panel {
+          position: absolute;
+          top: calc(100% + 10px);
+          left: 20px;
+          right: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          padding: 16px;
+          border: 1px solid rgba(47, 58, 104, 0.08);
+          border-radius: 18px;
+          background: rgba(255, 255, 255, 0.98);
+          box-shadow: 0 18px 40px rgba(47, 58, 104, 0.14);
+          opacity: 0;
+          visibility: hidden;
+          transform: translateY(-8px);
+          pointer-events: none;
+          transition:
+            opacity 0.2s ease,
+            transform 0.2s ease,
+            visibility 0.2s ease;
+        }
+
+        .nav-mobile-panel a {
+          display: block;
+          padding: 10px 12px;
+          border-radius: 10px;
+          font-size: 15px;
+          color: var(--navy);
+          text-decoration: none;
+          font-weight: 500;
+        }
+
+        .nav-mobile-panel a:hover {
+          background: var(--navy-light);
+        }
+
+        nav.is-menu-open .nav-mobile-panel {
+          opacity: 1;
+          visibility: visible;
+          transform: translateY(0);
+          pointer-events: auto;
+        }
+
+        main {
+          min-height: auto;
+          padding: 32px 20px 56px;
+        }
+
+        .lead {
+          font-size: 15px;
+        }
+
+        footer {
+          grid-template-columns: 1fr;
+          justify-items: center;
+          text-align: center;
+          padding: 32px 20px;
+        }
+
+        .footer-left,
+        .footer-badge {
+          justify-self: center;
+        }
+
+        .footer-left {
+          justify-content: center;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .footer-badge-copy {
+          left: 50%;
+          right: auto;
+          width: min(340px, calc(100vw - 40px));
+          transform: translate(-50%, 8px);
+        }
+
+        .footer-badge-copy::after {
+          left: 50%;
+          right: auto;
+          transform: translateX(-50%);
+        }
+
+        .footer-badge:hover .footer-badge-copy,
+        .footer-badge:focus-within .footer-badge-copy {
+          transform: translate(-50%, 0);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a class="nav-logo" href="index.html" aria-label="Ir al inicio de Reku">
+        <img src="images/logo-reku.svg" alt="Reku" />
+      </a>
+      <button
+        class="nav-toggle"
+        type="button"
+        aria-label="Abrir menú"
+        aria-expanded="false"
+        aria-controls="mobile-menu"
+      >
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <div class="nav-links">
+        <a href="index.html#como-funciona">Cómo funciona</a>
+        <a href="index.html#solution">Solución</a>
+        <a href="index.html#forwho">Para quién</a>
+        <a href="index.html#dycare">Tecnología</a>
+        <a href="index.html#founder">Nosotros</a>
+      </div>
+      <div class="nav-ctas">
+        <a href="index.html#cta-final" class="btn btn-navy">Contactar</a>
+      </div>
+      <div class="nav-mobile-panel" id="mobile-menu">
+        <a href="index.html#como-funciona">Cómo funciona</a>
+        <a href="index.html#solution">Solución</a>
+        <a href="index.html#forwho">Para quién</a>
+        <a href="index.html#dycare">Tecnología</a>
+        <a href="index.html#founder">Nosotros</a>
+        <a href="index.html#cta-final">Contactar</a>
+      </div>
+    </nav>
+
+    <main>
+      <div class="error-shell">
+        <section class="error-copy">
+          <div class="eyebrow">Error 404</div>
+          <div class="error-code">404</div>
+          <h1>La página que buscás no está disponible.</h1>
+          <p class="lead">
+            Puede que el enlace esté roto, que la URL haya cambiado o que ese
+            contenido ya no exista.
+          </p>
+
+          <div class="error-actions">
+            <a class="btn btn-navy" href="index.html">Ir al inicio</a>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer>
+      <div class="footer-left">
+        <div class="footer-brand">
+          <img class="footer-logo" src="images/logo-reku.svg" alt="Reku" />
+          <span class="footer-text">© 2026 · hola@reku.io</span>
+        </div>
+        <div class="footer-links">
+          <a
+            href="https://www.instagram.com/reku_online/"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Instagram</a
+          >
+          <a
+            href="https://www.linkedin.com/company/reku"
+            target="_blank"
+            rel="noopener noreferrer"
+            >LinkedIn</a
+          >
+        </div>
+      </div>
+      <div class="footer-center">
+        <a href="evidencia.html">Evidencia Científica</a>
+      </div>
+      <div
+        class="footer-badge"
+        tabindex="0"
+        aria-label="Reconocimiento de la Legislatura de la Ciudad Autónoma de Buenos Aires"
+        aria-describedby="footer-legislatura-tooltip"
+      >
+        <span>Legislatura CABA · 922/2024</span>
+        <div
+          class="footer-badge-copy"
+          id="footer-legislatura-tooltip"
+          role="tooltip"
+        >
+          Reku ha sido declarada de Interés por la Legislatura de la Ciudad
+          Autónoma de Buenos Aires, destacando su impacto en la digitalización y
+          accesibilidad de la atención kinésica online.
+          <strong>Declaración 922/2024</strong>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      (() => {
+        const nav = document.querySelector('nav');
+        const toggle = nav?.querySelector('.nav-toggle');
+        const mobileLinks = nav?.querySelectorAll('.nav-mobile-panel a');
+        if (!nav || !toggle || !mobileLinks?.length) return;
+
+        const closeMenu = () => {
+          nav.classList.remove('is-menu-open');
+          toggle.setAttribute('aria-expanded', 'false');
+          toggle.setAttribute('aria-label', 'Abrir menú');
+        };
+
+        const openMenu = () => {
+          nav.classList.add('is-menu-open');
+          toggle.setAttribute('aria-expanded', 'true');
+          toggle.setAttribute('aria-label', 'Cerrar menú');
+        };
+
+        toggle.addEventListener('click', () => {
+          if (nav.classList.contains('is-menu-open')) {
+            closeMenu();
+            return;
+          }
+          openMenu();
+        });
+
+        mobileLinks.forEach((link) => {
+          link.addEventListener('click', closeMenu);
+        });
+
+        document.addEventListener('click', (event) => {
+          if (!nav.classList.contains('is-menu-open')) return;
+          if (nav.contains(event.target)) return;
+          closeMenu();
+        });
+
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            closeMenu();
+          }
+        });
+
+        window.addEventListener('resize', () => {
+          if (window.innerWidth > 768) {
+            closeMenu();
+          }
+        });
+      })();
+
+      (() => {
+        const root = document.documentElement;
+        const nav = document.querySelector('nav');
+        if (!root || !nav) return;
+
+        const syncNavOffset = () => {
+          root.style.setProperty('--nav-offset', `${nav.offsetHeight}px`);
+        };
+
+        syncNavOffset();
+        window.addEventListener('resize', syncNavOffset);
+      })();
+    </script>
+  </body>
+</html>
