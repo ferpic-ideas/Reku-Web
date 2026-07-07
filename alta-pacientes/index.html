@@ -53,6 +53,7 @@
         --muted: #6b7a99;
         --white: #ffffff;
         --gray: #f7f8fc;
+        --error: #b54747;
       }
 
       * {
@@ -120,6 +121,12 @@
 
       .btn:hover {
         transform: translateY(-1px);
+      }
+
+      .btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.72;
+        transform: none;
       }
 
       .btn-navy {
@@ -234,6 +241,11 @@
         appearance: none;
       }
 
+      .contact-field.is-invalid input {
+        border-color: rgba(181, 71, 71, 0.72);
+        box-shadow: 0 0 0 4px rgba(181, 71, 71, 0.1);
+      }
+
       .contact-field input::placeholder {
         color: rgba(107, 122, 153, 0.7);
       }
@@ -242,6 +254,18 @@
         outline: none;
         border-color: rgba(74, 168, 184, 0.8);
         box-shadow: 0 0 0 4px rgba(111, 197, 210, 0.18);
+      }
+
+      .field-error {
+        min-height: 18px;
+        color: var(--error);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.4;
+      }
+
+      .field-error:empty {
+        visibility: hidden;
       }
 
       .contact-actions {
@@ -268,11 +292,80 @@
       }
 
       .contact-status.is-error {
-        color: #b54747;
+        color: var(--error);
       }
 
       .contact-status.is-success {
         color: var(--cyan-dark);
+      }
+
+      .success-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(47, 58, 104, 0.38);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition:
+          opacity 0.2s ease,
+          visibility 0.2s ease;
+      }
+
+      .success-modal.is-open {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+      }
+
+      .success-modal-card {
+        width: min(100%, 440px);
+        border: 1px solid rgba(47, 58, 104, 0.08);
+        border-radius: 24px;
+        padding: 32px;
+        background: var(--white);
+        box-shadow: 0 24px 70px rgba(47, 58, 104, 0.24);
+        text-align: left;
+        transform: translateY(8px);
+        transition: transform 0.2s ease;
+      }
+
+      .success-modal.is-open .success-modal-card {
+        transform: translateY(0);
+      }
+
+      .success-modal-mark {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        height: 48px;
+        margin-bottom: 18px;
+        border-radius: 999px;
+        background: var(--cyan-light);
+        color: var(--cyan-dark);
+        font-size: 24px;
+        font-weight: 600;
+      }
+
+      .success-modal-card h2 {
+        margin-bottom: 10px;
+        font-family: 'DM Serif Display', serif;
+        font-size: 32px;
+        font-weight: 400;
+        line-height: 1.1;
+        color: var(--navy);
+      }
+
+      .success-modal-card p {
+        margin-bottom: 24px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.6;
       }
 
       footer {
@@ -347,6 +440,11 @@
           border-radius: 20px;
         }
 
+        .success-modal-card {
+          padding: 24px;
+          border-radius: 20px;
+        }
+
         .contact-actions {
           align-items: stretch;
         }
@@ -389,6 +487,7 @@
             method="POST"
             data-netlify="true"
             netlify-honeypot="bot-field"
+            novalidate
           >
             <input type="hidden" name="form-name" value="alta-pacientes" />
             <input
@@ -407,8 +506,10 @@
                   name="nombre"
                   type="text"
                   autocomplete="given-name"
+                  aria-describedby="nombre-error"
                   required
                 />
+                <p class="field-error" id="nombre-error" aria-live="polite"></p>
               </div>
 
               <div class="contact-field">
@@ -418,8 +519,10 @@
                   name="apellido"
                   type="text"
                   autocomplete="family-name"
+                  aria-describedby="apellido-error"
                   required
                 />
+                <p class="field-error" id="apellido-error" aria-live="polite"></p>
               </div>
 
               <div class="contact-field">
@@ -431,8 +534,10 @@
                   autocomplete="tel"
                   inputmode="tel"
                   placeholder="+54 9 11 1234 5678"
+                  aria-describedby="telefono-error"
                   required
                 />
+                <p class="field-error" id="telefono-error" aria-live="polite"></p>
               </div>
 
               <div class="contact-field">
@@ -443,14 +548,18 @@
                   type="email"
                   autocomplete="email"
                   placeholder="nombre@email.com"
+                  aria-describedby="email-error"
                   required
                 />
+                <p class="field-error" id="email-error" aria-live="polite"></p>
               </div>
             </div>
 
             <div class="contact-actions">
               <p class="contact-note">Todos los campos son obligatorios.</p>
-              <button type="submit" class="btn btn-navy btn-lg">Enviar</button>
+              <button type="submit" class="btn btn-navy btn-lg" id="submit-button">
+                Enviar
+              </button>
             </div>
 
             <p class="contact-status" id="contact-status" aria-live="polite"></p>
@@ -458,6 +567,24 @@
         </div>
       </div>
     </main>
+
+    <div
+      class="success-modal"
+      id="success-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="success-modal-title"
+      aria-hidden="true"
+    >
+      <div class="success-modal-card">
+        <div class="success-modal-mark" aria-hidden="true">✓</div>
+        <h2 id="success-modal-title">Formulario enviado</h2>
+        <p>El formulario se envió con éxito. Te contactaremos a la brevedad.</p>
+        <button type="button" class="btn btn-navy btn-lg" id="success-modal-close">
+          Entendido
+        </button>
+      </div>
+    </div>
 
     <footer>
       <div class="footer-brand">
@@ -484,7 +611,22 @@
       (() => {
         const form = document.getElementById('alta-pacientes-form');
         const status = document.getElementById('contact-status');
-        if (!form || !status) return;
+        const submitButton = document.getElementById('submit-button');
+        const successModal = document.getElementById('success-modal');
+        const successModalClose = document.getElementById('success-modal-close');
+        if (!form || !status || !submitButton || !successModal || !successModalClose) return;
+
+        const fields = {
+          nombre: form.elements.nombre,
+          apellido: form.elements.apellido,
+          telefono: form.elements.telefono,
+          email: form.elements.email,
+        };
+
+        const touchedFields = new Set();
+        const namePattern = /^[\p{L}]+(?:[ '-][\p{L}]+)*$/u;
+        const phonePattern = /^[+()\d\s.-]+$/;
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
         const setStatus = (message, type) => {
           status.textContent = message;
@@ -494,13 +636,148 @@
           }
         };
 
+        const setFieldError = (field, message) => {
+          const wrapper = field.closest('.contact-field');
+          const error = document.getElementById(`${field.id}-error`);
+
+          field.setAttribute('aria-invalid', message ? 'true' : 'false');
+          wrapper?.classList.toggle('is-invalid', Boolean(message));
+          if (error) {
+            error.textContent = message;
+          }
+        };
+
+        const validateTextField = (field, fieldName) => {
+          const value = field.value.trim();
+          if (!value) {
+            return `Ingresá tu ${fieldName}.`;
+          }
+
+          if (value.length < 2) {
+            return `El ${fieldName} debe tener al menos 2 letras.`;
+          }
+
+          if (!namePattern.test(value)) {
+            return `Usá solo letras, espacios, apóstrofes o guiones.`;
+          }
+
+          return '';
+        };
+
+        const validatePhone = (field) => {
+          const value = field.value.trim();
+          const digits = value.replace(/\D/g, '');
+
+          if (!value) {
+            return 'Ingresá tu teléfono.';
+          }
+
+          if (!phonePattern.test(value) || digits.length < 8 || digits.length > 15) {
+            return 'Ingresá un teléfono válido, con código de área.';
+          }
+
+          return '';
+        };
+
+        const validateEmail = (field) => {
+          const value = field.value.trim();
+
+          if (!value) {
+            return 'Ingresá tu mail.';
+          }
+
+          if (!emailPattern.test(value)) {
+            return 'Ingresá un mail válido, por ejemplo nombre@email.com.';
+          }
+
+          return '';
+        };
+
+        const validateField = (field) => {
+          const validators = {
+            nombre: () => validateTextField(field, 'nombre'),
+            apellido: () => validateTextField(field, 'apellido'),
+            telefono: () => validatePhone(field),
+            email: () => validateEmail(field),
+          };
+          const message = validators[field.name]?.() || '';
+          setFieldError(field, message);
+          return !message;
+        };
+
+        const validateForm = () => {
+          let firstInvalidField = null;
+
+          Object.values(fields).forEach((field) => {
+            const isValid = validateField(field);
+            if (!isValid && !firstInvalidField) {
+              firstInvalidField = field;
+            }
+          });
+
+          if (firstInvalidField) {
+            setStatus('Revisá los campos marcados para poder enviar el formulario.', 'error');
+            firstInvalidField.focus();
+            return false;
+          }
+
+          setStatus('');
+          return true;
+        };
+
+        const closeSuccessModal = () => {
+          successModal.classList.remove('is-open');
+          successModal.setAttribute('aria-hidden', 'true');
+        };
+
+        const openSuccessModal = () => {
+          successModal.classList.add('is-open');
+          successModal.setAttribute('aria-hidden', 'false');
+          successModalClose.focus();
+        };
+
+        Object.values(fields).forEach((field) => {
+          field.addEventListener('blur', () => {
+            touchedFields.add(field.name);
+            validateField(field);
+          });
+
+          field.addEventListener('input', () => {
+            if (touchedFields.has(field.name) || field.getAttribute('aria-invalid') === 'true') {
+              validateField(field);
+            }
+          });
+        });
+
+        successModalClose.addEventListener('click', closeSuccessModal);
+        successModal.addEventListener('click', (event) => {
+          if (event.target === successModal) {
+            closeSuccessModal();
+          }
+        });
+
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' && successModal.classList.contains('is-open')) {
+            closeSuccessModal();
+          }
+        });
+
         form.addEventListener('submit', async (event) => {
           event.preventDefault();
           setStatus('');
 
-          if (!form.reportValidity()) return;
+          Object.keys(fields).forEach((fieldName) => touchedFields.add(fieldName));
+          if (!validateForm()) return;
 
           try {
+            fields.nombre.value = fields.nombre.value.trim();
+            fields.apellido.value = fields.apellido.value.trim();
+            fields.telefono.value = fields.telefono.value.trim();
+            fields.email.value = fields.email.value.trim();
+
+            submitButton.disabled = true;
+            submitButton.textContent = 'Enviando...';
+
             const response = await fetch('/', {
               method: 'POST',
               headers: {
@@ -513,10 +790,17 @@
               throw new Error(`HTTP ${response.status}`);
             }
 
-            setStatus('Gracias! Recibimos tus datos.', 'success');
             form.reset();
+            Object.values(fields).forEach((field) => {
+              setFieldError(field, '');
+            });
+            touchedFields.clear();
+            openSuccessModal();
           } catch (error) {
             setStatus('No se pudo enviar el formulario. Probá de nuevo.', 'error');
+          } finally {
+            submitButton.disabled = false;
+            submitButton.textContent = 'Enviar';
           }
         });
       })();
