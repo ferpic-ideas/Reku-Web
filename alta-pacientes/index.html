@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-ZSMXJM9MK5"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag('js', new Date());
+      gtag('config', 'G-ZSMXJM9MK5');
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <title>Alta de pacientes | Reku</title>
+    <meta name="robots" content="noindex, follow" />
+    <meta
+      name="description"
+      content="Formulario de alta de pacientes para Reku."
+    />
+    <link rel="canonical" href="https://www.reku.io/alta-pacientes/" />
+
+    <meta property="og:locale" content="es_AR" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Alta de pacientes | Reku" />
+    <meta
+      property="og:description"
+      content="Formulario de alta de pacientes para Reku."
+    />
+    <meta property="og:url" content="https://www.reku.io/alta-pacientes/" />
+    <meta property="og:site_name" content="Reku" />
+    <meta property="og:image" content="https://www.reku.io/images/og-reku.jpg" />
+
+    <link rel="icon" href="/favicon-32x32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon-16x16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --navy: #2f3a68;
+        --navy-mid: #3d4d80;
+        --navy-light: #eceef5;
+        --cyan: #6fc5d2;
+        --cyan-dark: #4aa8b8;
+        --cyan-light: #edf8fa;
+        --muted: #6b7a99;
+        --white: #ffffff;
+        --gray: #f7f8fc;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        min-height: 100vh;
+        font-family: 'DM Sans', sans-serif;
+        color: var(--navy);
+        background:
+          radial-gradient(circle at 16% 20%, rgba(111, 197, 210, 0.18), transparent 34%),
+          linear-gradient(180deg, var(--cyan-light) 0%, #ffffff 58%);
+        font-size: 16px;
+        line-height: 1.6;
+      }
+
+      nav {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 68px;
+        padding: 0 60px;
+        background: rgba(255, 255, 255, 0.96);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(47, 58, 104, 0.08);
+      }
+
+      .nav-logo {
+        display: flex;
+        align-items: center;
+        text-decoration: none;
+      }
+
+      .nav-logo img {
+        display: block;
+        height: 48px;
+        width: auto;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 44px;
+        padding: 9px 20px;
+        border: none;
+        border-radius: 8px;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          background 0.2s,
+          border-color 0.2s,
+          transform 0.2s;
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+      }
+
+      .btn-navy {
+        background: var(--navy);
+        color: var(--white);
+      }
+
+      .btn-navy:hover {
+        background: var(--navy-mid);
+      }
+
+      .btn-ghost {
+        color: var(--navy);
+        background: transparent;
+        border: 1.5px solid rgba(47, 58, 104, 0.2);
+      }
+
+      .btn-ghost:hover {
+        border-color: var(--navy);
+      }
+
+      .btn-lg {
+        min-height: 52px;
+        padding: 14px 28px;
+        border-radius: 10px;
+        font-size: 15px;
+      }
+
+      main {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: calc(100vh - 68px);
+        padding: 72px 60px 88px;
+      }
+
+      .page-shell {
+        width: 100%;
+        max-width: 920px;
+      }
+
+      .eyebrow {
+        margin-bottom: 14px;
+        color: var(--cyan-dark);
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 760px;
+        margin-bottom: 16px;
+        font-family: 'DM Serif Display', serif;
+        font-size: clamp(40px, 6vw, 72px);
+        font-weight: 400;
+        line-height: 0.95;
+        color: var(--navy);
+      }
+
+      .lead {
+        max-width: 620px;
+        margin-bottom: 36px;
+        color: var(--muted);
+        font-size: 19px;
+        line-height: 1.6;
+      }
+
+      .contact-form-shell {
+        max-width: 920px;
+        margin: 0 auto;
+      }
+
+      .contact-form-card {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(47, 58, 104, 0.08);
+        border-radius: 24px;
+        padding: 32px;
+        text-align: left;
+        box-shadow: 0 20px 50px rgba(47, 58, 104, 0.08);
+      }
+
+      .contact-form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .contact-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .contact-field label {
+        color: var(--navy);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .contact-field input {
+        width: 100%;
+        border: 1px solid rgba(47, 58, 104, 0.14);
+        border-radius: 12px;
+        padding: 14px 16px;
+        font: inherit;
+        color: var(--navy);
+        background: var(--white);
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+        appearance: none;
+      }
+
+      .contact-field input::placeholder {
+        color: rgba(107, 122, 153, 0.7);
+      }
+
+      .contact-field input:focus {
+        outline: none;
+        border-color: rgba(74, 168, 184, 0.8);
+        box-shadow: 0 0 0 4px rgba(111, 197, 210, 0.18);
+      }
+
+      .contact-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 24px;
+        flex-wrap: wrap;
+      }
+
+      .contact-note {
+        max-width: 460px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .contact-status {
+        min-height: 24px;
+        margin-top: 16px;
+        color: var(--navy);
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      .contact-status.is-error {
+        color: #b54747;
+      }
+
+      .contact-status.is-success {
+        color: var(--cyan-dark);
+      }
+
+      footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 28px 60px;
+        border-top: 1px solid rgba(47, 58, 104, 0.08);
+        background: var(--white);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .footer-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .footer-logo {
+        display: block;
+        height: 30px;
+        width: auto;
+      }
+
+      .footer-links {
+        display: flex;
+        gap: 18px;
+      }
+
+      .footer-links a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+
+      .footer-links a:hover {
+        color: var(--navy);
+      }
+
+      @media (max-width: 768px) {
+        nav {
+          height: 64px;
+          padding: 0 20px;
+        }
+
+        .nav-logo img {
+          height: 44px;
+        }
+
+        main {
+          min-height: calc(100vh - 64px);
+          padding: 48px 20px 64px;
+        }
+
+        h1 {
+          font-size: 38px;
+          line-height: 1.05;
+        }
+
+        .lead {
+          margin-bottom: 28px;
+          font-size: 17px;
+        }
+
+        .contact-form-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .contact-form-card {
+          padding: 20px;
+          border-radius: 20px;
+        }
+
+        .contact-actions {
+          align-items: stretch;
+        }
+
+        .btn,
+        .btn-lg {
+          width: 100%;
+        }
+
+        footer {
+          flex-direction: column;
+          align-items: flex-start;
+          padding: 24px 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a class="nav-logo" href="/" aria-label="Reku">
+        <img src="/images/logo-reku.svg" alt="Reku" />
+      </a>
+      <a class="btn btn-ghost" href="/">Volver al sitio</a>
+    </nav>
+
+    <main>
+      <div class="page-shell">
+        <p class="eyebrow">Reku</p>
+        <h1>Alta de pacientes</h1>
+        <p class="lead">
+          Completá tus datos para que el equipo de Reku pueda iniciar el alta y
+          contactarte.
+        </p>
+
+        <div class="contact-form-shell">
+          <form
+            class="contact-form-card"
+            id="alta-pacientes-form"
+            name="alta-pacientes"
+            method="POST"
+            data-netlify="true"
+            netlify-honeypot="bot-field"
+          >
+            <input type="hidden" name="form-name" value="alta-pacientes" />
+            <input
+              type="hidden"
+              name="subject"
+              data-remove-prefix
+              value="Alta de paciente desde QR - Reku"
+            />
+            <input type="hidden" name="bot-field" />
+
+            <div class="contact-form-grid">
+              <div class="contact-field">
+                <label for="nombre">Nombre</label>
+                <input
+                  id="nombre"
+                  name="nombre"
+                  type="text"
+                  autocomplete="given-name"
+                  required
+                />
+              </div>
+
+              <div class="contact-field">
+                <label for="apellido">Apellido</label>
+                <input
+                  id="apellido"
+                  name="apellido"
+                  type="text"
+                  autocomplete="family-name"
+                  required
+                />
+              </div>
+
+              <div class="contact-field">
+                <label for="telefono">Teléfono</label>
+                <input
+                  id="telefono"
+                  name="telefono"
+                  type="tel"
+                  autocomplete="tel"
+                  inputmode="tel"
+                  placeholder="+54 9 11 1234 5678"
+                  required
+                />
+              </div>
+
+              <div class="contact-field">
+                <label for="email">Mail</label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  placeholder="nombre@email.com"
+                  required
+                />
+              </div>
+            </div>
+
+            <div class="contact-actions">
+              <p class="contact-note">Todos los campos son obligatorios.</p>
+              <button type="submit" class="btn btn-navy btn-lg">Enviar</button>
+            </div>
+
+            <p class="contact-status" id="contact-status" aria-live="polite"></p>
+          </form>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <div class="footer-brand">
+        <img class="footer-logo" src="/images/logo-reku.svg" alt="Reku" />
+        <span>© 2026 · hola@reku.io</span>
+      </div>
+      <div class="footer-links">
+        <a
+          href="https://www.instagram.com/reku_online/"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Instagram</a
+        >
+        <a
+          href="https://www.linkedin.com/company/reku"
+          target="_blank"
+          rel="noopener noreferrer"
+          >LinkedIn</a
+        >
+      </div>
+    </footer>
+
+    <script>
+      (() => {
+        const form = document.getElementById('alta-pacientes-form');
+        const status = document.getElementById('contact-status');
+        if (!form || !status) return;
+
+        const setStatus = (message, type) => {
+          status.textContent = message;
+          status.className = 'contact-status';
+          if (type) {
+            status.classList.add(`is-${type}`);
+          }
+        };
+
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          setStatus('');
+
+          if (!form.reportValidity()) return;
+
+          try {
+            const response = await fetch('/', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams(new FormData(form)).toString(),
+            });
+
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+
+            setStatus('Gracias! Recibimos tus datos.', 'success');
+            form.reset();
+          } catch (error) {
+            setStatus('No se pudo enviar el formulario. Probá de nuevo.', 'error');
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>
