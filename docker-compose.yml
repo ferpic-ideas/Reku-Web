@@ -24,6 +24,18 @@ services:
       - traefik.http.routers.reku-web.entrypoints=websecure
       - traefik.http.routers.reku-web.tls.certresolver=letsencrypt
       - traefik.http.routers.reku-web.service=reku-web
+      - traefik.http.routers.reku-web-www.rule=Host(`www.reku.io`)
+      - traefik.http.routers.reku-web-www.entrypoints=websecure
+      - traefik.http.routers.reku-web-www.tls.certresolver=letsencrypt
+      - traefik.http.routers.reku-web-www.service=reku-web
+      - traefik.http.routers.reku-web-apex.rule=Host(`reku.io`)
+      - traefik.http.routers.reku-web-apex.entrypoints=websecure
+      - traefik.http.routers.reku-web-apex.tls.certresolver=letsencrypt
+      - traefik.http.routers.reku-web-apex.middlewares=reku-apex-to-www
+      - traefik.http.routers.reku-web-apex.service=reku-web
+      - traefik.http.middlewares.reku-apex-to-www.redirectregex.regex=^https?://reku\.io/(.*)
+      - traefik.http.middlewares.reku-apex-to-www.redirectregex.replacement=https://www.reku.io/$${1}
+      - traefik.http.middlewares.reku-apex-to-www.redirectregex.permanent=true
       - traefik.http.services.reku-web.loadbalancer.server.port=3000
     networks:
       - proxy
