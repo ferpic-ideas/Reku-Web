@@ -10,8 +10,11 @@ services:
       PORT: "3000"
       CONTACT_TO_EMAIL: ${CONTACT_TO_EMAIL:-hola@reku.io}
       PATIENT_INTAKE_TO_EMAIL: ${PATIENT_INTAKE_TO_EMAIL:-altas-pacientes@reku.io}
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Reku <onboarding@resend.dev>}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-}
+      SES_FROM_EMAIL: ${SES_FROM_EMAIL:-Reku <hola@reku.io>}
     expose:
       - "3000"
     labels:

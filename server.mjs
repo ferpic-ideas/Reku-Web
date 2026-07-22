@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { createHash, createHmac } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,8 +12,8 @@ const maxBodyBytes = 25_000;
 const contactToEmail = process.env.CONTACT_TO_EMAIL || "hola@reku.io";
 const patientIntakeToEmail =
   process.env.PATIENT_INTAKE_TO_EMAIL || "altas-pacientes@reku.io";
-const resendFromEmail =
-  process.env.RESEND_FROM_EMAIL || "Reku <onboarding@resend.dev>";
+const sesFromEmail = process.env.SES_FROM_EMAIL || "Reku <hola@reku.io>";
+const awsRegion = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "";
 const emailDryRun = process.env.EMAIL_DRY_RUN === "true";
 
 const mimeTypes = {
@@ -228,6 +229,92 @@ const buildEmail = (submission) => {
   };
 };
 
+const parseJson = (value) => {
+  try {
+    return JSON.parse(value || "{}");
+  } catch {
+    return {};
+  }
+};
+
+const getAwsTimestamp = () =>
+  new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+
+const hashSha256 = (value) =>
+  createHash("sha256").update(value, "utf8").digest("hex");
+
+const hmacSha256 = (key, value, encoding) =>
+  createHmac("sha256", key).update(value, "utf8").digest(encoding);
+
+const getAwsSigningKey = (secretAccessKey, dateStamp, region, service) => {
+  const dateKey = hmacSha256(`AWS4${secretAccessKey}`, dateStamp);
+  const regionKey = hmacSha256(dateKey, region);
+  const serviceKey = hmacSha256(regionKey, service);
+  return hmacSha256(serviceKey, "aws4_request");
+};
+
+const signAwsRequest = ({ body, host, method, path, region, service }) => {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  const sessionToken = process.env.AWS_SESSION_TOKEN;
+
+  if (!accessKeyId || !secretAccessKey || !region) {
+    throw new Error("SES_CONFIGURATION_MISSING");
+  }
+
+  const amzDate = getAwsTimestamp();
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadHash = hashSha256(body);
+  const headers = {
+    "content-type": "application/json",
+    host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": amzDate,
+  };
+
+  if (sessionToken) {
+    headers["x-amz-security-token"] = sessionToken;
+  }
+
+  const signedHeaderNames = Object.keys(headers).sort();
+  const canonicalHeaders = signedHeaderNames
+    .map((name) => `${name}:${headers[name]}\n`)
+    .join("");
+  const signedHeaders = signedHeaderNames.join(";");
+  const canonicalRequest = [
+    method,
+    path,
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    hashSha256(canonicalRequest),
+  ].join("\n");
+  const signingKey = getAwsSigningKey(
+    secretAccessKey,
+    dateStamp,
+    region,
+    service,
+  );
+  const signature = hmacSha256(signingKey, stringToSign, "hex");
+
+  return {
+    ...headers,
+    authorization: [
+      "AWS4-HMAC-SHA256",
+      `Credential=${accessKeyId}/${credentialScope},`,
+      `SignedHeaders=${signedHeaders},`,
+      `Signature=${signature}`,
+    ].join(" "),
+  };
+};
+
 const sendEmail = async (submission) => {
   if (emailDryRun) {
     console.log("EMAIL_DRY_RUN", {
@@ -238,37 +325,64 @@ const sendEmail = async (submission) => {
     return { id: "dry-run" };
   }
 
-  if (!process.env.RESEND_API_KEY) {
-    throw new Error("RESEND_API_KEY_MISSING");
-  }
-
   const email = buildEmail(submission);
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
+  const host = `email.${awsRegion}.amazonaws.com`;
+  const path = "/v2/email/outbound-emails";
+  const body = JSON.stringify({
+    FromEmailAddress: sesFromEmail,
+    Destination: {
+      ToAddresses: [submission.to],
     },
-    body: JSON.stringify({
-      from: resendFromEmail,
-      to: [submission.to],
-      reply_to: submission.replyTo,
-      subject: submission.subject,
-      text: email.text,
-      html: email.html,
+    ReplyToAddresses: [submission.replyTo],
+    Content: {
+      Simple: {
+        Subject: {
+          Data: submission.subject,
+          Charset: "UTF-8",
+        },
+        Body: {
+          Text: {
+            Data: email.text,
+            Charset: "UTF-8",
+          },
+          Html: {
+            Data: email.html,
+            Charset: "UTF-8",
+          },
+        },
+      },
+    },
+  });
+  const response = await fetch(`https://${host}${path}`, {
+    method: "POST",
+    headers: signAwsRequest({
+      body,
+      host,
+      method: "POST",
+      path,
+      region: awsRegion,
+      service: "ses",
     }),
+    body,
   });
 
-  const payload = await response.json().catch(() => ({}));
+  const responseBody = await response.text();
+  const payload = parseJson(responseBody);
+
   if (!response.ok) {
-    console.error("Resend error", {
+    console.error("SES error", {
       status: response.status,
-      error: payload?.message || payload?.error || "unknown",
+      error:
+        payload?.message ||
+        payload?.Message ||
+        payload?.__type ||
+        responseBody.slice(0, 300) ||
+        "unknown",
     });
-    throw new Error("RESEND_SEND_FAILED");
+    throw new Error("SES_SEND_FAILED");
   }
 
-  return payload;
+  return { id: payload.MessageId };
 };
 
 const handleFormSubmission = async (request, response) => {
@@ -305,7 +419,7 @@ const handleFormSubmission = async (request, response) => {
     const result = await sendEmail(submission);
     sendJson(response, 200, { ok: true, id: result?.id });
   } catch (error) {
-    const statusCode = error.message === "RESEND_API_KEY_MISSING" ? 503 : 502;
+    const statusCode = error.message === "SES_CONFIGURATION_MISSING" ? 503 : 502;
     sendJson(response, statusCode, {
       error: "No se pudo enviar el formulario. Probá de nuevo.",
     });
