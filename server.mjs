@@ -131,7 +131,7 @@ const validateEmail = (value, { corporate = false } = {}) => {
 };
 
 const normalizeSubmission = (params) => {
-  const formName = getTrimmed(params, "form-name");
+  const formName = getTrimmed(params, "reku-form");
 
   if (formName === "contact") {
     return {
@@ -395,7 +395,7 @@ const handleFormSubmission = async (request, response) => {
     return;
   }
 
-  if (getTrimmed(params, "bot-field")) {
+  if (getTrimmed(params, "website")) {
     sendJson(response, 200, { ok: true });
     return;
   }
