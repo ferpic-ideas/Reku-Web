@@ -1,0 +1,31 @@
+name: reku-web
+
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      CONTACT_TO_EMAIL: ${CONTACT_TO_EMAIL:-hola@reku.io}
+      PATIENT_INTAKE_TO_EMAIL: ${PATIENT_INTAKE_TO_EMAIL:-altas-pacientes@reku.io}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Reku <onboarding@resend.dev>}
+    expose:
+      - "3000"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=vicky-recetas_default
+      - traefik.http.routers.reku-web.rule=Host(`reku-web.srv1699600.hstgr.cloud`)
+      - traefik.http.routers.reku-web.entrypoints=websecure
+      - traefik.http.routers.reku-web.tls.certresolver=letsencrypt
+      - traefik.http.routers.reku-web.service=reku-web
+      - traefik.http.services.reku-web.loadbalancer.server.port=3000
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: vicky-recetas_default

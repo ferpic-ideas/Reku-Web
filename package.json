@@ -1,0 +1,11 @@
+{
+  "name": "reku-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo 'Static site; no build step'",
+    "start": "node server.mjs",
+    "check": "node --check server.mjs"
+  }
+}
