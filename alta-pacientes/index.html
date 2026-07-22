@@ -186,6 +186,63 @@
         line-height: 1.6;
       }
 
+      [hidden] {
+        display: none !important;
+      }
+
+      .agreement-panel {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        max-width: 920px;
+        margin: 0 0 22px;
+        padding: 18px;
+        border: 1px solid rgba(47, 58, 104, 0.08);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: 0 14px 34px rgba(47, 58, 104, 0.07);
+      }
+
+      .agreement-brand-lockup {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .agreement-brand-logo {
+        max-width: 148px;
+        max-height: 52px;
+        width: auto;
+        height: auto;
+        display: block;
+        object-fit: contain;
+      }
+
+      .agreement-brand-separator {
+        width: 1px;
+        height: 44px;
+        background: rgba(47, 58, 104, 0.16);
+      }
+
+      .agreement-copy {
+        display: grid;
+        gap: 2px;
+      }
+
+      .agreement-copy strong {
+        color: var(--navy);
+        font-size: 15px;
+        line-height: 1.2;
+      }
+
+      .agreement-copy span {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.3;
+      }
+
       .contact-form-shell {
         max-width: 920px;
         margin: 0 auto;
@@ -428,6 +485,21 @@
           font-size: 17px;
         }
 
+        .agreement-panel {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .agreement-brand-lockup {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .agreement-brand-separator {
+          width: 100%;
+          height: 1px;
+        }
+
         .contact-form-grid {
           grid-template-columns: 1fr;
         }
@@ -475,6 +547,30 @@
           contactarte.
         </p>
 
+        <div class="agreement-panel" id="agreement-panel" hidden>
+          <div class="agreement-brand-lockup">
+            <img
+              class="agreement-brand-logo"
+              src="/images/logo-reku.svg"
+              alt="Reku"
+            />
+            <span class="agreement-brand-separator" aria-hidden="true"></span>
+            <img
+              class="agreement-brand-logo"
+              id="agreement-logo"
+              alt=""
+              hidden
+            />
+            <div class="agreement-copy">
+              <strong id="agreement-name"></strong>
+              <span id="agreement-type"></span>
+            </div>
+          </div>
+          <a class="btn btn-ghost" id="agreement-pdf-link" href="#" hidden>
+            Cómo funciona
+          </a>
+        </div>
+
         <div class="contact-form-shell">
           <form
             class="contact-form-card"
@@ -484,13 +580,8 @@
             novalidate
           >
             <input type="hidden" name="reku-form" value="alta-pacientes" />
-            <input
-              type="hidden"
-              name="subject"
-              data-remove-prefix
-              value="Alta de paciente desde QR - Reku"
-            />
             <input type="hidden" name="website" />
+            <input type="hidden" name="agreement_slug" id="agreement-slug" />
 
             <div class="contact-form-grid">
               <div class="contact-field">
@@ -547,10 +638,28 @@
                 />
                 <p class="field-error" id="email-error" aria-live="polite"></p>
               </div>
+
+              <div class="contact-field" id="identificador-field" hidden>
+                <label for="identificador">Identificador</label>
+                <input
+                  id="identificador"
+                  name="identificador"
+                  type="text"
+                  autocomplete="off"
+                  aria-describedby="identificador-error"
+                />
+                <p
+                  class="field-error"
+                  id="identificador-error"
+                  aria-live="polite"
+                ></p>
+              </div>
             </div>
 
             <div class="contact-actions">
-              <p class="contact-note">Todos los campos son obligatorios.</p>
+              <p class="contact-note" id="contact-note">
+                Todos los campos son obligatorios.
+              </p>
               <button type="submit" class="btn btn-navy btn-lg" id="submit-button">
                 Enviar
               </button>
@@ -608,6 +717,14 @@
         const submitButton = document.getElementById('submit-button');
         const successModal = document.getElementById('success-modal');
         const successModalClose = document.getElementById('success-modal-close');
+        const agreementPanel = document.getElementById('agreement-panel');
+        const agreementLogo = document.getElementById('agreement-logo');
+        const agreementName = document.getElementById('agreement-name');
+        const agreementType = document.getElementById('agreement-type');
+        const agreementPdfLink = document.getElementById('agreement-pdf-link');
+        const agreementSlugField = document.getElementById('agreement-slug');
+        const identifierField = document.getElementById('identificador-field');
+        const contactNote = document.getElementById('contact-note');
         if (!form || !status || !submitButton || !successModal || !successModalClose) return;
 
         const fields = {
@@ -615,12 +732,15 @@
           apellido: form.elements.apellido,
           telefono: form.elements.telefono,
           email: form.elements.email,
+          identificador: form.elements.identificador,
         };
 
         const touchedFields = new Set();
         const namePattern = /^[\p{L}]+(?:[ '-][\p{L}]+)*$/u;
         const phonePattern = /^[+()\d\s.-]+$/;
         const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+        const formSlug = new URLSearchParams(window.location.search).get('form')?.trim() || '';
+        let agreement = null;
 
         const setStatus = (message, type) => {
           status.textContent = message;
@@ -631,6 +751,7 @@
         };
 
         const setFieldError = (field, message) => {
+          if (!field) return;
           const wrapper = field.closest('.contact-field');
           const error = document.getElementById(`${field.id}-error`);
 
@@ -687,12 +808,23 @@
           return '';
         };
 
+        const validateIdentifier = (field) => {
+          const value = field.value.trim();
+
+          if (agreement?.type === 'Nomina' && !value) {
+            return 'Ingresá tu identificador para validar la nómina.';
+          }
+
+          return '';
+        };
+
         const validateField = (field) => {
           const validators = {
             nombre: () => validateTextField(field, 'nombre'),
             apellido: () => validateTextField(field, 'apellido'),
             telefono: () => validatePhone(field),
             email: () => validateEmail(field),
+            identificador: () => validateIdentifier(field),
           };
           const message = validators[field.name]?.() || '';
           setFieldError(field, message);
@@ -703,6 +835,7 @@
           let firstInvalidField = null;
 
           Object.values(fields).forEach((field) => {
+            if (!field || field.closest('[hidden]')) return;
             const isValid = validateField(field);
             if (!isValid && !firstInvalidField) {
               firstInvalidField = field;
@@ -730,7 +863,76 @@
           successModalClose.focus();
         };
 
+        const applyServerErrors = async (response) => {
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch (error) {
+            payload = {};
+          }
+
+          if (payload.errors) {
+            Object.entries(payload.errors).forEach(([fieldName, message]) => {
+              if (fields[fieldName]) {
+                setFieldError(fields[fieldName], message);
+              }
+            });
+          }
+
+          setStatus(
+            payload.error || 'No se pudo enviar el formulario. Probá de nuevo.',
+            'error',
+          );
+        };
+
+        const loadAgreement = async () => {
+          if (!formSlug) return;
+
+          agreementSlugField.value = formSlug;
+
+          try {
+            const response = await fetch(`/api/public/agreements/${encodeURIComponent(formSlug)}`);
+            if (!response.ok) {
+              window.location.replace('/404.html');
+              return;
+            }
+
+            const payload = await response.json();
+            agreement = payload.agreement;
+
+            if (agreementPanel && agreementName && agreementType) {
+              agreementPanel.hidden = false;
+              agreementName.textContent = agreement.name;
+              agreementType.textContent =
+                agreement.type === 'Nomina'
+                  ? 'Validación por nómina'
+                  : 'Acuerdo con pago de consulta';
+            }
+
+            if (agreementLogo && agreement.logo_url) {
+              agreementLogo.src = agreement.logo_url;
+              agreementLogo.alt = agreement.name;
+              agreementLogo.hidden = false;
+            }
+
+            if (agreementPdfLink && agreement.pdf_url) {
+              agreementPdfLink.href = agreement.pdf_url;
+              agreementPdfLink.hidden = false;
+            }
+
+            if (agreement.type === 'Nomina' && identifierField && fields.identificador) {
+              identifierField.hidden = false;
+              fields.identificador.required = true;
+              contactNote.textContent =
+                'Todos los campos son obligatorios, incluido el identificador de nómina.';
+            }
+          } catch (error) {
+            setStatus('No se pudo cargar el acuerdo. Probá de nuevo.', 'error');
+          }
+        };
+
         Object.values(fields).forEach((field) => {
+          if (!field) return;
           field.addEventListener('blur', () => {
             touchedFields.add(field.name);
             validateField(field);
@@ -768,6 +970,9 @@
             fields.apellido.value = fields.apellido.value.trim();
             fields.telefono.value = fields.telefono.value.trim();
             fields.email.value = fields.email.value.trim();
+            if (fields.identificador) {
+              fields.identificador.value = fields.identificador.value.trim();
+            }
 
             submitButton.disabled = true;
             submitButton.textContent = 'Enviando...';
@@ -781,7 +986,8 @@
             });
 
             if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
+              await applyServerErrors(response);
+              return;
             }
 
             form.reset();
@@ -797,6 +1003,8 @@
             submitButton.textContent = 'Enviar';
           }
         });
+
+        loadAgreement();
       })();
     </script>
   </body>
