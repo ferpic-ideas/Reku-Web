@@ -410,6 +410,13 @@
         margin: 0 auto;
       }
 
+      .success-modal-actions {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
       footer {
         display: flex;
         align-items: center;
@@ -667,9 +674,14 @@
         <div class="success-modal-mark" aria-hidden="true">✓</div>
         <h2 id="success-modal-title">Formulario enviado</h2>
         <p>El formulario se envió con éxito. Te contactaremos a la brevedad.</p>
-        <button type="button" class="btn btn-navy btn-lg" id="success-modal-close">
-          Entendido
-        </button>
+        <div class="success-modal-actions">
+          <a class="btn btn-navy btn-lg" id="booking-link" href="#" hidden>
+            Reservar turno
+          </a>
+          <button type="button" class="btn btn-ghost btn-lg" id="success-modal-close">
+            Entendido
+          </button>
+        </div>
       </div>
     </div>
 
@@ -701,6 +713,7 @@
         const submitButton = document.getElementById('submit-button');
         const successModal = document.getElementById('success-modal');
         const successModalClose = document.getElementById('success-modal-close');
+        const bookingLink = document.getElementById('booking-link');
         const agreementPanel = document.getElementById('agreement-panel');
         const agreementBrandLockup = document.getElementById('agreement-brand-lockup');
         const agreementLogo = document.getElementById('agreement-logo');
@@ -979,6 +992,15 @@
             if (!response.ok) {
               await applyServerErrors(response);
               return;
+            }
+
+            const payload = await response.json().catch(() => ({}));
+            if (bookingLink && payload.booking_url) {
+              bookingLink.href = payload.booking_url;
+              bookingLink.hidden = false;
+            } else if (bookingLink) {
+              bookingLink.href = '#';
+              bookingLink.hidden = true;
             }
 
             form.reset();

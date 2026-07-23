@@ -113,9 +113,24 @@ export const saveAgreementPdf = async (file) => {
   return saveAgreementFile(file.buffer, ".pdf");
 };
 
+export const saveProfessionalPhoto = async (file) => {
+  if (!file) return "";
+  const extension = imageMimeTypes.get(file.mimeType);
+  if (!extension) {
+    const error = new Error("INVALID_IMAGE");
+    error.statusCode = 415;
+    throw error;
+  }
+  return saveUploadFile("professionals", file.buffer, extension);
+};
+
 const saveAgreementFile = async (buffer, extension) => {
-  await mkdir(join(uploadRoot, "agreements"), { recursive: true });
-  const relativePath = `agreements/${randomUUID()}${extension}`;
+  return saveUploadFile("agreements", buffer, extension);
+};
+
+const saveUploadFile = async (folder, buffer, extension) => {
+  await mkdir(join(uploadRoot, folder), { recursive: true });
+  const relativePath = `${folder}/${randomUUID()}${extension}`;
   await writeFile(join(uploadRoot, relativePath), buffer, { mode: 0o640 });
   return relativePath;
 };

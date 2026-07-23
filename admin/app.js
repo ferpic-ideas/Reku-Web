@@ -5,13 +5,23 @@
   const state = {
     user: null,
     loading: true,
-    active: 'agreements',
+    active: 'dashboard',
     userMenuOpen: false,
     editingAgreementId: null,
+    editingServiceId: null,
+    editingProfessionalId: null,
     agreements: [],
     patientIntakes: [],
     contacts: [],
     nominaEntries: [],
+    dashboard: null,
+    services: [],
+    professionals: [],
+    appointments: [],
+    scheduleBlocks: [],
+    auditEvents: [],
+    mercadoPagoSettings: null,
+    testBookingUrl: '',
     agreementTypeFilter: '',
     agreementCobrandFilter: '',
     agreementTextFilter: '',
@@ -25,10 +35,26 @@
   };
 
   const modules = [
+    { id: 'dashboard', label: 'Dashboard' },
     { id: 'agreements', label: 'Acuerdos' },
     { id: 'nomina', label: 'Nóminas' },
     { id: 'patient-intakes', label: 'Altas Pacientes' },
     { id: 'contacts', label: 'Contactos' },
+    { id: 'services', label: 'Servicios' },
+    { id: 'professionals', label: 'Profesionales' },
+    { id: 'appointments', label: 'Turnos' },
+    { id: 'blocks', label: 'Bloquear horario' },
+    { id: 'booking-test', label: 'Probar Agenda' },
+  ];
+
+  const dayLabels = [
+    { id: 1, label: 'Lunes' },
+    { id: 2, label: 'Martes' },
+    { id: 3, label: 'Miércoles' },
+    { id: 4, label: 'Jueves' },
+    { id: 5, label: 'Viernes' },
+    { id: 6, label: 'Sábado' },
+    { id: 7, label: 'Domingo' },
   ];
 
   const escapeHtml = (value) =>
@@ -46,6 +72,18 @@
       timeStyle: 'short',
     }).format(new Date(value));
   };
+
+  const formatMoney = (value) =>
+    new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS',
+      maximumFractionDigits: 0,
+    }).format(Number(value || 0));
+
+  const todayInput = () => new Date().toISOString().slice(0, 10);
+
+  const dayLabel = (dayOfWeek) =>
+    dayLabels.find((day) => day.id === Number(dayOfWeek))?.label || '';
 
   const setStatus = (message, type = '') => {
     state.status = message;
@@ -107,16 +145,36 @@
   }
 
   async function loadData() {
-    const [agreementData, patientData, contactData, nominaData] = await Promise.all([
+    const [
+      dashboardData,
+      agreementData,
+      patientData,
+      contactData,
+      nominaData,
+      serviceData,
+      professionalData,
+      appointmentData,
+      blockData,
+    ] = await Promise.all([
+      api('/api/admin/dashboard'),
       api('/api/admin/agreements'),
       api(`/api/admin/patient-intakes${state.patientAgreementFilter ? `?agreement_id=${state.patientAgreementFilter}` : ''}`),
       api('/api/admin/contacts'),
       api(`/api/admin/nomina${state.nominaAgreementFilter ? `?agreement_id=${state.nominaAgreementFilter}` : ''}`),
+      api('/api/admin/services'),
+      api('/api/admin/professionals'),
+      api('/api/admin/appointments'),
+      api('/api/admin/schedule-blocks'),
     ]);
+    state.dashboard = dashboardData.dashboard || null;
     state.agreements = agreementData.agreements || [];
     state.patientIntakes = patientData.patient_intakes || [];
     state.contacts = contactData.contacts || [];
     state.nominaEntries = nominaData.nomina_entries || [];
+    state.services = serviceData.services || [];
+    state.professionals = professionalData.professionals || [];
+    state.appointments = appointmentData.appointments || [];
+    state.scheduleBlocks = blockData.schedule_blocks || [];
   }
 
   function render() {
@@ -175,6 +233,14 @@
                 ${escapeHtml(state.user.email)} ▾
               </button>
               <div class="user-menu-popover" ${state.userMenuOpen ? '' : 'hidden'}>
+                ${
+                  state.user.can_manage_system
+                    ? `
+                      <button type="button" class="dropdown-button" data-action="open-config">Configurar</button>
+                      <button type="button" class="dropdown-button" data-action="open-audit">Auditoría</button>
+                    `
+                    : ''
+                }
                 <button type="button" class="dropdown-button" data-action="change-password">Cambiar clave</button>
                 <button type="button" class="dropdown-button" data-action="logout">Salir</button>
               </div>
@@ -216,14 +282,24 @@
   }
 
   function activeModuleLabel() {
+    if (state.active === 'config') return 'Configurar';
+    if (state.active === 'audit') return 'Auditoría';
     return modules.find((module) => module.id === state.active)?.label || 'Admin';
   }
 
   function renderActiveModule() {
+    if (state.active === 'dashboard') return renderDashboard();
     if (state.active === 'agreements') return renderAgreements();
     if (state.active === 'patient-intakes') return renderPatientIntakes();
     if (state.active === 'contacts') return renderContacts();
     if (state.active === 'nomina') return renderNomina();
+    if (state.active === 'services') return renderServices();
+    if (state.active === 'professionals') return renderProfessionals();
+    if (state.active === 'appointments') return renderAppointments();
+    if (state.active === 'blocks') return renderScheduleBlocks();
+    if (state.active === 'booking-test') return renderBookingTest();
+    if (state.active === 'config') return renderConfig();
+    if (state.active === 'audit') return renderAudit();
     return '';
   }
 
@@ -309,7 +385,579 @@
       `;
     }
 
+    if (state.dialog.type === 'service-form') {
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel" id="service-form">
+            <div class="modal-header">
+              <h2>${state.editingServiceId ? 'Editar servicio' : 'Nuevo servicio'}</h2>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            ${renderServiceFormFields()}
+          </form>
+        </div>
+      `;
+    }
+
+    if (state.dialog.type === 'professional-form') {
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel modal-panel-wide" id="professional-form">
+            <div class="modal-header">
+              <h2>${state.editingProfessionalId ? 'Editar profesional' : 'Nuevo profesional'}</h2>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            ${renderProfessionalFormFields()}
+          </form>
+        </div>
+      `;
+    }
+
+    if (state.dialog.type === 'schedule-block-form') {
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel" id="schedule-block-form">
+            <div class="modal-header">
+              <h2>Bloquear horario</h2>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            ${renderScheduleBlockFormFields()}
+          </form>
+        </div>
+      `;
+    }
+
     return '';
+  }
+
+  function renderDashboard() {
+    const data = state.dashboard || {};
+    const cards = [
+      ['Contactos', data.contacts || 0],
+      ['Altas Pacientes', data.patient_intakes || 0],
+      ['Turnos', data.appointments || 0],
+      ['Facturado', formatMoney(data.revenue || 0)],
+      ['Servicios activos', data.services || 0],
+      ['Profesionales activos', data.professionals || 0],
+      ['Bloqueos próximos', data.upcoming_blocks || 0],
+    ];
+
+    return `
+      <section class="dashboard-grid">
+        ${cards
+          .map(
+            ([label, value]) => `
+              <article class="metric-card">
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(value)}</strong>
+              </article>
+            `,
+          )
+          .join('')}
+      </section>
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Próximos turnos</h2>
+        </div>
+        ${renderAppointmentsTable(state.appointments.slice(0, 8))}
+      </section>
+    `;
+  }
+
+  function serviceFormValues() {
+    return (
+      state.services.find((service) => service.id === state.editingServiceId) || {
+        name: '',
+        duration_minutes: 30,
+        cost_amount: '',
+        payment_url: '',
+        active: true,
+      }
+    );
+  }
+
+  function renderServiceFormFields() {
+    const item = serviceFormValues();
+    return `
+      <div class="grid-two">
+        <label class="span-two">
+          Nombre
+          <input name="name" value="${escapeHtml(item.name)}" required />
+        </label>
+        <label>
+          Duración en minutos
+          <input name="duration_minutes" type="number" min="5" step="5" value="${escapeHtml(item.duration_minutes)}" required />
+        </label>
+        <label>
+          Costo
+          <input name="cost_amount" type="number" min="0" step="0.01" value="${escapeHtml(item.cost_amount)}" required />
+        </label>
+        <label class="span-two">
+          Link de pago Checkout Pro
+          <input name="payment_url" type="url" value="${escapeHtml(item.payment_url)}" placeholder="https://www.mercadopago.com.ar/..." required />
+        </label>
+        <label class="check-row span-two">
+          <input type="checkbox" name="active" ${item.active ? 'checked' : ''} />
+          Activo
+        </label>
+        <div class="form-actions span-two">
+          <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
+          <button type="submit" class="primary-button">Guardar servicio</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderServices() {
+    return `
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Servicios</h2>
+          <button type="button" class="primary-button" data-action="new-service">Nuevo</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Duración</th>
+                <th>Costo</th>
+                <th>Pago</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                state.services.length
+                  ? state.services.map(renderServiceRow).join('')
+                  : '<tr><td colspan="6">No hay servicios cargados.</td></tr>'
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderServiceRow(service) {
+    return `
+      <tr>
+        <td><strong>${escapeHtml(service.name)}</strong></td>
+        <td>${escapeHtml(service.duration_minutes)} min</td>
+        <td>${escapeHtml(formatMoney(service.cost_amount))}</td>
+        <td><a href="${escapeHtml(service.payment_url)}" target="_blank" rel="noreferrer">Checkout Pro</a></td>
+        <td>${service.active ? 'Activo' : 'Inactivo'}</td>
+        <td>
+          <div class="table-actions">
+            <button type="button" class="secondary-button" data-action="edit-service" data-id="${service.id}">Editar</button>
+            <button type="button" class="danger-button" data-action="delete-service" data-id="${service.id}">Eliminar</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  function professionalFormValues() {
+    return (
+      state.professionals.find((professional) => professional.id === state.editingProfessionalId) || {
+        name: '',
+        email: '',
+        photo_url: '',
+        active: true,
+        services: [],
+        availability: [],
+      }
+    );
+  }
+
+  function servicesForProfessional(item) {
+    const selected = new Set((item.services || []).map((service) => Number(service.id)));
+    return state.services
+      .filter((service) => service.active)
+      .map(
+        (service) => `
+          <label class="check-row compact-check">
+            <input type="checkbox" name="service_ids" value="${service.id}" ${selected.has(service.id) ? 'checked' : ''} />
+            ${escapeHtml(service.name)}
+          </label>
+        `,
+      )
+      .join('');
+  }
+
+  function availabilityByDay(item, dayId) {
+    return (item.availability || []).filter((range) => Number(range.day_of_week) === dayId);
+  }
+
+  function renderAvailabilityEditor(item) {
+    return `
+      <div class="availability-editor span-two">
+        <h3>Horario de trabajo</h3>
+        ${dayLabels
+          .map((day) => {
+            const ranges = availabilityByDay(item, day.id);
+            const dayRanges = ranges.length
+              ? ranges
+              : [{ start_time: '09:00', end_time: '18:00' }];
+            return `
+              <div class="availability-day" data-day="${day.id}">
+                <label class="check-row availability-day-toggle">
+                  <input type="checkbox" ${ranges.length ? 'checked' : ''} />
+                  ${escapeHtml(day.label)}
+                </label>
+                <div class="availability-ranges">
+                  ${dayRanges.map(renderAvailabilityRange).join('')}
+                </div>
+                <button type="button" class="link-button" data-action="add-availability-range" data-day="${day.id}">+ Agregar horario</button>
+              </div>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+  }
+
+  function renderAvailabilityRange(range) {
+    return `
+      <div class="availability-range">
+        <input type="time" data-field="start_time" value="${escapeHtml(String(range.start_time || '09:00').slice(0, 5))}" />
+        <span>a</span>
+        <input type="time" data-field="end_time" value="${escapeHtml(String(range.end_time || '18:00').slice(0, 5))}" />
+        <button type="button" class="icon-button mini-button" data-action="remove-availability-range" aria-label="Quitar horario">−</button>
+      </div>
+    `;
+  }
+
+  function renderProfessionalFormFields() {
+    const item = professionalFormValues();
+    return `
+      <div class="grid-two">
+        <label>
+          Nombre
+          <input name="name" value="${escapeHtml(item.name)}" required />
+        </label>
+        <label>
+          Mail
+          <input name="email" type="email" value="${escapeHtml(item.email)}" required />
+        </label>
+        <label>
+          Foto
+          <input class="file-input" name="photo" type="file" accept="image/*" />
+        </label>
+        <label class="check-row">
+          <input type="checkbox" name="active" ${item.active ? 'checked' : ''} />
+          Activo
+        </label>
+        ${
+          item.photo_url
+            ? `
+              <label class="check-row span-two">
+                <input type="checkbox" name="remove_photo" />
+                Quitar foto actual
+              </label>
+            `
+            : ''
+        }
+        <div class="span-two checkbox-grid">
+          <strong>Servicios que atiende</strong>
+          ${servicesForProfessional(item) || '<p class="muted">Primero cargá servicios activos.</p>'}
+        </div>
+        ${renderAvailabilityEditor(item)}
+        <div class="form-actions span-two">
+          <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
+          <button type="submit" class="primary-button">Guardar profesional</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderProfessionals() {
+    return `
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Profesionales</h2>
+          <button type="button" class="primary-button" data-action="new-professional">Nuevo</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Profesional</th>
+                <th>Mail</th>
+                <th>Servicios</th>
+                <th>Horarios</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                state.professionals.length
+                  ? state.professionals.map(renderProfessionalRow).join('')
+                  : '<tr><td colspan="6">No hay profesionales cargados.</td></tr>'
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderProfessionalRow(professional) {
+    return `
+      <tr>
+        <td>
+          <div class="person-cell">
+            ${professional.photo_url ? `<img src="${escapeHtml(professional.photo_url)}" alt="" />` : '<span class="avatar-placeholder">+</span>'}
+            <strong>${escapeHtml(professional.name)}</strong>
+          </div>
+        </td>
+        <td>${escapeHtml(professional.email)}</td>
+        <td>${(professional.services || []).map((service) => escapeHtml(service.name)).join(', ') || 'Sin servicios'}</td>
+        <td>${renderAvailabilitySummary(professional.availability)}</td>
+        <td>${professional.active ? 'Activo' : 'Inactivo'}</td>
+        <td>
+          <div class="table-actions">
+            <button type="button" class="secondary-button" data-action="edit-professional" data-id="${professional.id}">Editar</button>
+            <button type="button" class="danger-button" data-action="delete-professional" data-id="${professional.id}">Eliminar</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  function renderAvailabilitySummary(availability = []) {
+    if (!availability.length) return 'Sin horarios';
+    return availability
+      .map(
+        (range) =>
+          `${escapeHtml(dayLabel(range.day_of_week))}: ${escapeHtml(String(range.start_time).slice(0, 5))} - ${escapeHtml(String(range.end_time).slice(0, 5))}`,
+      )
+      .join('<br />');
+  }
+
+  function renderAppointments() {
+    return `
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Turnos</h2>
+        </div>
+        ${renderAppointmentsTable(state.appointments)}
+      </section>
+    `;
+  }
+
+  function renderAppointmentsTable(items) {
+    return `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Hora</th>
+              <th>Servicio</th>
+              <th>Profesional</th>
+              <th>Paciente</th>
+              <th>Pago</th>
+              <th>Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              items.length
+                ? items.map(renderAppointmentRow).join('')
+                : '<tr><td colspan="7">No hay turnos registrados.</td></tr>'
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function renderAppointmentRow(item) {
+    return `
+      <tr>
+        <td>${escapeHtml(item.appointment_date)}</td>
+        <td>${escapeHtml(item.start_time)} - ${escapeHtml(item.end_time)}</td>
+        <td>${escapeHtml(item.service_name)}</td>
+        <td>${escapeHtml(item.professional_name)}</td>
+        <td>${escapeHtml(item.patient_name || item.patient_email || 'Paciente')}</td>
+        <td>${item.payment_status === 'paid_simulated' ? 'Pago simulado' : escapeHtml(item.payment_status)}</td>
+        <td>${escapeHtml(formatMoney(item.amount))}</td>
+      </tr>
+    `;
+  }
+
+  function renderScheduleBlockFormFields() {
+    return `
+      <div class="grid-two">
+        <label class="span-two">
+          Profesional
+          <select name="professional_id" required>
+            <option value="">Seleccionar</option>
+            ${state.professionals
+              .filter((professional) => professional.active)
+              .map(
+                (professional) =>
+                  `<option value="${professional.id}">${escapeHtml(professional.name)}</option>`,
+              )
+              .join('')}
+          </select>
+        </label>
+        <label class="span-two">
+          Fecha
+          <input name="block_date" type="date" value="${todayInput()}" required />
+        </label>
+        <label>
+          Desde
+          <input name="start_time" type="time" required />
+        </label>
+        <label>
+          Hasta
+          <input name="end_time" type="time" required />
+        </label>
+        <label class="span-two">
+          Motivo
+          <input name="reason" placeholder="Opcional" />
+        </label>
+        <div class="form-actions span-two">
+          <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
+          <button type="submit" class="primary-button">Guardar bloqueo</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderScheduleBlocks() {
+    return `
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Bloqueos de horario</h2>
+          <button type="button" class="primary-button" data-action="new-schedule-block">Nuevo bloqueo</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Profesional</th>
+                <th>Horario</th>
+                <th>Motivo</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                state.scheduleBlocks.length
+                  ? state.scheduleBlocks.map(renderScheduleBlockRow).join('')
+                  : '<tr><td colspan="5">No hay bloqueos cargados.</td></tr>'
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderScheduleBlockRow(item) {
+    return `
+      <tr>
+        <td>${escapeHtml(item.block_date)}</td>
+        <td>${escapeHtml(item.professional_name)}</td>
+        <td>${escapeHtml(item.start_time)} - ${escapeHtml(item.end_time)}</td>
+        <td>${escapeHtml(item.reason || 'Sin motivo')}</td>
+        <td>
+          <button type="button" class="danger-button" data-action="delete-schedule-block" data-id="${item.id}">Eliminar</button>
+        </td>
+      </tr>
+    `;
+  }
+
+  function renderBookingTest() {
+    return `
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Probar agenda</h2>
+          <button type="button" class="primary-button" data-action="create-test-booking-link">Generar link 48h</button>
+        </div>
+        ${
+          state.testBookingUrl
+            ? `
+              <div class="template-help">
+                <strong>Link de prueba</strong>
+                <a href="${escapeHtml(state.testBookingUrl)}" target="_blank" rel="noreferrer">${escapeHtml(state.testBookingUrl)}</a>
+              </div>
+              <iframe class="booking-preview" src="${escapeHtml(state.testBookingUrl)}" title="Agenda de prueba"></iframe>
+            `
+            : '<p class="muted">Generá un link para probar el flujo público mobile de agenda.</p>'
+        }
+      </section>
+    `;
+  }
+
+  function renderConfig() {
+    if (!state.user.can_manage_system) return '<section class="panel">Sin permisos.</section>';
+    const settings = state.mercadoPagoSettings || {};
+    return `
+      <section class="panel">
+        <form id="mercado-pago-form" class="grid-two">
+          <div class="span-two">
+            <h2>Credenciales de Mercado Pago Checkout Pro</h2>
+            <p class="muted">Por ahora el pago se simula. Estos datos quedan guardados para la integración real de preferencias de Checkout Pro.</p>
+          </div>
+          <label class="span-two">
+            Access Token
+            <input name="access_token" type="password" placeholder="${settings.access_token_set ? 'Token guardado. Ingresá uno nuevo para reemplazarlo.' : 'APP_USR-...'}" autocomplete="off" />
+          </label>
+          <label class="span-two">
+            Public Key
+            <input name="public_key" value="${escapeHtml(settings.public_key || '')}" placeholder="APP_USR-..." autocomplete="off" />
+          </label>
+          <div class="form-actions span-two">
+            <button type="submit" class="primary-button">Guardar configuración</button>
+          </div>
+        </form>
+      </section>
+    `;
+  }
+
+  function renderAudit() {
+    if (!state.user.can_manage_system) return '<section class="panel">Sin permisos.</section>';
+    return `
+      <section class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Usuario</th>
+                <th>Evento</th>
+                <th>Detalle</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                state.auditEvents.length
+                  ? state.auditEvents
+                      .map(
+                        (item) => `
+                          <tr>
+                            <td>${escapeHtml(formatDate(item.created_at))}</td>
+                            <td>${escapeHtml(item.actor_email)}</td>
+                            <td>${escapeHtml(item.event_type)}</td>
+                            <td><code>${escapeHtml(JSON.stringify(item.detail || {}))}</code></td>
+                          </tr>
+                        `,
+                      )
+                      .join('')
+                  : '<tr><td colspan="4">No hay eventos para mostrar.</td></tr>'
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
   }
 
   function agreementFormValues() {
@@ -807,6 +1455,14 @@
     `;
   }
 
+  function bindActionElements(root = document) {
+    root.querySelectorAll('[data-action]').forEach((element) => {
+      if (element.dataset.boundAction === 'true') return;
+      element.dataset.boundAction = 'true';
+      element.addEventListener('click', handleActionClick);
+    });
+  }
+
   function bindEvents() {
     document.querySelectorAll('[data-module]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -818,13 +1474,15 @@
       });
     });
 
-    document.querySelectorAll('[data-action]').forEach((element) => {
-      element.addEventListener('click', handleActionClick);
-    });
+    bindActionElements();
 
     document.getElementById('agreement-form')?.addEventListener('submit', handleAgreementSubmit);
     document.getElementById('nomina-form')?.addEventListener('submit', handleNominaSubmit);
     document.getElementById('nomina-csv-form')?.addEventListener('submit', handleNominaCsvSubmit);
+    document.getElementById('service-form')?.addEventListener('submit', handleServiceSubmit);
+    document.getElementById('professional-form')?.addEventListener('submit', handleProfessionalSubmit);
+    document.getElementById('schedule-block-form')?.addEventListener('submit', handleScheduleBlockSubmit);
+    document.getElementById('mercado-pago-form')?.addEventListener('submit', handleMercadoPagoSubmit);
     document
       .getElementById('change-password-form')
       ?.addEventListener('submit', handleChangePasswordSubmit);
@@ -948,9 +1606,31 @@
         render();
         return;
       }
+      if (action === 'open-config') {
+        state.active = 'config';
+        state.userMenuOpen = false;
+        state.dialog = null;
+        await loadMercadoPagoSettings();
+        render();
+        return;
+      }
+      if (action === 'open-audit') {
+        state.active = 'audit';
+        state.userMenuOpen = false;
+        state.dialog = null;
+        await loadAuditEvents();
+        render();
+        return;
+      }
       if (action === 'close-dialog') {
         if (state.dialog?.type === 'agreement-form') {
           state.editingAgreementId = null;
+        }
+        if (state.dialog?.type === 'service-form') {
+          state.editingServiceId = null;
+        }
+        if (state.dialog?.type === 'professional-form') {
+          state.editingProfessionalId = null;
         }
         state.dialog = null;
         render();
@@ -992,6 +1672,49 @@
         render();
         return;
       }
+      if (action === 'new-service') {
+        state.editingServiceId = null;
+        state.dialog = { type: 'service-form' };
+        render();
+        return;
+      }
+      if (action === 'edit-service') {
+        state.editingServiceId = id;
+        state.dialog = { type: 'service-form' };
+        render();
+        return;
+      }
+      if (action === 'new-professional') {
+        state.editingProfessionalId = null;
+        state.dialog = { type: 'professional-form' };
+        render();
+        return;
+      }
+      if (action === 'edit-professional') {
+        state.editingProfessionalId = id;
+        state.dialog = { type: 'professional-form' };
+        render();
+        return;
+      }
+      if (action === 'new-schedule-block') {
+        state.dialog = { type: 'schedule-block-form' };
+        render();
+        return;
+      }
+      if (action === 'add-availability-range') {
+        addAvailabilityRange(event.currentTarget);
+        return;
+      }
+      if (action === 'remove-availability-range') {
+        removeAvailabilityRange(event.currentTarget);
+        return;
+      }
+      if (action === 'create-test-booking-link') {
+        const payload = await api('/api/admin/booking-links/test', { method: 'POST' });
+        state.testBookingUrl = payload.booking_url || '';
+        setStatus('Link de agenda generado.', 'ok');
+        return;
+      }
       if (action === 'new-nomina') {
         state.dialog = { type: 'nomina-form' };
         render();
@@ -1009,6 +1732,39 @@
           id,
           title: 'Eliminar acuerdo',
           message: 'El acuerdo se ocultará del admin. Los registros existentes se conservan.',
+        };
+        render();
+        return;
+      }
+      if (action === 'delete-service') {
+        state.dialog = {
+          type: 'confirm-delete',
+          target: 'service',
+          id,
+          title: 'Eliminar servicio',
+          message: 'El servicio dejará de estar disponible para nuevas reservas.',
+        };
+        render();
+        return;
+      }
+      if (action === 'delete-professional') {
+        state.dialog = {
+          type: 'confirm-delete',
+          target: 'professional',
+          id,
+          title: 'Eliminar profesional',
+          message: 'El profesional dejará de estar disponible para nuevas reservas.',
+        };
+        render();
+        return;
+      }
+      if (action === 'delete-schedule-block') {
+        state.dialog = {
+          type: 'confirm-delete',
+          target: 'schedule-block',
+          id,
+          title: 'Eliminar bloqueo',
+          message: 'Ese horario volverá a estar disponible si no hay turnos tomados.',
         };
         render();
         return;
@@ -1045,6 +1801,156 @@
         };
         render();
       }
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  async function loadMercadoPagoSettings() {
+    if (!state.user.can_manage_system) return;
+    const payload = await api('/api/admin/settings/mercado-pago');
+    state.mercadoPagoSettings = payload.settings || {};
+  }
+
+  async function loadAuditEvents() {
+    if (!state.user.can_manage_system) return;
+    const payload = await api('/api/admin/audit');
+    state.auditEvents = payload.audit_events || [];
+  }
+
+  function addAvailabilityRange(button) {
+    const day = button.closest('.availability-day');
+    const ranges = day?.querySelector('.availability-ranges');
+    if (!ranges) return;
+    ranges.insertAdjacentHTML(
+      'beforeend',
+      renderAvailabilityRange({ start_time: '09:00', end_time: '18:00' }),
+    );
+    const checkbox = day.querySelector('.availability-day-toggle input');
+    if (checkbox) checkbox.checked = true;
+    bindActionElements(day);
+  }
+
+  function removeAvailabilityRange(button) {
+    const range = button.closest('.availability-range');
+    const day = button.closest('.availability-day');
+    range?.remove();
+    if (day && !day.querySelector('.availability-range')) {
+      day
+        .querySelector('.availability-ranges')
+        ?.insertAdjacentHTML(
+          'beforeend',
+          renderAvailabilityRange({ start_time: '09:00', end_time: '18:00' }),
+        );
+      const checkbox = day.querySelector('.availability-day-toggle input');
+      if (checkbox) checkbox.checked = false;
+      bindActionElements(day);
+    }
+  }
+
+  function collectAvailability(form) {
+    return Array.from(form.querySelectorAll('.availability-day'))
+      .filter((day) => day.querySelector('.availability-day-toggle input')?.checked)
+      .flatMap((day) =>
+        Array.from(day.querySelectorAll('.availability-range')).map((range) => ({
+          day_of_week: Number(day.dataset.day),
+          start_time: range.querySelector('[data-field="start_time"]')?.value || '',
+          end_time: range.querySelector('[data-field="end_time"]')?.value || '',
+        })),
+      );
+  }
+
+  async function handleServiceSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const path = state.editingServiceId
+      ? `/api/admin/services/${state.editingServiceId}`
+      : '/api/admin/services';
+    const method = state.editingServiceId ? 'PUT' : 'POST';
+
+    try {
+      await api(path, {
+        method,
+        body: {
+          name: form.name.value,
+          duration_minutes: form.duration_minutes.value,
+          cost_amount: form.cost_amount.value,
+          payment_url: form.payment_url.value,
+          active: form.active.checked,
+        },
+      });
+      state.editingServiceId = null;
+      state.dialog = null;
+      await loadData();
+      setStatus('Servicio guardado.', 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  async function handleProfessionalSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    data.set(
+      'service_ids',
+      JSON.stringify(Array.from(form.querySelectorAll('input[name="service_ids"]:checked')).map((input) => input.value)),
+    );
+    data.set('availability', JSON.stringify(collectAvailability(form)));
+    data.set('active', form.active.checked ? 'true' : 'false');
+    data.set('remove_photo', form.remove_photo?.checked ? 'true' : 'false');
+
+    const path = state.editingProfessionalId
+      ? `/api/admin/professionals/${state.editingProfessionalId}`
+      : '/api/admin/professionals';
+    const method = state.editingProfessionalId ? 'PUT' : 'POST';
+
+    try {
+      await api(path, { method, body: data });
+      state.editingProfessionalId = null;
+      state.dialog = null;
+      await loadData();
+      setStatus('Profesional guardado.', 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  async function handleScheduleBlockSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      await api('/api/admin/schedule-blocks', {
+        method: 'POST',
+        body: {
+          professional_id: form.professional_id.value,
+          block_date: form.block_date.value,
+          start_time: form.start_time.value,
+          end_time: form.end_time.value,
+          reason: form.reason.value,
+        },
+      });
+      state.dialog = null;
+      await loadData();
+      setStatus('Bloqueo guardado.', 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  async function handleMercadoPagoSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      const payload = await api('/api/admin/settings/mercado-pago', {
+        method: 'PUT',
+        body: {
+          access_token: form.access_token.value,
+          public_key: form.public_key.value,
+        },
+      });
+      state.mercadoPagoSettings = payload.settings || {};
+      setStatus('Configuración de Mercado Pago guardada.', 'ok');
     } catch (error) {
       setStatus(error.message, 'error');
     }
@@ -1215,12 +2121,18 @@
       patient: `/api/admin/patient-intakes/${id}`,
       contact: `/api/admin/contacts/${id}`,
       nomina: `/api/admin/nomina/${id}`,
+      service: `/api/admin/services/${id}`,
+      professional: `/api/admin/professionals/${id}`,
+      'schedule-block': `/api/admin/schedule-blocks/${id}`,
     };
     const labels = {
       agreement: 'Acuerdo eliminado.',
       patient: 'Alta eliminada.',
       contact: 'Contacto eliminado.',
       nomina: 'Registro eliminado.',
+      service: 'Servicio eliminado.',
+      professional: 'Profesional eliminado.',
+      'schedule-block': 'Bloqueo eliminado.',
     };
 
     try {

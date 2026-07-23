@@ -158,6 +158,114 @@ export const initDb = async () => {
     CREATE INDEX IF NOT EXISTS contacts_created_at_idx
       ON contacts (created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS services (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0 AND duration_minutes <= 480),
+      cost_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+      payment_url TEXT,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS services_active_idx
+      ON services (active)
+      WHERE deleted_at IS NULL;
+
+    CREATE TABLE IF NOT EXISTS professionals (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      photo_path TEXT,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS professionals_active_idx
+      ON professionals (active)
+      WHERE deleted_at IS NULL;
+
+    CREATE TABLE IF NOT EXISTS professional_services (
+      professional_id BIGINT NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
+      service_id BIGINT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+      PRIMARY KEY (professional_id, service_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS professional_availability (
+      id BIGSERIAL PRIMARY KEY,
+      professional_id BIGINT NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
+      day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 1 AND 7),
+      start_time TIME NOT NULL,
+      end_time TIME NOT NULL,
+      CHECK (start_time < end_time)
+    );
+
+    CREATE INDEX IF NOT EXISTS professional_availability_lookup_idx
+      ON professional_availability (professional_id, day_of_week);
+
+    CREATE TABLE IF NOT EXISTS schedule_blocks (
+      id BIGSERIAL PRIMARY KEY,
+      professional_id BIGINT NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
+      block_date DATE NOT NULL,
+      start_time TIME NOT NULL,
+      end_time TIME NOT NULL,
+      reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (start_time < end_time)
+    );
+
+    CREATE INDEX IF NOT EXISTS schedule_blocks_lookup_idx
+      ON schedule_blocks (professional_id, block_date);
+
+    CREATE TABLE IF NOT EXISTS booking_access_links (
+      id BIGSERIAL PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      patient_intake_id BIGINT REFERENCES patient_intakes(id) ON DELETE SET NULL,
+      label TEXT NOT NULL DEFAULT '',
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      used_at TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS booking_access_links_expires_idx
+      ON booking_access_links (expires_at);
+
+    CREATE TABLE IF NOT EXISTS appointments (
+      id BIGSERIAL PRIMARY KEY,
+      booking_access_link_id BIGINT REFERENCES booking_access_links(id) ON DELETE SET NULL,
+      patient_intake_id BIGINT REFERENCES patient_intakes(id) ON DELETE SET NULL,
+      service_id BIGINT NOT NULL REFERENCES services(id),
+      professional_id BIGINT NOT NULL REFERENCES professionals(id),
+      appointment_date DATE NOT NULL,
+      start_time TIME NOT NULL,
+      end_time TIME NOT NULL,
+      patient_name TEXT NOT NULL DEFAULT '',
+      patient_email TEXT NOT NULL DEFAULT '',
+      patient_phone TEXT NOT NULL DEFAULT '',
+      amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+      payment_status TEXT NOT NULL DEFAULT 'pending',
+      payment_reference TEXT,
+      status TEXT NOT NULL DEFAULT 'confirmed',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (start_time < end_time)
+    );
+
+    CREATE INDEX IF NOT EXISTS appointments_lookup_idx
+      ON appointments (professional_id, appointment_date, status);
+    CREATE INDEX IF NOT EXISTS appointments_created_at_idx
+      ON appointments (created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS audit_events (
       id BIGSERIAL PRIMARY KEY,
       actor_user_id BIGINT REFERENCES users(id),

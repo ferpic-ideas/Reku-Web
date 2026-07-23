@@ -9,6 +9,7 @@ import {
 import { sendEmail } from "./email.mjs";
 import { getTrimmed, parseRequestBody, sendJson } from "./http.mjs";
 import { buildContactEmail, buildPatientEmail } from "./templates.mjs";
+import { createBookingAccessLink } from "./booking-links.mjs";
 
 const genericDomains = new Set([
   "gmail.com",
@@ -267,6 +268,14 @@ const handleContact = async (submission, request, response) => {
 
 const handlePatientIntake = async (submission, agreement, request, response) => {
   const recordId = await insertPatientIntake(submission, agreement, request.url);
+  const bookingLink = pool
+    ? await createBookingAccessLink({
+        patientIntakeId: recordId,
+        label: `Alta ${submission.values.email}`,
+        ttlHours: 48,
+      })
+    : null;
+  submission.booking_url = bookingLink?.url || "";
   const email = buildPatientEmail({ submission, agreement });
 
   try {
@@ -277,7 +286,12 @@ const handlePatientIntake = async (submission, agreement, request, response) => 
       ...email,
     });
     await updateEmailResult("patient_intakes", recordId, { messageId: result?.id });
-    sendJson(response, 200, { ok: true, id: result?.id });
+    sendJson(response, 200, {
+      ok: true,
+      id: result?.id,
+      booking_url: bookingLink?.url || "",
+      booking_expires_at: bookingLink?.expires_at || "",
+    });
   } catch (error) {
     await updateEmailResult("patient_intakes", recordId, { error: error.message });
     throw error;

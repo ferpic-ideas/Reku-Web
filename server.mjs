@@ -4,6 +4,7 @@ import {
   handlePublicAgreementApi,
   validatePublicAgreementRoute,
 } from "./src/admin-api.mjs";
+import { handleBookingApi } from "./src/booking-api.mjs";
 import {
   assertSafeStartup,
   config,
@@ -37,6 +38,14 @@ const server = createServer(async (request, response) => {
 
     if (pathname.startsWith("/api/admin/")) {
       const handled = await handleAdminApi(request, response, requestUrl);
+      if (!handled) {
+        sendJson(response, 404, { error: "Endpoint no encontrado." });
+      }
+      return;
+    }
+
+    if (pathname.startsWith("/api/booking/")) {
+      const handled = await handleBookingApi(request, response, requestUrl);
       if (!handled) {
         sendJson(response, 404, { error: "Endpoint no encontrado." });
       }

@@ -118,9 +118,17 @@ export const buildPatientEmail = ({ submission, agreement }) => {
       ["Teléfono", submission.values.telefono],
       ["Mail", submission.values.email],
     ];
+    const bookingLine = submission.booking_url
+      ? `\nReservar turno: ${submission.booking_url}`
+      : "";
+    const bookingHtml = submission.booking_url
+      ? `<p><strong>Reservar turno:</strong> <a href="${escapeHtml(
+          submission.booking_url,
+        )}">${escapeHtml(submission.booking_url)}</a></p>`
+      : "";
     return {
       subject,
-      text: rows.map(([label, value]) => `${label}: ${value || ""}`).join("\n"),
+      text: `${rows.map(([label, value]) => `${label}: ${value || ""}`).join("\n")}${bookingLine}`,
       html: `
         <div style="font-family: Arial, sans-serif; line-height: 1.5;">
           <h1 style="font-size: 20px;">${escapeHtml(subject)}</h1>
@@ -130,6 +138,7 @@ export const buildPatientEmail = ({ submission, agreement }) => {
                 `<p><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>`,
             )
             .join("")}
+          ${bookingHtml}
         </div>
       `,
     };
@@ -157,6 +166,9 @@ export const buildPatientEmail = ({ submission, agreement }) => {
     context,
   );
   const links = buildAgreementLinks(agreement);
+  if (submission.booking_url) {
+    links.push({ label: "Reservar turno", url: submission.booking_url });
+  }
   const linksText = links.length
     ? `\n\nRecursos:\n${links.map((link) => `${link.label}: ${link.url}`).join("\n")}`
     : "";

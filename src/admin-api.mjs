@@ -34,10 +34,15 @@ import {
   readCsvUpload,
   saveAgreementLogo,
   saveAgreementPdf,
+  saveProfessionalPhoto,
 } from "./uploads.mjs";
+import { createBookingAccessLink } from "./booking-links.mjs";
 
 const canDeleteRecords = (user) => user?.email?.toLowerCase() === "ferpic@gmail.com";
+const canManageSystem = canDeleteRecords;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const timePattern = /^\d{2}:\d{2}$/;
 
 const parseJsonBody = async (request) => {
   const body = await readBody(request);
@@ -74,6 +79,98 @@ const optionalUrl = (value) => {
   }
 };
 
+const requiredUrl = (value) => {
+  const url = optionalUrl(value);
+  if (!url) {
+    const error = new Error("URL_REQUIRED");
+    error.statusCode = 422;
+    throw error;
+  }
+  return url;
+};
+
+const parsePositiveInteger = (value, { min = 1, max = 10_000 } = {}) => {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < min || number > max) {
+    const error = new Error("NUMBER_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+  return number;
+};
+
+const parseMoney = (value) => {
+  const number = Number(String(value || "").replace(",", "."));
+  if (!Number.isFinite(number) || number < 0) {
+    const error = new Error("MONEY_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+  return Number(number.toFixed(2));
+};
+
+const parseJsonArray = (value) => {
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const normalizeTime = (value) => {
+  const trimmed = String(value || "").trim();
+  if (!timePattern.test(trimmed)) {
+    const error = new Error("TIME_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+  return trimmed;
+};
+
+const validateDate = (value) => {
+  const trimmed = String(value || "").trim();
+  if (!datePattern.test(trimmed)) {
+    const error = new Error("DATE_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+  return trimmed;
+};
+
+const timeToMinutes = (value) => {
+  const [hours, minutes] = String(value || "00:00").slice(0, 5).split(":").map(Number);
+  return hours * 60 + minutes;
+};
+
+const assertTimeRange = (startTime, endTime) => {
+  if (timeToMinutes(startTime) >= timeToMinutes(endTime)) {
+    const error = new Error("TIME_RANGE_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+};
+
+const normalizeAvailability = (value) =>
+  parseJsonArray(value)
+    .map((item) => ({
+      day_of_week: parsePositiveInteger(item.day_of_week, { min: 1, max: 7 }),
+      start_time: normalizeTime(item.start_time),
+      end_time: normalizeTime(item.end_time),
+    }))
+    .map((item) => {
+      assertTimeRange(item.start_time, item.end_time);
+      return item;
+    });
+
+const requireSystemAdmin = (user) => {
+  if (!canManageSystem(user)) {
+    const error = new Error("SYSTEM_ADMIN_REQUIRED");
+    error.statusCode = 403;
+    throw error;
+  }
+};
+
 const requireCurrentUser = async (request) => {
   const session = readSessionFromRequest(request);
   if (!session) {
@@ -106,6 +203,7 @@ const requireCurrentUser = async (request) => {
       ...user,
       id: Number(user.id),
       can_delete_records: canDeleteRecords(user),
+      can_manage_system: canManageSystem(user),
     },
     session,
   };
@@ -123,6 +221,7 @@ const publicUser = (user) => ({
   name: user.name,
   role: user.role,
   can_delete_records: Boolean(user.can_delete_records),
+  can_manage_system: Boolean(user.can_manage_system),
 });
 
 const handleLogin = async (request, response) => {
@@ -160,7 +259,11 @@ const handleLogin = async (request, response) => {
     response,
     200,
     {
-      user: publicUser({ ...user, can_delete_records: canDeleteRecords(user) }),
+      user: publicUser({
+        ...user,
+        can_delete_records: canDeleteRecords(user),
+        can_manage_system: canManageSystem(user),
+      }),
       csrf_token: csrf,
     },
     { "Set-Cookie": sessionCookie(token) },
@@ -653,6 +756,540 @@ const deleteNominaEntry = async (response, user, id) => {
   sendJson(response, 200, { ok: true });
 };
 
+const mapService = (row) => ({
+  id: Number(row.id),
+  name: row.name,
+  duration_minutes: Number(row.duration_minutes),
+  cost_amount: Number(row.cost_amount || 0),
+  payment_url: row.payment_url || "",
+  active: Boolean(row.active),
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
+
+const listServices = async (response) => {
+  const result = await query(`
+    SELECT *
+    FROM services
+    WHERE deleted_at IS NULL
+    ORDER BY active DESC, name ASC
+  `);
+  sendJson(response, 200, { services: result.rows.map(mapService) });
+};
+
+const servicePayloadFromJson = async (request) => {
+  const payload = await parseJsonBody(request);
+  const name = String(payload.name || "").trim();
+  if (!name) {
+    const error = new Error("SERVICE_NAME_REQUIRED");
+    error.statusCode = 422;
+    throw error;
+  }
+  return {
+    name,
+    duration_minutes: parsePositiveInteger(payload.duration_minutes, { min: 5, max: 480 }),
+    cost_amount: parseMoney(payload.cost_amount),
+    payment_url: requiredUrl(payload.payment_url),
+    active: payload.active !== false,
+  };
+};
+
+const createService = async (request, response, user) => {
+  const payload = await servicePayloadFromJson(request);
+  const result = await query(
+    `
+      INSERT INTO services (name, duration_minutes, cost_amount, payment_url, active)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *
+    `,
+    [
+      payload.name,
+      payload.duration_minutes,
+      payload.cost_amount,
+      payload.payment_url,
+      payload.active,
+    ],
+  );
+  await recordAudit("service.created", {
+    actorUserId: user.id,
+    detail: { service_id: result.rows[0].id, name: payload.name },
+  });
+  sendJson(response, 201, { service: mapService(result.rows[0]) });
+};
+
+const updateService = async (request, response, user, id) => {
+  const payload = await servicePayloadFromJson(request);
+  const result = await query(
+    `
+      UPDATE services
+      SET name = $1,
+          duration_minutes = $2,
+          cost_amount = $3,
+          payment_url = $4,
+          active = $5,
+          updated_at = NOW()
+      WHERE id = $6
+        AND deleted_at IS NULL
+      RETURNING *
+    `,
+    [
+      payload.name,
+      payload.duration_minutes,
+      payload.cost_amount,
+      payload.payment_url,
+      payload.active,
+      id,
+    ],
+  );
+  if (!result.rows[0]) {
+    sendJson(response, 404, { error: "Servicio no encontrado." });
+    return;
+  }
+  await recordAudit("service.updated", {
+    actorUserId: user.id,
+    detail: { service_id: id },
+  });
+  sendJson(response, 200, { service: mapService(result.rows[0]) });
+};
+
+const deleteService = async (response, user, id) => {
+  await query(
+    "UPDATE services SET active = FALSE, deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
+    [id],
+  );
+  await recordAudit("service.deleted", {
+    actorUserId: user.id,
+    detail: { service_id: id },
+  });
+  sendJson(response, 200, { ok: true });
+};
+
+const mapProfessional = (row) => ({
+  id: Number(row.id),
+  name: row.name,
+  email: row.email,
+  photo_path: row.photo_path || "",
+  photo_url: row.photo_path ? `/uploads/${row.photo_path}` : "",
+  active: Boolean(row.active),
+  services: row.services || [],
+  availability: row.availability || [],
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
+
+const professionalSelect = `
+  SELECT
+    p.*,
+    COALESCE(
+      (
+        SELECT json_agg(json_build_object('id', s.id, 'name', s.name) ORDER BY s.name)
+        FROM professional_services ps
+        INNER JOIN services s ON s.id = ps.service_id
+        WHERE ps.professional_id = p.id
+          AND s.deleted_at IS NULL
+      ),
+      '[]'::json
+    ) AS services,
+    COALESCE(
+      (
+        SELECT json_agg(
+          json_build_object(
+            'day_of_week', pa.day_of_week,
+            'start_time', to_char(pa.start_time, 'HH24:MI'),
+            'end_time', to_char(pa.end_time, 'HH24:MI')
+          )
+          ORDER BY pa.day_of_week, pa.start_time
+        )
+        FROM professional_availability pa
+        WHERE pa.professional_id = p.id
+      ),
+      '[]'::json
+    ) AS availability
+  FROM professionals p
+`;
+
+const listProfessionals = async (response) => {
+  const result = await query(`
+    ${professionalSelect}
+    WHERE p.deleted_at IS NULL
+    ORDER BY p.active DESC, p.name ASC
+  `);
+  sendJson(response, 200, { professionals: result.rows.map(mapProfessional) });
+};
+
+const getProfessionalMapped = async (id) => {
+  const result = await query(
+    `
+      ${professionalSelect}
+      WHERE p.id = $1
+        AND p.deleted_at IS NULL
+    `,
+    [id],
+  );
+  return result.rows[0] ? mapProfessional(result.rows[0]) : null;
+};
+
+const replaceProfessionalRelations = async (client, professionalId, serviceIds, availability) => {
+  await client.query("DELETE FROM professional_services WHERE professional_id = $1", [
+    professionalId,
+  ]);
+  for (const serviceId of serviceIds) {
+    await client.query(
+      `
+        INSERT INTO professional_services (professional_id, service_id)
+        VALUES ($1, $2)
+        ON CONFLICT DO NOTHING
+      `,
+      [professionalId, serviceId],
+    );
+  }
+
+  await client.query("DELETE FROM professional_availability WHERE professional_id = $1", [
+    professionalId,
+  ]);
+  for (const range of availability) {
+    await client.query(
+      `
+        INSERT INTO professional_availability
+          (professional_id, day_of_week, start_time, end_time)
+        VALUES ($1, $2, $3::time, $4::time)
+      `,
+      [professionalId, range.day_of_week, range.start_time, range.end_time],
+    );
+  }
+};
+
+const professionalPayloadFromMultipart = async (request) => {
+  const { fields, files } = await parseMultipartForm(request);
+  const name = String(fields.name || "").trim();
+  const email = String(fields.email || "").trim().toLowerCase();
+  const serviceIds = [
+    ...new Set(parseJsonArray(fields.service_ids).map((value) => parsePositiveInteger(value))),
+  ];
+  const availability = normalizeAvailability(fields.availability);
+
+  if (!name) {
+    const error = new Error("PROFESSIONAL_NAME_REQUIRED");
+    error.statusCode = 422;
+    throw error;
+  }
+  if (!emailPattern.test(email)) {
+    const error = new Error("PROFESSIONAL_EMAIL_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+  if (!serviceIds.length) {
+    const error = new Error("PROFESSIONAL_SERVICE_REQUIRED");
+    error.statusCode = 422;
+    throw error;
+  }
+  if (!availability.length) {
+    const error = new Error("PROFESSIONAL_AVAILABILITY_REQUIRED");
+    error.statusCode = 422;
+    throw error;
+  }
+
+  return {
+    fields: {
+      name,
+      email,
+      serviceIds,
+      availability,
+      active: fields.active !== "false",
+      remove_photo: fields.remove_photo === "true",
+    },
+    files,
+  };
+};
+
+const createProfessional = async (request, response, user) => {
+  const payload = await professionalPayloadFromMultipart(request);
+  const photoPath = await saveProfessionalPhoto(payload.files.photo);
+  const professionalId = await tx(async (client) => {
+    const result = await client.query(
+      `
+        INSERT INTO professionals (name, email, photo_path, active)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id
+      `,
+      [
+        payload.fields.name,
+        payload.fields.email,
+        photoPath || null,
+        payload.fields.active,
+      ],
+    );
+    const id = Number(result.rows[0].id);
+    await replaceProfessionalRelations(
+      client,
+      id,
+      payload.fields.serviceIds,
+      payload.fields.availability,
+    );
+    return id;
+  });
+  await recordAudit("professional.created", {
+    actorUserId: user.id,
+    detail: { professional_id: professionalId, email: payload.fields.email },
+  });
+  sendJson(response, 201, { professional: await getProfessionalMapped(professionalId) });
+};
+
+const updateProfessional = async (request, response, user, id) => {
+  const current = await getProfessionalMapped(id);
+  if (!current) {
+    sendJson(response, 404, { error: "Profesional no encontrado." });
+    return;
+  }
+
+  const payload = await professionalPayloadFromMultipart(request);
+  const photoPath = await saveProfessionalPhoto(payload.files.photo);
+  await tx(async (client) => {
+    await client.query(
+      `
+        UPDATE professionals
+        SET name = $1,
+            email = $2,
+            photo_path = $3,
+            active = $4,
+            updated_at = NOW()
+        WHERE id = $5
+      `,
+      [
+        payload.fields.name,
+        payload.fields.email,
+        payload.fields.remove_photo ? null : photoPath || current.photo_path || null,
+        payload.fields.active,
+        id,
+      ],
+    );
+    await replaceProfessionalRelations(
+      client,
+      id,
+      payload.fields.serviceIds,
+      payload.fields.availability,
+    );
+  });
+  await recordAudit("professional.updated", {
+    actorUserId: user.id,
+    detail: { professional_id: id },
+  });
+  sendJson(response, 200, { professional: await getProfessionalMapped(id) });
+};
+
+const deleteProfessional = async (response, user, id) => {
+  await query(
+    "UPDATE professionals SET active = FALSE, deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
+    [id],
+  );
+  await recordAudit("professional.deleted", {
+    actorUserId: user.id,
+    detail: { professional_id: id },
+  });
+  sendJson(response, 200, { ok: true });
+};
+
+const mapScheduleBlock = (row) => ({
+  id: Number(row.id),
+  professional_id: Number(row.professional_id),
+  professional_name: row.professional_name || "",
+  block_date: row.block_date,
+  start_time: String(row.start_time || "").slice(0, 5),
+  end_time: String(row.end_time || "").slice(0, 5),
+  reason: row.reason || "",
+  created_at: row.created_at,
+});
+
+const listScheduleBlocks = async (response) => {
+  const result = await query(`
+    SELECT
+      b.*,
+      p.name AS professional_name,
+      to_char(b.block_date, 'YYYY-MM-DD') AS block_date,
+      to_char(b.start_time, 'HH24:MI') AS start_time,
+      to_char(b.end_time, 'HH24:MI') AS end_time
+    FROM schedule_blocks b
+    INNER JOIN professionals p ON p.id = b.professional_id
+    WHERE p.deleted_at IS NULL
+    ORDER BY b.block_date DESC, b.start_time DESC
+    LIMIT 500
+  `);
+  sendJson(response, 200, { schedule_blocks: result.rows.map(mapScheduleBlock) });
+};
+
+const createScheduleBlock = async (request, response, user) => {
+  const payload = await parseJsonBody(request);
+  const professionalId = parsePositiveInteger(payload.professional_id);
+  const blockDate = validateDate(payload.block_date);
+  const startTime = normalizeTime(payload.start_time);
+  const endTime = normalizeTime(payload.end_time);
+  const reason = String(payload.reason || "").trim();
+  assertTimeRange(startTime, endTime);
+
+  const result = await query(
+    `
+      INSERT INTO schedule_blocks
+        (professional_id, block_date, start_time, end_time, reason)
+      VALUES ($1, $2::date, $3::time, $4::time, $5)
+      RETURNING id
+    `,
+    [professionalId, blockDate, startTime, endTime, reason || null],
+  );
+  await recordAudit("schedule_block.created", {
+    actorUserId: user.id,
+    detail: { schedule_block_id: result.rows[0].id, professional_id: professionalId },
+  });
+  sendJson(response, 201, { ok: true, id: Number(result.rows[0].id) });
+};
+
+const deleteScheduleBlock = async (response, user, id) => {
+  await query("DELETE FROM schedule_blocks WHERE id = $1", [id]);
+  await recordAudit("schedule_block.deleted", {
+    actorUserId: user.id,
+    detail: { schedule_block_id: id },
+  });
+  sendJson(response, 200, { ok: true });
+};
+
+const mapAppointment = (row) => ({
+  id: Number(row.id),
+  service_name: row.service_name || "",
+  professional_name: row.professional_name || "",
+  appointment_date: row.appointment_date,
+  start_time: String(row.start_time || "").slice(0, 5),
+  end_time: String(row.end_time || "").slice(0, 5),
+  patient_name: row.patient_name || "",
+  patient_email: row.patient_email || "",
+  patient_phone: row.patient_phone || "",
+  amount: Number(row.amount || 0),
+  payment_status: row.payment_status,
+  status: row.status,
+  created_at: row.created_at,
+});
+
+const listAppointments = async (response) => {
+  const result = await query(`
+    SELECT
+      a.*,
+      s.name AS service_name,
+      p.name AS professional_name,
+      to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
+      to_char(a.start_time, 'HH24:MI') AS start_time,
+      to_char(a.end_time, 'HH24:MI') AS end_time
+    FROM appointments a
+    INNER JOIN services s ON s.id = a.service_id
+    INNER JOIN professionals p ON p.id = a.professional_id
+    ORDER BY a.appointment_date DESC, a.start_time DESC
+    LIMIT 500
+  `);
+  sendJson(response, 200, { appointments: result.rows.map(mapAppointment) });
+};
+
+const dashboard = async (response) => {
+  const result = await query(`
+    SELECT
+      (SELECT COUNT(*)::int FROM contacts) AS contacts,
+      (SELECT COUNT(*)::int FROM patient_intakes) AS patient_intakes,
+      (SELECT COUNT(*)::int FROM appointments WHERE status = 'confirmed') AS appointments,
+      (SELECT COALESCE(SUM(amount), 0)::numeric FROM appointments WHERE payment_status = 'paid_simulated') AS revenue,
+      (SELECT COUNT(*)::int FROM services WHERE deleted_at IS NULL AND active = TRUE) AS services,
+      (SELECT COUNT(*)::int FROM professionals WHERE deleted_at IS NULL AND active = TRUE) AS professionals,
+      (SELECT COUNT(*)::int FROM schedule_blocks WHERE block_date >= CURRENT_DATE) AS upcoming_blocks
+  `);
+  sendJson(response, 200, {
+    dashboard: {
+      contacts: Number(result.rows[0].contacts || 0),
+      patient_intakes: Number(result.rows[0].patient_intakes || 0),
+      appointments: Number(result.rows[0].appointments || 0),
+      revenue: Number(result.rows[0].revenue || 0),
+      services: Number(result.rows[0].services || 0),
+      professionals: Number(result.rows[0].professionals || 0),
+      upcoming_blocks: Number(result.rows[0].upcoming_blocks || 0),
+    },
+  });
+};
+
+const getMercadoPagoSettings = async (response, user) => {
+  requireSystemAdmin(user);
+  const row = await one("SELECT value FROM app_settings WHERE key = 'mercado_pago'");
+  const value = row?.value || {};
+  sendJson(response, 200, {
+    settings: {
+      public_key: value.public_key || "",
+      access_token_set: Boolean(value.access_token),
+    },
+  });
+};
+
+const updateMercadoPagoSettings = async (request, response, user) => {
+  requireSystemAdmin(user);
+  const payload = await parseJsonBody(request);
+  const current = await one("SELECT value FROM app_settings WHERE key = 'mercado_pago'");
+  const currentValue = current?.value || {};
+  const accessToken = String(payload.access_token || "").trim();
+  const value = {
+    public_key: String(payload.public_key || "").trim(),
+    access_token: accessToken || currentValue.access_token || "",
+  };
+  await query(
+    `
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES ('mercado_pago', $1::jsonb, NOW())
+      ON CONFLICT (key)
+      DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+    `,
+    [JSON.stringify(value)],
+  );
+  await recordAudit("settings.mercado_pago.updated", { actorUserId: user.id });
+  sendJson(response, 200, {
+    ok: true,
+    settings: {
+      public_key: value.public_key,
+      access_token_set: Boolean(value.access_token),
+    },
+  });
+};
+
+const listAuditEvents = async (response, user) => {
+  requireSystemAdmin(user);
+  const result = await query(`
+    SELECT
+      e.id,
+      e.event_type,
+      e.detail,
+      e.created_at,
+      u.email AS actor_email
+    FROM audit_events e
+    LEFT JOIN users u ON u.id = e.actor_user_id
+    ORDER BY e.created_at DESC
+    LIMIT 150
+  `);
+  sendJson(response, 200, {
+    audit_events: result.rows.map((row) => ({
+      id: Number(row.id),
+      event_type: row.event_type,
+      actor_email: row.actor_email || "Sistema",
+      detail: row.detail || {},
+      created_at: row.created_at,
+    })),
+  });
+};
+
+const createTestBookingLink = async (response, user) => {
+  const link = await createBookingAccessLink({
+    label: `Prueba admin ${user.email}`,
+    ttlHours: 48,
+  });
+  await recordAudit("booking_link.test_created", {
+    actorUserId: user.id,
+    detail: { booking_access_link_id: link.id },
+  });
+  sendJson(response, 201, {
+    booking_url: link.url,
+    expires_at: link.expires_at,
+  });
+};
+
 const validateTemplatePreview = async (request, response) => {
   const payload = await parseJsonBody(request);
   const subject = String(payload.subject || "");
@@ -782,6 +1419,11 @@ export const handleAdminApi = async (request, response, url) => {
       return true;
     }
 
+    if (pathname === "/api/admin/dashboard" && request.method === "GET") {
+      await dashboard(response);
+      return true;
+    }
+
     if (pathname === "/api/admin/agreements" && request.method === "GET") {
       await listAgreements(response);
       return true;
@@ -804,6 +1446,80 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (agreementMatch && request.method === "DELETE") {
       await deleteAgreement(response, user, Number(agreementMatch[1]));
+      return true;
+    }
+
+    if (pathname === "/api/admin/services" && request.method === "GET") {
+      await listServices(response);
+      return true;
+    }
+    if (pathname === "/api/admin/services" && request.method === "POST") {
+      await createService(request, response, user);
+      return true;
+    }
+    const serviceMatch = pathname.match(/^\/api\/admin\/services\/(\d+)$/);
+    if (serviceMatch && request.method === "PUT") {
+      await updateService(request, response, user, Number(serviceMatch[1]));
+      return true;
+    }
+    if (serviceMatch && request.method === "DELETE") {
+      await deleteService(response, user, Number(serviceMatch[1]));
+      return true;
+    }
+
+    if (pathname === "/api/admin/professionals" && request.method === "GET") {
+      await listProfessionals(response);
+      return true;
+    }
+    if (pathname === "/api/admin/professionals" && request.method === "POST") {
+      await createProfessional(request, response, user);
+      return true;
+    }
+    const professionalMatch = pathname.match(/^\/api\/admin\/professionals\/(\d+)$/);
+    if (professionalMatch && request.method === "PUT") {
+      await updateProfessional(request, response, user, Number(professionalMatch[1]));
+      return true;
+    }
+    if (professionalMatch && request.method === "DELETE") {
+      await deleteProfessional(response, user, Number(professionalMatch[1]));
+      return true;
+    }
+
+    if (pathname === "/api/admin/schedule-blocks" && request.method === "GET") {
+      await listScheduleBlocks(response);
+      return true;
+    }
+    if (pathname === "/api/admin/schedule-blocks" && request.method === "POST") {
+      await createScheduleBlock(request, response, user);
+      return true;
+    }
+    const scheduleBlockMatch = pathname.match(/^\/api\/admin\/schedule-blocks\/(\d+)$/);
+    if (scheduleBlockMatch && request.method === "DELETE") {
+      await deleteScheduleBlock(response, user, Number(scheduleBlockMatch[1]));
+      return true;
+    }
+
+    if (pathname === "/api/admin/appointments" && request.method === "GET") {
+      await listAppointments(response);
+      return true;
+    }
+
+    if (pathname === "/api/admin/booking-links/test" && request.method === "POST") {
+      await createTestBookingLink(response, user);
+      return true;
+    }
+
+    if (pathname === "/api/admin/settings/mercado-pago" && request.method === "GET") {
+      await getMercadoPagoSettings(response, user);
+      return true;
+    }
+    if (pathname === "/api/admin/settings/mercado-pago" && request.method === "PUT") {
+      await updateMercadoPagoSettings(request, response, user);
+      return true;
+    }
+
+    if (pathname === "/api/admin/audit" && request.method === "GET") {
+      await listAuditEvents(response, user);
       return true;
     }
 
@@ -862,6 +1578,50 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (error.message === "URL_INVALID") {
       sendJson(response, 422, { error: "Revisá los links: deben empezar con http o https." });
+      return true;
+    }
+    if (error.message === "URL_REQUIRED") {
+      sendJson(response, 422, { error: "El link de pago es obligatorio." });
+      return true;
+    }
+    if (error.message === "NUMBER_INVALID") {
+      sendJson(response, 422, { error: "Revisá los valores numéricos." });
+      return true;
+    }
+    if (error.message === "MONEY_INVALID") {
+      sendJson(response, 422, { error: "Ingresá un costo válido." });
+      return true;
+    }
+    if (error.message === "DATE_INVALID") {
+      sendJson(response, 422, { error: "Ingresá una fecha válida." });
+      return true;
+    }
+    if (error.message === "TIME_INVALID" || error.message === "TIME_RANGE_INVALID") {
+      sendJson(response, 422, { error: "Revisá los horarios cargados." });
+      return true;
+    }
+    if (error.message === "SERVICE_NAME_REQUIRED") {
+      sendJson(response, 422, { error: "El nombre del servicio es obligatorio." });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_NAME_REQUIRED") {
+      sendJson(response, 422, { error: "El nombre del profesional es obligatorio." });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_EMAIL_INVALID") {
+      sendJson(response, 422, { error: "Ingresá un mail válido para el profesional." });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_SERVICE_REQUIRED") {
+      sendJson(response, 422, { error: "Seleccioná al menos un servicio." });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_AVAILABILITY_REQUIRED") {
+      sendJson(response, 422, { error: "Cargá al menos un día y horario de atención." });
+      return true;
+    }
+    if (error.message === "SYSTEM_ADMIN_REQUIRED") {
+      sendJson(response, 403, { error: "No tenés permisos para esta configuración." });
       return true;
     }
     if (error.message === "SLUG_REQUIRED") {
