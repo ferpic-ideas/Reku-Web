@@ -1205,6 +1205,9 @@
       .contact-status.is-success {
         color: var(--cyan-dark);
       }
+      .contact-status:empty {
+        display: none;
+      }
       .success-modal {
         position: fixed;
         inset: 0;
@@ -3502,7 +3505,7 @@
           });
 
           if (firstInvalidField) {
-            setStatus('Revisá los campos marcados para poder enviar el formulario.', 'error');
+            setStatus('', '');
             firstInvalidField.focus();
             return false;
           }

@@ -194,7 +194,7 @@
       .agreement-panel {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: center;
         gap: 18px;
         max-width: 920px;
         margin: 0 0 22px;
@@ -225,23 +225,6 @@
         width: 1px;
         height: 44px;
         background: rgba(47, 58, 104, 0.16);
-      }
-
-      .agreement-copy {
-        display: grid;
-        gap: 2px;
-      }
-
-      .agreement-copy strong {
-        color: var(--navy);
-        font-size: 15px;
-        line-height: 1.2;
-      }
-
-      .agreement-copy span {
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.3;
       }
 
       .contact-form-shell {
@@ -346,6 +329,10 @@
 
       .contact-status.is-success {
         color: var(--cyan-dark);
+      }
+
+      .contact-status:empty {
+        display: none;
       }
 
       .success-modal {
@@ -492,7 +479,7 @@
         }
 
         .agreement-brand-lockup {
-          align-items: flex-start;
+          align-items: center;
           flex-direction: column;
         }
 
@@ -549,7 +536,7 @@
         </p>
 
         <div class="agreement-panel" id="agreement-panel" hidden>
-          <div class="agreement-brand-lockup">
+          <div class="agreement-brand-lockup" id="agreement-brand-lockup" hidden>
             <img
               class="agreement-brand-logo"
               src="/images/logo-reku.svg"
@@ -562,10 +549,6 @@
               alt=""
               hidden
             />
-            <div class="agreement-copy">
-              <strong id="agreement-name"></strong>
-              <span id="agreement-type"></span>
-            </div>
           </div>
           <a class="btn btn-ghost" id="agreement-pdf-link" href="#" hidden>
             Cómo funciona
@@ -719,9 +702,8 @@
         const successModal = document.getElementById('success-modal');
         const successModalClose = document.getElementById('success-modal-close');
         const agreementPanel = document.getElementById('agreement-panel');
+        const agreementBrandLockup = document.getElementById('agreement-brand-lockup');
         const agreementLogo = document.getElementById('agreement-logo');
-        const agreementName = document.getElementById('agreement-name');
-        const agreementType = document.getElementById('agreement-type');
         const agreementPdfLink = document.getElementById('agreement-pdf-link');
         const agreementSlugField = document.getElementById('agreement-slug');
         const identifierField = document.getElementById('identificador-field');
@@ -844,7 +826,7 @@
           });
 
           if (firstInvalidField) {
-            setStatus('Revisá los campos marcados para poder enviar el formulario.', 'error');
+            setStatus('', '');
             firstInvalidField.focus();
             return false;
           }
@@ -901,31 +883,39 @@
             const payload = await response.json();
             agreement = payload.agreement;
 
-            if (agreementPanel && agreementName && agreementType) {
-              agreementPanel.hidden = false;
-              agreementName.textContent = agreement.name;
-              agreementType.textContent =
-                agreement.type === 'Nomina'
-                  ? 'Validación por nómina'
-                  : 'Acuerdo con pago de consulta';
+            const shouldShowCobrand = Boolean(agreement.cobranded && agreement.logo_url);
+            const shouldShowPdf = Boolean(agreement.pdf_url);
+
+            if (agreementPanel) {
+              agreementPanel.hidden = !(shouldShowCobrand || shouldShowPdf);
             }
 
-            if (agreementLogo && agreement.logo_url) {
+            if (agreementBrandLockup) {
+              agreementBrandLockup.hidden = !shouldShowCobrand;
+            }
+
+            if (agreementLogo && shouldShowCobrand) {
               agreementLogo.src = agreement.logo_url;
-              agreementLogo.alt = agreement.name;
+              agreementLogo.alt = 'Logo del acuerdo';
               agreementLogo.hidden = false;
+            } else if (agreementLogo) {
+              agreementLogo.removeAttribute('src');
+              agreementLogo.alt = '';
+              agreementLogo.hidden = true;
             }
 
-            if (agreementPdfLink && agreement.pdf_url) {
+            if (agreementPdfLink && shouldShowPdf) {
               agreementPdfLink.href = agreement.pdf_url;
               agreementPdfLink.hidden = false;
+            } else if (agreementPdfLink) {
+              agreementPdfLink.href = '#';
+              agreementPdfLink.hidden = true;
             }
 
             if (agreement.type === 'Nomina' && identifierField && fields.identificador) {
               identifierField.hidden = false;
               fields.identificador.required = true;
-              contactNote.textContent =
-                'Todos los campos son obligatorios, incluido el identificador de nómina.';
+              contactNote.textContent = 'Todos los campos son obligatorios, incluido el identificador.';
             }
           } catch (error) {
             setStatus('No se pudo cargar el acuerdo. Probá de nuevo.', 'error');

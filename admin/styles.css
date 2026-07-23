@@ -488,6 +488,16 @@ tr:hover td {
   flex-wrap: wrap;
 }
 
+.centered-table th,
+.centered-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.centered-table .table-actions {
+  justify-content: center;
+}
+
 .inline-preview {
   max-width: 220px;
   max-height: 52px;

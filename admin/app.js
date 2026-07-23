@@ -12,6 +12,9 @@
     patientIntakes: [],
     contacts: [],
     nominaEntries: [],
+    agreementTypeFilter: '',
+    agreementCobrandFilter: '',
+    agreementTextFilter: '',
     patientAgreementFilter: '',
     patientTextFilter: '',
     nominaAgreementFilter: '',
@@ -417,11 +420,39 @@
   }
 
   function renderAgreements() {
+    const agreements = filteredAgreements();
     return `
       <section class="panel">
-        <div class="panel-header">
-          <h2>Acuerdos</h2>
-          <button type="button" class="primary-button" data-action="new-agreement">Nuevo</button>
+        <div class="toolbar">
+          <label>
+            Buscar
+            <input
+              id="agreement-text-filter"
+              type="search"
+              value="${escapeHtml(state.agreementTextFilter)}"
+              placeholder="Nombre del acuerdo"
+            />
+          </label>
+          <label>
+            Tipo
+            <select id="agreement-type-filter">
+              <option value="">Todos</option>
+              <option value="Pago">Pago</option>
+              <option value="Nomina">Nómina</option>
+            </select>
+          </label>
+          <label>
+            Co-Branded
+            <select id="agreement-cobrand-filter">
+              <option value="">Todos</option>
+              <option value="yes">Sí</option>
+              <option value="no">No</option>
+            </select>
+          </label>
+          <span class="toolbar-count">${agreements.length} acuerdos</span>
+          <div class="toolbar-actions">
+            <button type="button" class="primary-button" data-action="new-agreement">Nuevo</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -437,7 +468,7 @@
               </tr>
             </thead>
             <tbody>
-              ${state.agreements.length ? state.agreements.map(renderAgreementRow).join('') : '<tr><td colspan="7">No hay acuerdos cargados.</td></tr>'}
+              ${agreements.length ? agreements.map(renderAgreementRow).join('') : '<tr><td colspan="7">No hay acuerdos para esos filtros.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -484,6 +515,20 @@
     `;
   }
 
+  function filteredAgreements() {
+    const term = state.agreementTextFilter.trim().toLowerCase();
+    return state.agreements.filter((agreement) => {
+      const matchesText = !term || agreement.name.toLowerCase().includes(term);
+      const matchesType = !state.agreementTypeFilter || agreement.type === state.agreementTypeFilter;
+      const matchesCobrand =
+        !state.agreementCobrandFilter ||
+        (state.agreementCobrandFilter === 'yes' && agreement.cobranded) ||
+        (state.agreementCobrandFilter === 'no' && !agreement.cobranded);
+
+      return matchesText && matchesType && matchesCobrand;
+    });
+  }
+
   function filteredPatientIntakes() {
     const term = state.patientTextFilter.trim().toLowerCase();
     if (!term) return state.patientIntakes;
@@ -524,7 +569,7 @@
           <span class="toolbar-count">${items.length} altas</span>
         </div>
         <div class="table-wrap">
-          <table>
+          <table class="centered-table">
             <thead>
               <tr>
                 <th>Fecha</th>
@@ -557,15 +602,17 @@
         <td>${escapeHtml(item.identificador)}</td>
         <td>${item.email_error ? `<span class="muted">${escapeHtml(item.email_error)}</span>` : 'Enviado'}</td>
         <td>
-          <button
-            type="button"
-            class="danger-button"
-            data-action="delete-patient"
-            data-id="${item.id}"
-            ${state.user.can_delete_records ? '' : 'disabled'}
-          >
-            Eliminar
-          </button>
+          <div class="table-actions">
+            <button
+              type="button"
+              class="danger-button"
+              data-action="delete-patient"
+              data-id="${item.id}"
+              ${state.user.can_delete_records ? '' : 'disabled'}
+            >
+              Eliminar
+            </button>
+          </div>
         </td>
       </tr>
     `;
@@ -771,6 +818,36 @@
       };
       agreementTypeSelect.addEventListener('change', togglePaymentFields);
       togglePaymentFields();
+    }
+
+    const agreementTextFilter = document.getElementById('agreement-text-filter');
+    if (agreementTextFilter) {
+      agreementTextFilter.value = state.agreementTextFilter;
+      agreementTextFilter.addEventListener('input', () => {
+        state.agreementTextFilter = agreementTextFilter.value;
+        render();
+        const nextInput = document.getElementById('agreement-text-filter');
+        nextInput?.focus();
+        nextInput?.setSelectionRange(state.agreementTextFilter.length, state.agreementTextFilter.length);
+      });
+    }
+
+    const agreementTypeFilter = document.getElementById('agreement-type-filter');
+    if (agreementTypeFilter) {
+      agreementTypeFilter.value = state.agreementTypeFilter;
+      agreementTypeFilter.addEventListener('change', () => {
+        state.agreementTypeFilter = agreementTypeFilter.value;
+        render();
+      });
+    }
+
+    const agreementCobrandFilter = document.getElementById('agreement-cobrand-filter');
+    if (agreementCobrandFilter) {
+      agreementCobrandFilter.value = state.agreementCobrandFilter;
+      agreementCobrandFilter.addEventListener('change', () => {
+        state.agreementCobrandFilter = agreementCobrandFilter.value;
+        render();
+      });
     }
 
     const patientFilter = document.getElementById('patient-agreement-filter');
