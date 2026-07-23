@@ -342,6 +342,12 @@ a:focus-visible {
   font-size: 13px;
 }
 
+.appointments-toolbar .toolbar-count {
+  margin-left: auto;
+  color: var(--text);
+  font-weight: 800;
+}
+
 .panel-header h2 {
   margin: 0;
   font-size: 18px;

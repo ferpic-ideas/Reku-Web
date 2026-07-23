@@ -29,6 +29,9 @@
     patientTextFilter: '',
     nominaAgreementFilter: '',
     nominaFormFilter: '',
+    appointmentStatusFilter: 'future',
+    appointmentProfessionalFilter: '',
+    appointmentPatientFilter: '',
     status: '',
     statusType: '',
     dialog: null,
@@ -97,6 +100,18 @@
     })[value] || value || '';
 
   const todayInput = () => new Date().toISOString().slice(0, 10);
+
+  const appointmentDateTime = (item, timeField = 'start_time') => {
+    const date = item.appointment_date;
+    const time = item[timeField] || item.start_time || '00:00';
+    const parsed = new Date(`${date}T${String(time).slice(0, 5)}:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const isPastAppointment = (item, now = new Date()) => {
+    const endDate = appointmentDateTime(item, 'end_time') || appointmentDateTime(item);
+    return endDate ? endDate < now : false;
+  };
 
   const dayLabel = (dayOfWeek) =>
     dayLabels.find((day) => day.id === Number(dayOfWeek))?.label || '';
@@ -762,14 +777,99 @@
   }
 
   function renderAppointments() {
+    const items = filteredAppointments();
     return `
       <section class="panel">
         <div class="panel-header">
           <h2>Turnos</h2>
         </div>
-        ${renderAppointmentsTable(state.appointments)}
+        <div class="toolbar appointments-toolbar">
+          <div class="toolbar-actions">
+            <label>
+              Estado
+              <select id="appointment-status-filter">
+                <option value="">Todos</option>
+                <option value="past">Pasados</option>
+                <option value="future">Futuros</option>
+              </select>
+            </label>
+            <label>
+              Profesional
+              <select id="appointment-professional-filter">
+                <option value="">Todos</option>
+                ${renderAppointmentProfessionalOptions()}
+              </select>
+            </label>
+            <label>
+              Paciente
+              <input
+                id="appointment-patient-filter"
+                type="search"
+                value="${escapeHtml(state.appointmentPatientFilter)}"
+                placeholder="Nombre, mail o teléfono"
+              />
+            </label>
+          </div>
+          <span class="toolbar-count">Total: ${items.length}</span>
+        </div>
+        ${renderAppointmentsTable(items)}
       </section>
     `;
+  }
+
+  function renderAppointmentProfessionalOptions() {
+    const options = new Map();
+    state.professionals.forEach((professional) => {
+      options.set(String(professional.id), professional.name);
+    });
+    state.appointments.forEach((appointment) => {
+      if (appointment.professional_id) {
+        options.set(
+          String(appointment.professional_id),
+          options.get(String(appointment.professional_id)) || appointment.professional_name,
+        );
+      }
+    });
+
+    return [...options.entries()]
+      .sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'es'))
+      .map(
+        ([id, name]) =>
+          `<option value="${escapeHtml(id)}">${escapeHtml(name || `Profesional ${id}`)}</option>`,
+      )
+      .join('');
+  }
+
+  function filteredAppointments(items = state.appointments) {
+    const now = new Date();
+    const patientTerm = state.appointmentPatientFilter.trim().toLowerCase();
+
+    return items
+      .filter((item) => {
+        if (state.appointmentStatusFilter === 'past' && !isPastAppointment(item, now)) return false;
+        if (state.appointmentStatusFilter === 'future' && isPastAppointment(item, now)) return false;
+        if (
+          state.appointmentProfessionalFilter &&
+          String(item.professional_id) !== state.appointmentProfessionalFilter
+        ) {
+          return false;
+        }
+        if (
+          patientTerm &&
+          ![item.patient_name, item.patient_email, item.patient_phone]
+            .join(' ')
+            .toLowerCase()
+            .includes(patientTerm)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aDate = appointmentDateTime(a)?.getTime() || 0;
+        const bDate = appointmentDateTime(b)?.getTime() || 0;
+        return state.appointmentStatusFilter === 'past' ? bDate - aDate : aDate - bDate;
+      });
   }
 
   function renderAppointmentsTable(items) {
@@ -1630,6 +1730,41 @@
       nominaFormFilter.addEventListener('change', () => {
         state.nominaFormFilter = nominaFormFilter.value;
         render();
+      });
+    }
+
+    const appointmentStatusFilter = document.getElementById('appointment-status-filter');
+    if (appointmentStatusFilter) {
+      appointmentStatusFilter.value = state.appointmentStatusFilter;
+      appointmentStatusFilter.addEventListener('change', () => {
+        state.appointmentStatusFilter = appointmentStatusFilter.value;
+        render();
+      });
+    }
+
+    const appointmentProfessionalFilter = document.getElementById(
+      'appointment-professional-filter',
+    );
+    if (appointmentProfessionalFilter) {
+      appointmentProfessionalFilter.value = state.appointmentProfessionalFilter;
+      appointmentProfessionalFilter.addEventListener('change', () => {
+        state.appointmentProfessionalFilter = appointmentProfessionalFilter.value;
+        render();
+      });
+    }
+
+    const appointmentPatientFilter = document.getElementById('appointment-patient-filter');
+    if (appointmentPatientFilter) {
+      appointmentPatientFilter.value = state.appointmentPatientFilter;
+      appointmentPatientFilter.addEventListener('input', () => {
+        state.appointmentPatientFilter = appointmentPatientFilter.value;
+        render();
+        const nextInput = document.getElementById('appointment-patient-filter');
+        nextInput?.focus();
+        nextInput?.setSelectionRange(
+          state.appointmentPatientFilter.length,
+          state.appointmentPatientFilter.length,
+        );
       });
     }
   }

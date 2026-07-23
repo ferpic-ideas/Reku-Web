@@ -1147,6 +1147,7 @@ const deleteScheduleBlock = async (response, user, id) => {
 
 const mapAppointment = (row) => ({
   id: Number(row.id),
+  professional_id: Number(row.professional_id),
   service_name: row.service_name || "",
   professional_name: row.professional_name || "",
   appointment_date: row.appointment_date,
