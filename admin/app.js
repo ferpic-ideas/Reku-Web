@@ -56,6 +56,25 @@
     { id: 'contacts', label: 'Contactos', icon: 'contacts' },
   ];
 
+  const moduleRoutes = {
+    dashboard: '/admin/',
+    agreements: '/admin/acuerdos',
+    nomina: '/admin/nominas',
+    services: '/admin/servicios',
+    professionals: '/admin/profesionales',
+    blocks: '/admin/bloquear-horario',
+    'booking-test': '/admin/probar-agenda',
+    appointments: '/admin/turnos',
+    'patient-intakes': '/admin/alta-pacientes',
+    contacts: '/admin/contactos',
+    config: '/admin/configurar',
+    audit: '/admin/auditoria',
+  };
+
+  const routeModules = Object.fromEntries(
+    Object.entries(moduleRoutes).map(([moduleId, path]) => [path, moduleId]),
+  );
+
   const navIcons = {
     dashboard: `
       <rect width="7" height="9" x="3" y="3" rx="1" />
@@ -140,6 +159,35 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+
+  const modulePath = (moduleId) => moduleRoutes[moduleId] || moduleRoutes.dashboard;
+
+  const moduleFromPath = (pathname = window.location.pathname) => {
+    const normalized = pathname.endsWith('/') && pathname !== '/' ? pathname.slice(0, -1) : pathname;
+    return routeModules[normalized] || 'dashboard';
+  };
+
+  const navigateToModule = async (moduleId, { replace = false } = {}) => {
+    const nextModule = moduleRoutes[moduleId] ? moduleId : 'dashboard';
+    state.active = nextModule;
+    state.userMenuOpen = false;
+    state.dialog = null;
+    clearStatus();
+
+    if (state.user && nextModule === 'config') {
+      await loadMercadoPagoSettings();
+    }
+    if (state.user && nextModule === 'audit') {
+      await loadAuditEvents();
+    }
+
+    const nextPath = modulePath(nextModule);
+    if (window.location.pathname !== nextPath) {
+      const method = replace ? 'replaceState' : 'pushState';
+      window.history[method]({ module: nextModule }, '', nextPath);
+    }
+    render();
+  };
 
   const navIcon = (name) => `
     <svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24">
@@ -271,11 +319,18 @@
   }
 
   async function loadSession() {
+    state.active = moduleFromPath();
     try {
       const payload = await api('/api/admin/auth/me');
       csrfToken = payload.csrf_token;
       state.user = payload.user;
       await loadData();
+      if (state.active === 'config') {
+        await loadMercadoPagoSettings();
+      }
+      if (state.active === 'audit') {
+        await loadAuditEvents();
+      }
     } catch {
       state.user = null;
     } finally {
@@ -341,14 +396,14 @@
               module.type === 'divider'
                 ? '<span class="nav-divider" aria-hidden="true"></span>'
                 : `
-                <button
-                  type="button"
+                <a
+                  href="${modulePath(module.id)}"
                   class="nav-button${state.active === module.id ? ' active' : ''}"
                   data-module="${module.id}"
                 >
                   ${navIcon(module.icon)}
                   <span>${escapeHtml(module.label)}</span>
-                </button>
+                </a>
               `,
             )
             .join('')}
@@ -664,10 +719,10 @@
         ${cards
           .map(
             (card) => `
-              <button type="button" class="metric-card" data-module="${escapeHtml(card.module)}">
+              <a href="${modulePath(card.module)}" class="metric-card" data-module="${escapeHtml(card.module)}">
                 <span>${escapeHtml(card.label)}</span>
                 <strong>${escapeHtml(card.value)}</strong>
-              </button>
+              </a>
             `,
           )
           .join('')}
@@ -1977,13 +2032,22 @@
   }
 
   function bindEvents() {
-    document.querySelectorAll('[data-module]').forEach((button) => {
-      button.addEventListener('click', () => {
-        state.active = button.dataset.module;
-        state.userMenuOpen = false;
-        state.dialog = null;
-        clearStatus();
-        render();
+    document.querySelectorAll('[data-module]').forEach((link) => {
+      link.addEventListener('click', (event) => {
+        if (
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        ) {
+          return;
+        }
+        event.preventDefault();
+        navigateToModule(link.dataset.module).catch((error) => {
+          setStatus(error.message, 'error');
+        });
       });
     });
 
@@ -2206,19 +2270,11 @@
         return;
       }
       if (action === 'open-config') {
-        state.active = 'config';
-        state.userMenuOpen = false;
-        state.dialog = null;
-        await loadMercadoPagoSettings();
-        render();
+        await navigateToModule('config');
         return;
       }
       if (action === 'open-audit') {
-        state.active = 'audit';
-        state.userMenuOpen = false;
-        state.dialog = null;
-        await loadAuditEvents();
-        render();
+        await navigateToModule('audit');
         return;
       }
       if (action === 'close-dialog') {
@@ -2779,6 +2835,12 @@
     if (target instanceof Element && target.closest('.user-menu')) return;
     state.userMenuOpen = false;
     render();
+  });
+
+  window.addEventListener('popstate', () => {
+    navigateToModule(moduleFromPath(), { replace: true }).catch((error) => {
+      setStatus(error.message, 'error');
+    });
   });
 
   loadSession();

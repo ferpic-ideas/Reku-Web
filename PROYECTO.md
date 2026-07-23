@@ -35,6 +35,7 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/agenda/?token=<token>`: agenda mobile para reservar turno con link firmado.
 - `/profesional-turnos/?token=<token>`: vista simple para que un profesional vea sus turnos próximos.
 - `/admin/`: admin interno.
+- `/admin/<modulo>`: deep links del admin para cada módulo, por ejemplo `/admin/turnos`.
 - `/api/public/agreements/<slug>`: datos publicos de un acuerdo.
 - `/api/admin/*`: API autenticada del admin.
 - `/api/booking/*`: API publica de agenda con token firmado.

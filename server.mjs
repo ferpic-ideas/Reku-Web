@@ -82,7 +82,17 @@ const server = createServer(async (request, response) => {
       const isAgendaPage =
         pathname === "/agenda" ||
         (pathname.startsWith("/agenda/") && !pathname.slice("/agenda/".length).includes("."));
-      const staticPath = pathname === "/" ? "/index.html" : isAgendaPage ? "/agenda/index.html" : pathname;
+      const isAdminPage =
+        pathname === "/admin/" ||
+        (pathname.startsWith("/admin/") && !pathname.slice("/admin/".length).includes("."));
+      const staticPath =
+        pathname === "/"
+          ? "/index.html"
+          : isAgendaPage
+            ? "/agenda/index.html"
+            : isAdminPage
+              ? "/admin/index.html"
+              : pathname;
       await serveStatic(request, response, staticPath);
       return;
     }

@@ -193,6 +193,7 @@ a:focus-visible {
   background: transparent;
   cursor: pointer;
   text-align: left;
+  text-decoration: none;
 }
 
 .nav-button:hover,
@@ -450,6 +451,7 @@ a:focus-visible {
   font: inherit;
   cursor: pointer;
   text-align: left;
+  text-decoration: none;
   transition:
     border-color 0.16s ease,
     box-shadow 0.16s ease,
