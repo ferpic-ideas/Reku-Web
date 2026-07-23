@@ -147,13 +147,8 @@ a:focus-visible {
 }
 
 .side-brand {
-  display: grid;
-  gap: 10px;
-}
-
-.side-brand span {
-  color: rgb(255 255 255 / 58%);
-  font-size: 13px;
+  display: flex;
+  align-items: center;
 }
 
 .side-nav {
@@ -181,9 +176,14 @@ a:focus-visible {
 
 .sidebar-foot {
   margin-top: auto;
-  color: rgb(255 255 255 / 36%);
+  color: rgb(255 255 255 / 48%);
   font-size: 12px;
   text-align: center;
+  text-decoration: none;
+}
+
+.sidebar-foot:hover {
+  color: #ffffff;
 }
 
 .content {
@@ -201,10 +201,6 @@ a:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-}
-
-.mobile-menu-button {
-  display: none;
 }
 
 .topbar-actions {
@@ -286,6 +282,22 @@ a:focus-visible {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.toolbar label {
+  min-width: min(260px, 100%);
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbar-count {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .panel-header h2 {
@@ -476,13 +488,26 @@ tr:hover td {
 
 .modal-panel {
   width: min(460px, 100%);
+  max-height: calc(100vh - 36px);
   display: grid;
   gap: 14px;
+  overflow: auto;
   padding: 18px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 24px 72px rgb(15 23 42 / 22%);
+}
+
+.modal-panel-wide {
+  width: min(920px, 100%);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .modal-panel h2,
@@ -507,20 +532,22 @@ tr:hover td {
   }
 
   .sidebar {
-    position: fixed;
-    inset: 0 auto 0 0;
-    z-index: 80;
-    width: min(280px, calc(100vw - 48px));
-    transform: translateX(-100%);
-    transition: transform 160ms ease;
+    position: static;
+    width: auto;
+    height: auto;
+    transform: none;
+    border-right: 0;
+    border-bottom: 1px solid rgb(255 255 255 / 8%);
   }
 
-  .app-shell.menu-open .sidebar {
-    transform: translateX(0);
+  .side-nav {
+    grid-template-columns: repeat(4, minmax(132px, 1fr));
+    overflow-x: auto;
   }
 
-  .mobile-menu-button {
-    display: inline-flex;
+  .sidebar-foot {
+    margin-top: 0;
+    text-align: left;
   }
 
   .content {

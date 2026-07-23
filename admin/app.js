@@ -6,7 +6,6 @@
     user: null,
     loading: true,
     active: 'agreements',
-    menuOpen: false,
     userMenuOpen: false,
     editingAgreementId: null,
     agreements: [],
@@ -14,6 +13,7 @@
     contacts: [],
     nominaEntries: [],
     patientAgreementFilter: '',
+    patientTextFilter: '',
     nominaAgreementFilter: '',
     status: '',
     statusType: '',
@@ -22,7 +22,7 @@
 
   const modules = [
     { id: 'agreements', label: 'Acuerdos' },
-    { id: 'patient-intakes', label: 'Altas' },
+    { id: 'patient-intakes', label: 'Altas Pacientes' },
     { id: 'contacts', label: 'Contactos' },
     { id: 'nomina', label: 'Nóminas' },
   ];
@@ -127,13 +127,11 @@
       return;
     }
 
-    app.className = `app-shell${state.menuOpen ? ' menu-open' : ''}`;
+    app.className = 'app-shell';
     app.innerHTML = `
-      ${state.menuOpen ? '<div class="overlay" data-action="close-mobile-menu"></div>' : ''}
       <aside class="sidebar">
         <div class="side-brand">
           <img src="/images/logo-reku.svg" alt="Reku" />
-          <span>Administración</span>
         </div>
         <nav class="side-nav">
           ${modules
@@ -150,15 +148,13 @@
             )
             .join('')}
         </nav>
-        <div class="sidebar-foot">Reku Admin</div>
+        <a class="sidebar-foot" href="https://ferpic-ideas.tech" target="_blank" rel="noreferrer">Hecho x Ferpic</a>
       </aside>
       <main class="content">
         <header class="topbar">
           <div class="brand-row">
-            <button type="button" class="icon-button mobile-menu-button" data-action="toggle-mobile-menu" aria-label="Abrir menú">☰</button>
             <div>
               <h1>${escapeHtml(activeModuleLabel())}</h1>
-              <p>${escapeHtml(activeModuleDescription())}</p>
             </div>
           </div>
           <div class="topbar-actions">
@@ -212,16 +208,6 @@
     return modules.find((module) => module.id === state.active)?.label || 'Admin';
   }
 
-  function activeModuleDescription() {
-    const descriptions = {
-      agreements: 'Configuración de acuerdos, cobranding, PDFs, pagos y templates.',
-      'patient-intakes': 'Registro de altas recibidas desde el formulario.',
-      contacts: 'Registro de contactos recibidos desde la página principal.',
-      nomina: 'Carga manual o por CSV de personas habilitadas por acuerdo.',
-    };
-    return descriptions[state.active] || '';
-  }
-
   function renderActiveModule() {
     if (state.active === 'agreements') return renderAgreements();
     if (state.active === 'patient-intakes') return renderPatientIntakes();
@@ -270,6 +256,48 @@
       `;
     }
 
+    if (state.dialog.type === 'agreement-form') {
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel modal-panel-wide" id="agreement-form">
+            <div class="modal-header">
+              <h2>${state.editingAgreementId ? 'Editar acuerdo' : 'Nuevo acuerdo'}</h2>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            ${renderAgreementFormFields()}
+          </form>
+        </div>
+      `;
+    }
+
+    if (state.dialog.type === 'nomina-form') {
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel" id="nomina-form">
+            <div class="modal-header">
+              <h2>Nueva nómina</h2>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            ${renderNominaFormFields()}
+          </form>
+        </div>
+      `;
+    }
+
+    if (state.dialog.type === 'nomina-csv-form') {
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel" id="nomina-csv-form">
+            <div class="modal-header">
+              <h2>Subir CSV de nómina</h2>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            ${renderNominaCsvFormFields()}
+          </form>
+        </div>
+      `;
+    }
+
     return '';
   }
 
@@ -297,87 +325,87 @@
     );
   }
 
-  function renderAgreements() {
+  function renderAgreementFormFields() {
     const item = agreementFormValues();
+    return `
+      <div class="grid-two">
+        <label>
+          Nombre
+          <input name="name" value="${escapeHtml(item.name)}" required />
+        </label>
+        <label>
+          Slug URL
+          <input name="slug" value="${escapeHtml(item.slug)}" placeholder="se genera desde el nombre" />
+        </label>
+        <label>
+          Tipo
+          <select name="type">
+            <option value="Pago" ${item.type === 'Pago' ? 'selected' : ''}>Pago</option>
+            <option value="Nomina" ${item.type === 'Nomina' ? 'selected' : ''}>Nómina</option>
+          </select>
+        </label>
+        <label class="check-row">
+          <input type="checkbox" name="cobranded" ${item.cobranded ? 'checked' : ''} />
+          Cobranded
+        </label>
+        <label>
+          Link pago evaluación
+          <input name="payment_evaluation_url" type="url" value="${escapeHtml(item.payment_evaluation_url)}" />
+        </label>
+        <label>
+          Link pago tratamiento
+          <input name="payment_treatment_url" type="url" value="${escapeHtml(item.payment_treatment_url)}" />
+        </label>
+        <label>
+          Logo
+          <input name="logo" type="file" accept="image/*" />
+        </label>
+        <label>
+          PDF Cómo funciona
+          <input name="pdf" type="file" accept="application/pdf" />
+        </label>
+        ${item.logo_url || item.pdf_url ? `
+          <div class="span-two grid-two">
+            ${item.logo_url ? `
+              <label class="check-row">
+                <input type="checkbox" name="remove_logo" />
+                Quitar logo actual
+              </label>
+            ` : '<span></span>'}
+            ${item.pdf_url ? `
+              <label class="check-row">
+                <input type="checkbox" name="remove_pdf" />
+                Quitar PDF actual
+              </label>
+            ` : '<span></span>'}
+          </div>
+        ` : ''}
+        <label class="span-two">
+          Subject del mail
+          <input name="email_subject_template" value="${escapeHtml(item.email_subject_template)}" required />
+        </label>
+        <label class="span-two">
+          Template del mail
+          <textarea name="email_body_template" required>${escapeHtml(item.email_body_template)}</textarea>
+        </label>
+        <div class="template-help span-two">
+          <strong>Variables permitidas</strong>
+          <span>{{patient.nombre}}, {{patient.apellido}}, {{patient.telefono}}, {{patient.email}}, {{patient.identificador}}, {{agreement.name}}, {{agreement.type}}</span>
+        </div>
+        <div class="form-actions span-two">
+          <button type="button" class="secondary-button" data-action="validate-template">Validar template</button>
+          <button type="submit" class="primary-button">Guardar acuerdo</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAgreements() {
     return `
       <section class="panel">
         <div class="panel-header">
-          <h2>${state.editingAgreementId ? 'Editar acuerdo' : 'Nuevo acuerdo'}</h2>
-          ${state.editingAgreementId ? '<button type="button" class="secondary-button" data-action="cancel-agreement-edit">Cancelar edición</button>' : ''}
-        </div>
-        <form id="agreement-form" class="grid-two">
-          <label>
-            Nombre
-            <input name="name" value="${escapeHtml(item.name)}" required />
-          </label>
-          <label>
-            Slug URL
-            <input name="slug" value="${escapeHtml(item.slug)}" placeholder="se genera desde el nombre" />
-          </label>
-          <label>
-            Tipo
-            <select name="type">
-              <option value="Pago" ${item.type === 'Pago' ? 'selected' : ''}>Pago</option>
-              <option value="Nomina" ${item.type === 'Nomina' ? 'selected' : ''}>Nómina</option>
-            </select>
-          </label>
-          <label class="check-row">
-            <input type="checkbox" name="cobranded" ${item.cobranded ? 'checked' : ''} />
-            Cobranded
-          </label>
-          <label>
-            Link pago evaluación
-            <input name="payment_evaluation_url" type="url" value="${escapeHtml(item.payment_evaluation_url)}" />
-          </label>
-          <label>
-            Link pago tratamiento
-            <input name="payment_treatment_url" type="url" value="${escapeHtml(item.payment_treatment_url)}" />
-          </label>
-          <label>
-            Logo
-            <input name="logo" type="file" accept="image/*" />
-          </label>
-          <label>
-            PDF Cómo funciona
-            <input name="pdf" type="file" accept="application/pdf" />
-          </label>
-          ${item.logo_url || item.pdf_url ? `
-            <div class="span-two grid-two">
-              ${item.logo_url ? `
-                <label class="check-row">
-                  <input type="checkbox" name="remove_logo" />
-                  Quitar logo actual
-                </label>
-              ` : '<span></span>'}
-              ${item.pdf_url ? `
-                <label class="check-row">
-                  <input type="checkbox" name="remove_pdf" />
-                  Quitar PDF actual
-                </label>
-              ` : '<span></span>'}
-            </div>
-          ` : ''}
-          <label class="span-two">
-            Subject del mail
-            <input name="email_subject_template" value="${escapeHtml(item.email_subject_template)}" required />
-          </label>
-          <label class="span-two">
-            Template del mail
-            <textarea name="email_body_template" required>${escapeHtml(item.email_body_template)}</textarea>
-          </label>
-          <div class="template-help span-two">
-            <strong>Variables permitidas</strong>
-            <span>{{patient.nombre}}, {{patient.apellido}}, {{patient.telefono}}, {{patient.email}}, {{patient.identificador}}, {{agreement.name}}, {{agreement.type}}</span>
-          </div>
-          <div class="form-actions span-two">
-            <button type="button" class="secondary-button" data-action="validate-template">Validar template</button>
-            <button type="submit" class="primary-button">Guardar acuerdo</button>
-          </div>
-        </form>
-      </section>
-      <section class="panel">
-        <div class="panel-header">
           <h2>Acuerdos</h2>
+          <button type="button" class="primary-button" data-action="new-agreement">Nuevo</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -440,7 +468,25 @@
     `;
   }
 
+  function filteredPatientIntakes() {
+    const term = state.patientTextFilter.trim().toLowerCase();
+    if (!term) return state.patientIntakes;
+    return state.patientIntakes.filter((item) =>
+      [
+        item.nombre,
+        item.apellido,
+        item.telefono,
+        item.email,
+        item.identificador,
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(term),
+    );
+  }
+
   function renderPatientIntakes() {
+    const items = filteredPatientIntakes();
     return `
       <section class="panel">
         <div class="toolbar">
@@ -450,6 +496,16 @@
               ${renderAgreementOptions()}
             </select>
           </label>
+          <label>
+            Buscar
+            <input
+              id="patient-text-filter"
+              type="search"
+              value="${escapeHtml(state.patientTextFilter)}"
+              placeholder="Paciente, teléfono, mail o identificador"
+            />
+          </label>
+          <span class="toolbar-count">${items.length} altas</span>
         </div>
         <div class="table-wrap">
           <table>
@@ -461,12 +517,12 @@
                 <th>Teléfono</th>
                 <th>Mail</th>
                 <th>Identificador</th>
-                <th>Email</th>
+                <th>Estado envío</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${state.patientIntakes.length ? state.patientIntakes.map(renderPatientRow).join('') : '<tr><td colspan="8">No hay altas registradas.</td></tr>'}
+              ${items.length ? items.map(renderPatientRow).join('') : '<tr><td colspan="8">No hay altas registradas.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -483,7 +539,7 @@
         <td>${escapeHtml(item.telefono)}</td>
         <td>${escapeHtml(item.email)}</td>
         <td>${escapeHtml(item.identificador)}</td>
-        <td>${item.email_error ? `<span class="muted">${escapeHtml(item.email_error)}</span>` : 'OK'}</td>
+        <td>${item.email_error ? `<span class="muted">${escapeHtml(item.email_error)}</span>` : 'Enviado'}</td>
         <td>
           <button
             type="button"
@@ -550,57 +606,71 @@
     `;
   }
 
-  function renderNomina() {
+  function renderNominaFormFields() {
     const nominaAgreements = state.agreements.filter((agreement) => agreement.type === 'Nomina');
+    if (!nominaAgreements.length) {
+      return '<p class="muted">Primero creá un acuerdo de tipo Nómina.</p>';
+    }
+
     return `
-      <section class="panel">
-        <div class="panel-header">
-          <h2>Agregar registro</h2>
+      <div class="grid-two">
+        <label class="span-two">
+          Acuerdo
+          <select name="agreement_id" required>
+            ${renderAgreementOptions({ onlyNomina: true, includeAll: false })}
+          </select>
+        </label>
+        <label>
+          Nombre
+          <input name="nombre" />
+        </label>
+        <label>
+          Apellido
+          <input name="apellido" />
+        </label>
+        <label class="span-two">
+          Identificador
+          <input name="identificador" required />
+        </label>
+        <div class="form-actions span-two">
+          <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
+          <button type="submit" class="primary-button">Guardar</button>
         </div>
-        ${nominaAgreements.length ? `
-          <form id="nomina-form" class="grid-four grid-three">
-            <label>
-              Acuerdo
-              <select name="agreement_id" required>
-                ${renderAgreementOptions({ onlyNomina: true, includeAll: false })}
-              </select>
-            </label>
-            <label>
-              Nombre
-              <input name="nombre" />
-            </label>
-            <label>
-              Apellido
-              <input name="apellido" />
-            </label>
-            <label>
-              Identificador
-              <input name="identificador" required />
-            </label>
-            <div class="form-actions span-two">
-              <button type="submit" class="primary-button">Agregar registro</button>
-            </div>
-          </form>
-          <form id="nomina-csv-form" class="grid-two">
-            <label>
-              Acuerdo
-              <select name="agreement_id" required>
-                ${renderAgreementOptions({ onlyNomina: true, includeAll: false })}
-              </select>
-            </label>
-            <label>
-              CSV
-              <input name="csv" type="file" accept=".csv,text/csv" required />
-            </label>
-            <div class="template-help span-two">
-              CSV esperado: identificador,nombre,apellido. Nombre y apellido son opcionales.
-            </div>
-            <div class="form-actions span-two">
-              <button type="submit" class="secondary-button">Subir CSV</button>
-            </div>
-          </form>
-        ` : '<p class="muted">Primero creá un acuerdo de tipo Nómina.</p>'}
-      </section>
+      </div>
+    `;
+  }
+
+  function renderNominaCsvFormFields() {
+    const nominaAgreements = state.agreements.filter((agreement) => agreement.type === 'Nomina');
+    if (!nominaAgreements.length) {
+      return '<p class="muted">Primero creá un acuerdo de tipo Nómina.</p>';
+    }
+
+    return `
+      <div class="grid-two">
+        <label>
+          Acuerdo
+          <select name="agreement_id" required>
+            ${renderAgreementOptions({ onlyNomina: true, includeAll: false })}
+          </select>
+        </label>
+        <label>
+          CSV
+          <input name="csv" type="file" accept=".csv,text/csv" required />
+        </label>
+        <div class="template-help span-two">
+          CSV esperado: identificador,nombre,apellido. Nombre y apellido son opcionales.
+        </div>
+        <div class="form-actions span-two">
+          <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
+          <button type="submit" class="primary-button">Subir CSV</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderNomina() {
+    return `
       <section class="panel">
         <div class="toolbar">
           <label>
@@ -609,6 +679,10 @@
               ${renderAgreementOptions({ onlyNomina: true })}
             </select>
           </label>
+          <div class="toolbar-actions">
+            <button type="button" class="secondary-button" data-action="open-nomina-csv">Subir CSV</button>
+            <button type="button" class="primary-button" data-action="new-nomina">Nueva</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -648,7 +722,8 @@
     document.querySelectorAll('[data-module]').forEach((button) => {
       button.addEventListener('click', () => {
         state.active = button.dataset.module;
-        state.menuOpen = false;
+        state.userMenuOpen = false;
+        state.dialog = null;
         clearStatus();
         render();
       });
@@ -675,6 +750,18 @@
       });
     }
 
+    const patientTextFilter = document.getElementById('patient-text-filter');
+    if (patientTextFilter) {
+      patientTextFilter.value = state.patientTextFilter;
+      patientTextFilter.addEventListener('input', () => {
+        state.patientTextFilter = patientTextFilter.value;
+        render();
+        const nextInput = document.getElementById('patient-text-filter');
+        nextInput?.focus();
+        nextInput?.setSelectionRange(state.patientTextFilter.length, state.patientTextFilter.length);
+      });
+    }
+
     const nominaFilter = document.getElementById('nomina-agreement-filter');
     if (nominaFilter) {
       nominaFilter.value = state.nominaAgreementFilter;
@@ -692,22 +779,13 @@
     const slug = event.currentTarget.dataset.slug || '';
 
     try {
-      if (action === 'toggle-mobile-menu') {
-        state.menuOpen = !state.menuOpen;
-        render();
-        return;
-      }
-      if (action === 'close-mobile-menu') {
-        state.menuOpen = false;
-        render();
-        return;
-      }
       if (action === 'toggle-user-menu') {
         state.userMenuOpen = !state.userMenuOpen;
         render();
         return;
       }
       if (action === 'refresh') {
+        state.userMenuOpen = false;
         await loadData();
         setStatus('Datos actualizados.', 'ok');
         return;
@@ -726,6 +804,9 @@
         return;
       }
       if (action === 'close-dialog') {
+        if (state.dialog?.type === 'agreement-form') {
+          state.editingAgreementId = null;
+        }
         state.dialog = null;
         render();
         return;
@@ -734,8 +815,15 @@
         await runConfirmedDelete();
         return;
       }
+      if (action === 'new-agreement') {
+        state.editingAgreementId = null;
+        state.dialog = { type: 'agreement-form' };
+        render();
+        return;
+      }
       if (action === 'cancel-agreement-edit') {
         state.editingAgreementId = null;
+        state.dialog = null;
         render();
         return;
       }
@@ -751,8 +839,18 @@
       }
       if (action === 'edit-agreement') {
         state.editingAgreementId = id;
+        state.dialog = { type: 'agreement-form' };
         render();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+      if (action === 'new-nomina') {
+        state.dialog = { type: 'nomina-form' };
+        render();
+        return;
+      }
+      if (action === 'open-nomina-csv') {
+        state.dialog = { type: 'nomina-csv-form' };
+        render();
         return;
       }
       if (action === 'delete-agreement') {
@@ -840,6 +938,7 @@
     try {
       await api(path, { method, body: data });
       state.editingAgreementId = null;
+      state.dialog = null;
       await loadData();
       setStatus('Acuerdo guardado.', 'ok');
     } catch (error) {
@@ -882,6 +981,7 @@
         },
       });
       form.reset();
+      state.dialog = null;
       await loadData();
       setStatus('Registro de nómina guardado.', 'ok');
     } catch (error) {
@@ -899,6 +999,7 @@
         body: data,
       });
       form.reset();
+      state.dialog = null;
       await loadData();
       setStatus(`CSV importado. Registros procesados: ${result.upserted}.`, 'ok');
     } catch (error) {
@@ -953,6 +1054,14 @@
       setStatus(error.message, 'error');
     }
   }
+
+  document.addEventListener('click', (event) => {
+    if (!state.userMenuOpen) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('.user-menu')) return;
+    state.userMenuOpen = false;
+    render();
+  });
 
   loadSession();
 })();
