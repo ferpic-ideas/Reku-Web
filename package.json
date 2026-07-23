@@ -6,7 +6,7 @@
   "scripts": {
     "build": "echo 'Static site; no build step'",
     "start": "node server.mjs",
-    "check": "node --check server.mjs && find src -name '*.mjs' -print0 | xargs -0 -n1 node --check && node --check admin/app.js && npm run secrets:check",
+    "check": "node --check server.mjs && find src scripts -name '*.mjs' -print0 | xargs -0 -n1 node --check && node --check admin/app.js && npm run secrets:check",
     "secrets:check": "bash scripts/secrets_check.sh"
   },
   "dependencies": {

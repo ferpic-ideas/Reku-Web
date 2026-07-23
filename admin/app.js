@@ -80,6 +80,21 @@
       maximumFractionDigits: 0,
     }).format(Number(value || 0));
 
+  const paymentStatusLabel = (value) =>
+    ({
+      approved: 'Aprobado',
+      pending: 'Pendiente',
+      in_process: 'En proceso',
+      authorized: 'Autorizado',
+      rejected: 'Rechazado',
+      cancelled: 'Cancelado',
+      refunded: 'Devuelto',
+      charged_back: 'Contracargo',
+      paid_simulated: 'Pago simulado',
+      free: 'Sin costo',
+      preference_error: 'Error al crear pago',
+    })[value] || value || '';
+
   const todayInput = () => new Date().toISOString().slice(0, 10);
 
   const dayLabel = (dayOfWeek) =>
@@ -493,8 +508,8 @@
           <input name="cost_amount" type="number" min="0" step="0.01" value="${escapeHtml(item.cost_amount)}" required />
         </label>
         <label class="span-two">
-          Link de pago Checkout Pro
-          <input name="payment_url" type="url" value="${escapeHtml(item.payment_url)}" placeholder="https://www.mercadopago.com.ar/..." required />
+          Link de pago fallback
+          <input name="payment_url" type="url" value="${escapeHtml(item.payment_url)}" placeholder="Opcional" />
         </label>
         <label class="check-row span-two">
           <input type="checkbox" name="active" ${item.active ? 'checked' : ''} />
@@ -546,7 +561,13 @@
         <td><strong>${escapeHtml(service.name)}</strong></td>
         <td>${escapeHtml(service.duration_minutes)} min</td>
         <td>${escapeHtml(formatMoney(service.cost_amount))}</td>
-        <td><a href="${escapeHtml(service.payment_url)}" target="_blank" rel="noreferrer">Checkout Pro</a></td>
+        <td>
+          ${
+            service.payment_url
+              ? `<a href="${escapeHtml(service.payment_url)}" target="_blank" rel="noreferrer">Fallback</a>`
+              : 'Checkout Pro'
+          }
+        </td>
         <td>${service.active ? 'Activo' : 'Inactivo'}</td>
         <td>
           <div class="table-actions">
@@ -783,7 +804,7 @@
         <td>${escapeHtml(item.service_name)}</td>
         <td>${escapeHtml(item.professional_name)}</td>
         <td>${escapeHtml(item.patient_name || item.patient_email || 'Paciente')}</td>
-        <td>${item.payment_status === 'paid_simulated' ? 'Pago simulado' : escapeHtml(item.payment_status)}</td>
+        <td>${escapeHtml(paymentStatusLabel(item.payment_status))}</td>
         <td>${escapeHtml(formatMoney(item.amount))}</td>
       </tr>
     `;
@@ -898,22 +919,56 @@
 
   function renderConfig() {
     if (!state.user.can_manage_system) return '<section class="panel">Sin permisos.</section>';
-    const settings = state.mercadoPagoSettings || {};
+    const settings = {
+      mode: 'production',
+      development: {},
+      production: {},
+      ...(state.mercadoPagoSettings || {}),
+    };
+    const environmentFields = (key, label) => {
+      const env = settings[key] || {};
+      return `
+        <fieldset class="settings-fieldset">
+          <legend>${escapeHtml(label)}</legend>
+          <label class="span-two">
+            Public Key
+            <input name="${key}_public_key" value="${escapeHtml(env.public_key || '')}" placeholder="APP_USR-..." autocomplete="off" />
+          </label>
+          <label class="span-two">
+            Access Token
+            <input name="${key}_access_token" type="password" placeholder="${env.access_token_set ? 'Token guardado. Ingresá uno nuevo para reemplazarlo.' : 'APP_USR-...'}" autocomplete="off" />
+          </label>
+          <label>
+            Client ID
+            <input name="${key}_client_id" value="${escapeHtml(env.client_id || '')}" autocomplete="off" />
+          </label>
+          <label>
+            Client Secret
+            <input name="${key}_client_secret" type="password" placeholder="${env.client_secret_set ? 'Guardado' : 'Opcional'}" autocomplete="off" />
+          </label>
+          <label class="span-two">
+            Webhook Secret
+            <input name="${key}_webhook_secret" type="password" placeholder="${env.webhook_secret_set ? 'Guardado' : 'Opcional, para validar notificaciones'}" autocomplete="off" />
+          </label>
+        </fieldset>
+      `;
+    };
     return `
       <section class="panel">
         <form id="mercado-pago-form" class="grid-two">
           <div class="span-two">
             <h2>Credenciales de Mercado Pago Checkout Pro</h2>
-            <p class="muted">Por ahora el pago se simula. Estos datos quedan guardados para la integración real de preferencias de Checkout Pro.</p>
+            <p class="muted">La agenda crea una preferencia por turno y confirma la reserva cuando Mercado Pago informa el pago aprobado.</p>
           </div>
           <label class="span-two">
-            Access Token
-            <input name="access_token" type="password" placeholder="${settings.access_token_set ? 'Token guardado. Ingresá uno nuevo para reemplazarlo.' : 'APP_USR-...'}" autocomplete="off" />
+            Entorno activo
+            <select name="mode">
+              <option value="development" ${settings.mode === 'development' ? 'selected' : ''}>Desarrollo</option>
+              <option value="production" ${settings.mode === 'production' ? 'selected' : ''}>Producción</option>
+            </select>
           </label>
-          <label class="span-two">
-            Public Key
-            <input name="public_key" value="${escapeHtml(settings.public_key || '')}" placeholder="APP_USR-..." autocomplete="off" />
-          </label>
+          ${environmentFields('development', 'Desarrollo')}
+          ${environmentFields('production', 'Producción')}
           <div class="form-actions span-two">
             <button type="submit" class="primary-button">Guardar configuración</button>
           </div>
@@ -1945,8 +2000,21 @@
       const payload = await api('/api/admin/settings/mercado-pago', {
         method: 'PUT',
         body: {
-          access_token: form.access_token.value,
-          public_key: form.public_key.value,
+          mode: form.mode.value,
+          development: {
+            public_key: form.development_public_key.value,
+            access_token: form.development_access_token.value,
+            client_id: form.development_client_id.value,
+            client_secret: form.development_client_secret.value,
+            webhook_secret: form.development_webhook_secret.value,
+          },
+          production: {
+            public_key: form.production_public_key.value,
+            access_token: form.production_access_token.value,
+            client_id: form.production_client_id.value,
+            client_secret: form.production_client_secret.value,
+            webhook_secret: form.production_webhook_secret.value,
+          },
         },
       });
       state.mercadoPagoSettings = payload.settings || {};

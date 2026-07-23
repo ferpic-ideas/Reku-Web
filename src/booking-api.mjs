@@ -1,6 +1,14 @@
 import { one, query, recordAudit, tx } from "./db.mjs";
 import { readBody, sendJson } from "./http.mjs";
 import { hashToken } from "./security.mjs";
+import {
+  appointmentIdFromExternalReference,
+  createMercadoPagoPreference,
+  fetchMercadoPagoPayment,
+  updateAppointmentFromMercadoPagoPayment,
+  verifyMercadoPagoWebhookSignature,
+  getMercadoPagoSettings,
+} from "./mercado-pago.mjs";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
@@ -130,6 +138,18 @@ const loadService = async (serviceId) =>
     [serviceId],
   );
 
+const loadProfessional = async (professionalId) =>
+  one(
+    `
+      SELECT *
+      FROM professionals
+      WHERE id = $1
+        AND active = TRUE
+        AND deleted_at IS NULL
+    `,
+    [professionalId],
+  );
+
 const professionalSupportsService = async (professionalId, serviceId) =>
   one(
     `
@@ -191,7 +211,10 @@ const computeSlots = async ({ serviceId, professionalId, date }) => {
         FROM appointments
         WHERE professional_id = $1
           AND appointment_date = $2::date
-          AND status = 'confirmed'
+          AND (
+            status = 'confirmed'
+            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '30 minutes')
+          )
       `,
       [professionalId, date],
     ),
@@ -260,6 +283,11 @@ const createAppointment = async (payload, response, url, link) => {
     sendJson(response, 409, { error: "Ese horario ya no está disponible." });
     return;
   }
+  const professional = await loadProfessional(professionalId);
+  if (!professional) {
+    sendJson(response, 422, { error: "El profesional no está disponible." });
+    return;
+  }
 
   const patient = link.patient;
   const patientName = String(payload.patient_name || patient.name || "Paciente Reku").trim();
@@ -267,14 +295,17 @@ const createAppointment = async (payload, response, url, link) => {
   const patientPhone = String(payload.patient_phone || patient.phone || "").trim();
   const endTime = addMinutes(startTime, Number(service.duration_minutes));
 
-  const appointmentId = await tx(async (client) => {
+  const appointment = await tx(async (client) => {
     const conflict = await client.query(
       `
         SELECT id
         FROM appointments
         WHERE professional_id = $1
           AND appointment_date = $2::date
-          AND status = 'confirmed'
+          AND (
+            status = 'confirmed'
+            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '30 minutes')
+          )
           AND start_time < $4::time
           AND end_time > $3::time
         FOR UPDATE
@@ -303,11 +334,14 @@ const createAppointment = async (payload, response, url, link) => {
             patient_phone,
             amount,
             payment_status,
-            payment_reference,
+            payment_provider,
             status
           )
-        VALUES ($1, $2, $3, $4, $5::date, $6::time, $7::time, $8, $9, $10, $11, 'paid_simulated', 'checkout_pro_simulado', 'confirmed')
-        RETURNING id
+        VALUES (
+          $1, $2, $3, $4, $5::date, $6::time, $7::time, $8, $9, $10, $11,
+          $12, $13, $14
+        )
+        RETURNING *
       `,
       [
         link.id,
@@ -321,40 +355,261 @@ const createAppointment = async (payload, response, url, link) => {
         patientEmail,
         patientPhone,
         Number(service.cost_amount || 0),
+        Number(service.cost_amount || 0) > 0 ? "pending" : "free",
+        Number(service.cost_amount || 0) > 0 ? "mercadopago" : "manual",
+        Number(service.cost_amount || 0) > 0 ? "pending_payment" : "confirmed",
       ],
     );
     await client.query("UPDATE booking_access_links SET used_at = NOW() WHERE id = $1", [
       link.id,
     ]);
-    return Number(result.rows[0].id);
+    return {
+      ...result.rows[0],
+      id: Number(result.rows[0].id),
+      booking_access_link_id: Number(result.rows[0].booking_access_link_id),
+      patient_intake_id: result.rows[0].patient_intake_id
+        ? Number(result.rows[0].patient_intake_id)
+        : null,
+    };
   });
+
+  if (Number(service.cost_amount || 0) > 0) {
+    let preference;
+    try {
+      preference = await createMercadoPagoPreference({
+        appointment,
+        service: {
+          ...service,
+          id: serviceId,
+        },
+        professional: {
+          ...professional,
+          id: professionalId,
+        },
+        patient: {
+          name: patientName,
+          email: patientEmail,
+          phone: patientPhone,
+        },
+        token: readToken(url, payload),
+      });
+    } catch (error) {
+      await query(
+        `
+          UPDATE appointments
+          SET payment_status = 'preference_error',
+              status = 'payment_failed',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [appointment.id],
+      );
+      throw error;
+    }
+    await query(
+      `
+        UPDATE appointments
+        SET payment_preference_id = $1,
+            payment_init_point = $2,
+            payment_external_reference = $3,
+            payment_detail = $4::jsonb,
+            updated_at = NOW()
+        WHERE id = $5
+      `,
+      [
+        preference.preference_id,
+        preference.init_point,
+        preference.external_reference,
+        JSON.stringify({
+          preference_id: preference.preference_id,
+          mode: preference.mode,
+        }),
+        appointment.id,
+      ],
+    );
+
+    await recordAudit("appointment.payment_preference_created", {
+      detail: {
+        appointment_id: appointment.id,
+        service_id: serviceId,
+        professional_id: professionalId,
+        preference_id: preference.preference_id,
+        payment_mode: preference.mode,
+        source: url.pathname,
+      },
+    });
+
+    sendJson(response, 201, {
+      ok: true,
+      appointment: {
+        id: appointment.id,
+        date,
+        start_time: startTime,
+        end_time: endTime,
+        payment_status: "pending",
+        status: "pending_payment",
+      },
+      payment: {
+        provider: "mercadopago",
+        preference_id: preference.preference_id,
+        url: preference.init_point,
+      },
+    });
+    return;
+  }
 
   await recordAudit("appointment.created", {
     detail: {
-      appointment_id: appointmentId,
+      appointment_id: appointment.id,
       service_id: serviceId,
       professional_id: professionalId,
       date,
-      payment_status: "paid_simulated",
+      payment_status: "free",
       source: url.pathname,
     },
   });
   sendJson(response, 201, {
     ok: true,
     appointment: {
-      id: appointmentId,
+      id: appointment.id,
       date,
       start_time: startTime,
       end_time: endTime,
-      payment_status: "paid_simulated",
+      payment_status: "free",
+      status: "confirmed",
     },
   });
+};
+
+const appointmentFromRow = (row) => ({
+  id: Number(row.id),
+  date: row.appointment_date,
+  start_time: String(row.start_time || "").slice(0, 5),
+  end_time: String(row.end_time || "").slice(0, 5),
+  payment_status: row.payment_status,
+  status: row.status,
+});
+
+const refreshPaymentStatus = async (url, response, link) => {
+  const appointmentId = Number(url.searchParams.get("appointment_id"));
+  const paymentId = String(
+    url.searchParams.get("payment_id") ||
+      url.searchParams.get("collection_id") ||
+      "",
+  ).trim();
+  if (!appointmentId) {
+    sendJson(response, 422, { error: "Turno inválido." });
+    return;
+  }
+
+  const current = await one(
+    `
+      SELECT
+        id,
+        to_char(appointment_date, 'YYYY-MM-DD') AS appointment_date,
+        to_char(start_time, 'HH24:MI') AS start_time,
+        to_char(end_time, 'HH24:MI') AS end_time,
+        payment_status,
+        status,
+        payment_id
+      FROM appointments
+      WHERE id = $1
+        AND booking_access_link_id = $2
+    `,
+    [appointmentId, link.id],
+  );
+  if (!current) {
+    sendJson(response, 404, { error: "Turno no encontrado." });
+    return;
+  }
+
+  let appointment = current;
+  if (paymentId) {
+    const payment = await fetchMercadoPagoPayment(paymentId);
+    const referencedAppointmentId =
+      appointmentIdFromExternalReference(payment.external_reference) ||
+      Number(payment.metadata?.appointment_id || 0);
+    if (referencedAppointmentId && referencedAppointmentId !== appointmentId) {
+      sendJson(response, 409, { error: "El pago no corresponde a este turno." });
+      return;
+    }
+    appointment = await updateAppointmentFromMercadoPagoPayment(payment);
+    appointment = {
+      ...appointment,
+      appointment_date: current.appointment_date,
+      start_time: current.start_time,
+      end_time: current.end_time,
+    };
+  }
+
+  sendJson(response, 200, {
+    ok: true,
+    appointment: appointmentFromRow(appointment),
+  });
+};
+
+const parseWebhookBody = async (request) => {
+  const body = await readBody(request, 200_000);
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch {
+    return {};
+  }
+};
+
+const handleMercadoPagoWebhook = async (request, response, url) => {
+  const payload = await parseWebhookBody(request);
+  const dataId = String(
+    url.searchParams.get("data.id") ||
+      payload.data?.id ||
+      url.searchParams.get("id") ||
+      "",
+  ).trim();
+  const topic = String(
+    url.searchParams.get("type") ||
+      payload.type ||
+      url.searchParams.get("topic") ||
+      "",
+  );
+  const settings = await getMercadoPagoSettings();
+  const active = settings[settings.mode] || {};
+  const signature = verifyMercadoPagoWebhookSignature({
+    headers: request.headers,
+    dataId,
+    secret: active.webhook_secret,
+  });
+  if (signature.configured && !signature.valid) {
+    sendJson(response, 401, { error: "Firma inválida." });
+    return;
+  }
+
+  if (topic !== "payment" || !dataId) {
+    sendJson(response, 200, { ok: true, ignored: true });
+    return;
+  }
+
+  const payment = await fetchMercadoPagoPayment(dataId);
+  const appointment = await updateAppointmentFromMercadoPagoPayment(payment);
+  await recordAudit("mercado_pago.payment_webhook", {
+    detail: {
+      appointment_id: appointment.id,
+      payment_id: String(payment.id || ""),
+      status: payment.status || "",
+      signature_validated: signature.configured,
+    },
+  });
+  sendJson(response, 200, { ok: true });
 };
 
 export const handleBookingApi = async (request, response, url) => {
   const pathname = url.pathname;
 
   try {
+    if (pathname === "/api/booking/mercado-pago/webhook" && request.method === "POST") {
+      await handleMercadoPagoWebhook(request, response, url);
+      return true;
+    }
+
     let payload = {};
     if (request.method === "POST") {
       payload = await parseJsonBody(request);
@@ -378,6 +633,10 @@ export const handleBookingApi = async (request, response, url) => {
       await listSlots(url, response);
       return true;
     }
+    if (pathname === "/api/booking/payment-status" && request.method === "GET") {
+      await refreshPaymentStatus(url, response, link);
+      return true;
+    }
     if (pathname === "/api/booking/appointments" && request.method === "POST") {
       await createAppointment(payload, response, url, link);
       return true;
@@ -399,6 +658,22 @@ export const handleBookingApi = async (request, response, url) => {
     }
     if (error.message === "BOOKING_SLOT_TAKEN") {
       sendJson(response, 409, { error: "Ese horario ya no está disponible." });
+      return true;
+    }
+    if (error.message === "MERCADO_PAGO_NOT_CONFIGURED") {
+      sendJson(response, 503, {
+        error: "Mercado Pago no está configurado para crear el pago.",
+      });
+      return true;
+    }
+    if (error.message === "MERCADO_PAGO_API_ERROR") {
+      console.error("Mercado Pago API error", {
+        status: error.mercadoPagoStatus,
+        payload: error.payload,
+      });
+      sendJson(response, 502, {
+        error: "Mercado Pago no pudo crear o consultar el pago.",
+      });
       return true;
     }
     throw error;

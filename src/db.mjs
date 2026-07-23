@@ -249,16 +249,36 @@ export const initDb = async () => {
       amount NUMERIC(12,2) NOT NULL DEFAULT 0,
       payment_status TEXT NOT NULL DEFAULT 'pending',
       payment_reference TEXT,
+      payment_provider TEXT,
+      payment_preference_id TEXT,
+      payment_init_point TEXT,
+      payment_id TEXT,
+      payment_external_reference TEXT,
+      payment_detail JSONB NOT NULL DEFAULT '{}'::jsonb,
       status TEXT NOT NULL DEFAULT 'confirmed',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       CHECK (start_time < end_time)
     );
 
+    ALTER TABLE appointments
+      ADD COLUMN IF NOT EXISTS payment_provider TEXT,
+      ADD COLUMN IF NOT EXISTS payment_preference_id TEXT,
+      ADD COLUMN IF NOT EXISTS payment_init_point TEXT,
+      ADD COLUMN IF NOT EXISTS payment_id TEXT,
+      ADD COLUMN IF NOT EXISTS payment_external_reference TEXT,
+      ADD COLUMN IF NOT EXISTS payment_detail JSONB NOT NULL DEFAULT '{}'::jsonb;
+
     CREATE INDEX IF NOT EXISTS appointments_lookup_idx
       ON appointments (professional_id, appointment_date, status);
     CREATE INDEX IF NOT EXISTS appointments_created_at_idx
       ON appointments (created_at DESC);
+    CREATE INDEX IF NOT EXISTS appointments_payment_id_idx
+      ON appointments (payment_id)
+      WHERE payment_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS appointments_payment_reference_idx
+      ON appointments (payment_external_reference)
+      WHERE payment_external_reference IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,

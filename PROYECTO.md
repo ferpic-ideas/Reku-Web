@@ -32,9 +32,12 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/evidencia.html`: pagina de evidencia.
 - `/alta-pacientes/`: formulario generico de alta.
 - `/alta-pacientes/?form=<slug>`: formulario asociado a un acuerdo.
+- `/agenda/?token=<token>`: agenda mobile para reservar turno con link firmado.
 - `/admin/`: admin interno.
 - `/api/public/agreements/<slug>`: datos publicos de un acuerdo.
 - `/api/admin/*`: API autenticada del admin.
+- `/api/booking/*`: API publica de agenda con token firmado.
+- `/api/booking/mercado-pago/webhook`: webhook de Mercado Pago.
 - `/uploads/*`: logos y PDFs cargados desde el admin.
 
 Si `/alta-pacientes/?form=<slug>` recibe un slug que no existe o esta borrado,
@@ -52,14 +55,21 @@ devuelve 404.
 |   |-- index.html              # Shell del admin
 |   |-- app.js                  # UI y llamadas API del admin
 |   `-- styles.css              # Layout admin: sidebar, mobile, tablas, modales
+|-- agenda/
+|   |-- index.html              # Shell publico de agenda mobile
+|   |-- app.js                  # Flujo de reserva y pago Checkout Pro
+|   `-- styles.css              # UI mobile-first de agenda
 |-- src/
 |   |-- admin-api.mjs           # Auth y endpoints del admin
+|   |-- booking-api.mjs         # Servicios, profesionales, slots, turnos y pagos
+|   |-- booking-links.mjs       # Links firmados por 48h para agenda
 |   |-- config.mjs              # Configuracion y validaciones de arranque
 |   |-- csv.mjs                 # Parser CSV para nominas
 |   |-- db.mjs                  # Pool Postgres, migracion inicial y helpers
 |   |-- email.mjs               # Envio por SES y dry-run
 |   |-- forms.mjs               # Procesamiento de formularios publicos
 |   |-- http.mjs                # Helpers HTTP, headers y static serving
+|   |-- mercado-pago.mjs        # Checkout Pro, consulta de pagos y webhook signature
 |   |-- security.mjs            # Sesiones, CSRF, password hashing y rate limit
 |   |-- templates.mjs           # Templates configurables de mails
 |   `-- uploads.mjs             # Multipart, logos, PDFs y CSV uploads
@@ -92,6 +102,13 @@ Funciones actuales:
 - CRUD manual de nominas.
 - Import CSV de nominas.
 - Filtro de nominas por acuerdo.
+- Dashboard con metricas de contactos, altas, turnos, facturacion, servicios,
+  profesionales y bloqueos.
+- CRUD de servicios y profesionales.
+- Bloqueo de horarios por profesional.
+- Probar agenda con link firmado de 48h.
+- Configuracion de Mercado Pago Checkout Pro solo para `ferpic@gmail.com`.
+- Auditoria solo para `ferpic@gmail.com`.
 
 ## Modelo de datos
 
@@ -102,6 +119,14 @@ Tablas principales:
 - `nomina_entries`: registros de nomina asociados a acuerdos tipo `Nomina`.
 - `patient_intakes`: altas enviadas desde `/alta-pacientes/`.
 - `contacts`: contactos enviados desde la web principal.
+- `services`: servicios reservables con duracion, costo y link fallback.
+- `professionals`: profesionales, foto, mail, estado.
+- `professional_services`: servicios que atiende cada profesional.
+- `professional_availability`: dias y franjas horarias regulares.
+- `schedule_blocks`: bloqueos puntuales de agenda.
+- `booking_access_links`: tokens firmados/hasheados para abrir agenda por 48h.
+- `appointments`: turnos, estado de pago y referencias Mercado Pago.
+- `app_settings`: configuraciones internas como credenciales Mercado Pago.
 - `audit_events`: eventos relevantes del admin.
 
 Notas:
@@ -132,6 +157,50 @@ El mail agrega automaticamente:
 - Link al PDF "Como funciona", si el acuerdo tiene PDF.
 - Link de pago de consulta/evaluacion, si el acuerdo no es `Nomina` y tiene link.
 - Link de pago de tratamiento, si el acuerdo no es `Nomina` y tiene link.
+- Link de agenda de 48h para reservar turno.
+
+## Agenda y Mercado Pago
+
+La agenda vive en `/agenda/?token=<token>`. El token nunca se guarda plano: se
+guarda su hash en `booking_access_links` y vence a las 48h.
+
+Flujo de reserva:
+
+1. El paciente elige servicio.
+2. Elige profesional.
+3. Elige fecha y horario disponible.
+4. El backend crea un turno `pending_payment` y una preferencia de Checkout Pro.
+5. Mercado Pago redirige de vuelta a `/agenda/`.
+6. El backend consulta el pago y confirma el turno solo si el estado es `approved`.
+
+Estados relevantes:
+
+- `appointments.status = pending_payment`: horario reservado temporalmente.
+- `appointments.status = confirmed`: turno confirmado.
+- `appointments.status = payment_failed`: pago rechazado/cancelado o error.
+- `appointments.payment_status`: estado crudo recibido de Mercado Pago.
+
+Los turnos `pending_payment` bloquean el horario por 30 minutos para evitar doble
+reserva durante el checkout.
+
+Credenciales:
+
+- Se cargan desde `/admin/` > menu de usuario > `Configurar`.
+- Hay bloques separados para `Desarrollo` y `Produccion`.
+- Solo se muestra si un secreto esta cargado; no se devuelven tokens al browser.
+- En VPS debe quedar activo el modo `Produccion`.
+
+Webhook a configurar en Mercado Pago:
+
+```text
+https://www.reku.io/api/booking/mercado-pago/webhook
+```
+
+Evento a activar: `Payments`.
+
+Si Mercado Pago provee `Webhook Secret`, cargarlo en el admin para validar
+`x-signature`. Si no esta cargado, el webhook igual consulta el pago por API
+antes de tocar un turno.
 
 ## Variables de entorno
 
@@ -194,6 +263,13 @@ npm run check
 - syntax check de `src/*.mjs`.
 - syntax check de `admin/app.js`.
 - `scripts/secrets_check.sh`.
+
+## Operacion segura
+
+Antes de hacer consultas remotas, importar credenciales, probar datos temporales
+o desplegar, revisar `OPERACION_SEGURA.md`. Ese archivo documenta los patrones
+seguros para evitar errores de quoting con `ssh`/`psql`, no imprimir secretos y
+validar el VPS sin tocar otros contenedores.
 
 ## Deploy al VPS
 

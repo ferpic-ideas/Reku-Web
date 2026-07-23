@@ -37,6 +37,10 @@ import {
   saveProfessionalPhoto,
 } from "./uploads.mjs";
 import { createBookingAccessLink } from "./booking-links.mjs";
+import {
+  mergeMercadoPagoSettingsPayload,
+  publicMercadoPagoSettings,
+} from "./mercado-pago.mjs";
 
 const canDeleteRecords = (user) => user?.email?.toLowerCase() === "ferpic@gmail.com";
 const canManageSystem = canDeleteRecords;
@@ -77,16 +81,6 @@ const optionalUrl = (value) => {
     error.statusCode = 422;
     throw error;
   }
-};
-
-const requiredUrl = (value) => {
-  const url = optionalUrl(value);
-  if (!url) {
-    const error = new Error("URL_REQUIRED");
-    error.statusCode = 422;
-    throw error;
-  }
-  return url;
 };
 
 const parsePositiveInteger = (value, { min = 1, max = 10_000 } = {}) => {
@@ -789,7 +783,7 @@ const servicePayloadFromJson = async (request) => {
     name,
     duration_minutes: parsePositiveInteger(payload.duration_minutes, { min: 5, max: 480 }),
     cost_amount: parseMoney(payload.cost_amount),
-    payment_url: requiredUrl(payload.payment_url),
+    payment_url: optionalUrl(payload.payment_url),
     active: payload.active !== false,
   };
 };
@@ -1191,7 +1185,9 @@ const dashboard = async (response) => {
       (SELECT COUNT(*)::int FROM contacts) AS contacts,
       (SELECT COUNT(*)::int FROM patient_intakes) AS patient_intakes,
       (SELECT COUNT(*)::int FROM appointments WHERE status = 'confirmed') AS appointments,
-      (SELECT COALESCE(SUM(amount), 0)::numeric FROM appointments WHERE payment_status = 'paid_simulated') AS revenue,
+      (SELECT COALESCE(SUM(amount), 0)::numeric
+       FROM appointments
+       WHERE payment_status IN ('approved', 'paid_simulated', 'free')) AS revenue,
       (SELECT COUNT(*)::int FROM services WHERE deleted_at IS NULL AND active = TRUE) AS services,
       (SELECT COUNT(*)::int FROM professionals WHERE deleted_at IS NULL AND active = TRUE) AS professionals,
       (SELECT COUNT(*)::int FROM schedule_blocks WHERE block_date >= CURRENT_DATE) AS upcoming_blocks
@@ -1212,25 +1208,14 @@ const dashboard = async (response) => {
 const getMercadoPagoSettings = async (response, user) => {
   requireSystemAdmin(user);
   const row = await one("SELECT value FROM app_settings WHERE key = 'mercado_pago'");
-  const value = row?.value || {};
-  sendJson(response, 200, {
-    settings: {
-      public_key: value.public_key || "",
-      access_token_set: Boolean(value.access_token),
-    },
-  });
+  sendJson(response, 200, { settings: publicMercadoPagoSettings(row?.value || {}) });
 };
 
 const updateMercadoPagoSettings = async (request, response, user) => {
   requireSystemAdmin(user);
   const payload = await parseJsonBody(request);
   const current = await one("SELECT value FROM app_settings WHERE key = 'mercado_pago'");
-  const currentValue = current?.value || {};
-  const accessToken = String(payload.access_token || "").trim();
-  const value = {
-    public_key: String(payload.public_key || "").trim(),
-    access_token: accessToken || currentValue.access_token || "",
-  };
+  const value = mergeMercadoPagoSettingsPayload(current?.value || {}, payload);
   await query(
     `
       INSERT INTO app_settings (key, value, updated_at)
@@ -1243,10 +1228,7 @@ const updateMercadoPagoSettings = async (request, response, user) => {
   await recordAudit("settings.mercado_pago.updated", { actorUserId: user.id });
   sendJson(response, 200, {
     ok: true,
-    settings: {
-      public_key: value.public_key,
-      access_token_set: Boolean(value.access_token),
-    },
+    settings: publicMercadoPagoSettings(value),
   });
 };
 

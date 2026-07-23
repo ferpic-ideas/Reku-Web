@@ -345,6 +345,10 @@ button {
   font-weight: 900;
 }
 
+.success-mark.pending {
+  background: #f59e0b;
+}
+
 @media (min-width: 740px) {
   .booking-shell {
     padding: 42px 32px 56px;

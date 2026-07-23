@@ -1,6 +1,9 @@
 (() => {
   const app = document.getElementById('booking-app');
-  const token = new URLSearchParams(window.location.search).get('token') || '';
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token') || '';
+  const returnAppointmentId = urlParams.get('appointment_id') || '';
+  const returnPaymentId = urlParams.get('payment_id') || urlParams.get('collection_id') || '';
   const state = {
     step: 1,
     loading: true,
@@ -64,6 +67,33 @@
       state.loading = false;
       render();
     }
+  }
+
+  async function loadPaymentReturn() {
+    if (!token || !returnAppointmentId) return false;
+    try {
+      const query = new URLSearchParams({
+        token,
+        appointment_id: returnAppointmentId,
+      });
+      if (returnPaymentId) query.set('payment_id', returnPaymentId);
+      const payload = await api(`/api/booking/payment-status?${query.toString()}`);
+      state.appointment = payload.appointment;
+      state.step = 5;
+      state.loading = false;
+      render();
+      return true;
+    } catch (error) {
+      state.error = error.message;
+      state.loading = false;
+      render();
+      return true;
+    }
+  }
+
+  async function loadInitial() {
+    if (await loadPaymentReturn()) return;
+    await loadServices();
   }
 
   async function selectService(serviceId) {
@@ -145,6 +175,10 @@
           start_time: state.selectedSlot,
         }),
       });
+      if (payload.payment?.url) {
+        window.location.href = payload.payment.url;
+        return;
+      }
       state.appointment = payload.appointment;
       state.step = 5;
     } catch (error) {
@@ -314,7 +348,7 @@
     return `
       <section>
         <h2 class="section-title">Pago</h2>
-        <p class="section-copy">Simulamos el pago exitoso de Checkout Pro para reservar el turno.</p>
+        <p class="section-copy">Vas a continuar en Mercado Pago para completar el pago online.</p>
         <div class="payment-card">
           <p><strong>Servicio:</strong> ${escapeHtml(state.service.name)}</p>
           <p><strong>Profesional:</strong> ${escapeHtml(state.professional.name)}</p>
@@ -330,13 +364,31 @@
   }
 
   function renderSuccess() {
+    const paymentStatus = state.appointment?.payment_status || '';
+    const isPaid = ['approved', 'paid_simulated', 'free'].includes(paymentStatus);
+    const isPending = ['pending', 'in_process', 'authorized'].includes(paymentStatus);
+    const title = isPaid ? 'Turno reservado' : isPending ? 'Pago pendiente' : 'Pago no confirmado';
+    const copy = isPaid
+      ? 'El pago fue aprobado y el turno quedó confirmado.'
+      : isPending
+        ? 'Mercado Pago todavía está procesando el pago. Te avisaremos cuando se confirme.'
+        : 'Mercado Pago no informó un pago aprobado para este turno.';
     return `
       <section>
         <div class="payment-card">
-          <div class="success-mark">✓</div>
-          <h2 class="section-title">Turno reservado</h2>
-          <p class="section-copy">El pago fue simulado con éxito y el turno quedó confirmado.</p>
-          <p><strong>Fecha:</strong> ${escapeHtml(state.appointment.date)} ${escapeHtml(state.appointment.start_time)}</p>
+          <div class="success-mark${isPaid ? '' : ' pending'}">${isPaid ? '✓' : '!'}</div>
+          <h2 class="section-title">${escapeHtml(title)}</h2>
+          <p class="section-copy">${escapeHtml(copy)}</p>
+          ${
+            state.appointment?.date
+              ? `<p><strong>Fecha:</strong> ${escapeHtml(state.appointment.date)} ${escapeHtml(state.appointment.start_time)}</p>`
+              : ''
+          }
+          ${
+            isPaid
+              ? ''
+              : '<button type="button" class="secondary-button" data-action="restart-booking">Volver a la agenda</button>'
+          }
         </div>
       </section>
     `;
@@ -387,6 +439,13 @@
           render();
         }
         if (action === 'confirm-payment') await confirmPayment();
+        if (action === 'restart-booking') {
+          window.history.replaceState({}, '', `/agenda/?token=${encodeURIComponent(token)}`);
+          state.step = 1;
+          state.appointment = null;
+          state.error = '';
+          await loadServices();
+        }
         if (action === 'go-step') {
           state.step = Number(element.dataset.step);
           render();
@@ -403,5 +462,5 @@
     });
   }
 
-  loadServices();
+  loadInitial();
 })();
