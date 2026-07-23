@@ -33,11 +33,13 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/alta-pacientes/`: formulario generico de alta.
 - `/alta-pacientes/?form=<slug>`: formulario asociado a un acuerdo.
 - `/agenda/?token=<token>`: agenda mobile para reservar turno con link firmado.
+- `/profesional-turnos/?token=<token>`: vista simple para que un profesional vea sus turnos próximos.
 - `/admin/`: admin interno.
 - `/api/public/agreements/<slug>`: datos publicos de un acuerdo.
 - `/api/admin/*`: API autenticada del admin.
 - `/api/booking/*`: API publica de agenda con token firmado.
 - `/api/booking/mercado-pago/webhook`: webhook de Mercado Pago.
+- `/api/professional/appointments`: API publica de turnos del profesional con token firmado.
 - `/uploads/*`: logos y PDFs cargados desde el admin.
 
 Si `/alta-pacientes/?form=<slug>` recibe un slug que no existe o esta borrado,
@@ -59,8 +61,13 @@ devuelve 404.
 |   |-- index.html              # Shell publico de agenda mobile
 |   |-- app.js                  # Flujo de reserva y pago Checkout Pro
 |   `-- styles.css              # UI mobile-first de agenda
+|-- profesional-turnos/
+|   |-- index.html              # Vista publica de turnos para profesionales
+|   |-- app.js                  # Carga turnos por token
+|   `-- styles.css              # UI mobile-first de turnos
 |-- src/
 |   |-- admin-api.mjs           # Auth y endpoints del admin
+|   |-- appointment-notifications.mjs # Mails al profesional por turnos confirmados
 |   |-- booking-api.mjs         # Servicios, profesionales, slots, turnos y pagos
 |   |-- booking-links.mjs       # Links firmados por 48h para agenda
 |   |-- config.mjs              # Configuracion y validaciones de arranque
@@ -70,6 +77,8 @@ devuelve 404.
 |   |-- forms.mjs               # Procesamiento de formularios publicos
 |   |-- http.mjs                # Helpers HTTP, headers y static serving
 |   |-- mercado-pago.mjs        # Checkout Pro, consulta de pagos y webhook signature
+|   |-- professional-api.mjs    # API publica de turnos para profesionales
+|   |-- professional-links.mjs  # Links firmados para profesionales
 |   |-- security.mjs            # Sesiones, CSRF, password hashing y rate limit
 |   |-- templates.mjs           # Templates configurables de mails
 |   `-- uploads.mjs             # Multipart, logos, PDFs y CSV uploads
@@ -125,6 +134,7 @@ Tablas principales:
 - `professional_availability`: dias y franjas horarias regulares.
 - `schedule_blocks`: bloqueos puntuales de agenda.
 - `booking_access_links`: tokens firmados/hasheados para abrir agenda por 48h.
+- `professional_access_links`: tokens firmados/hasheados para vista de turnos del profesional.
 - `appointments`: turnos, estado de pago y referencias Mercado Pago.
 - `app_settings`: configuraciones internas como credenciales Mercado Pago.
 - `audit_events`: eventos relevantes del admin.
@@ -182,6 +192,18 @@ Estados relevantes:
 
 Los turnos `pending_payment` bloquean el horario por 30 minutos para evitar doble
 reserva durante el checkout.
+
+Cuando un turno pasa a `confirmed`, el backend envia un mail al profesional con:
+
+- Fecha, horario y servicio.
+- Datos de contacto del paciente.
+- Link firmado a `/profesional-turnos/?token=<token>` para ver todos sus turnos
+  confirmados desde la fecha actual hacia adelante.
+
+El mail no se envia cuando el turno esta `pending_payment`; se dispara al confirmar
+un pago `approved` por webhook/retorno de Mercado Pago o al crear un turno sin
+costo. `appointments.professional_notified_at` evita duplicados si llegan webhook
+y retorno casi al mismo tiempo.
 
 Credenciales:
 

@@ -234,6 +234,18 @@ export const initDb = async () => {
     CREATE INDEX IF NOT EXISTS booking_access_links_expires_idx
       ON booking_access_links (expires_at);
 
+    CREATE TABLE IF NOT EXISTS professional_access_links (
+      id BIGSERIAL PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      professional_id BIGINT NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_accessed_at TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS professional_access_links_lookup_idx
+      ON professional_access_links (professional_id, expires_at);
+
     CREATE TABLE IF NOT EXISTS appointments (
       id BIGSERIAL PRIMARY KEY,
       booking_access_link_id BIGINT REFERENCES booking_access_links(id) ON DELETE SET NULL,
@@ -255,6 +267,9 @@ export const initDb = async () => {
       payment_id TEXT,
       payment_external_reference TEXT,
       payment_detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+      professional_notified_at TIMESTAMPTZ,
+      professional_notification_message_id TEXT,
+      professional_notification_error TEXT,
       status TEXT NOT NULL DEFAULT 'confirmed',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -267,7 +282,10 @@ export const initDb = async () => {
       ADD COLUMN IF NOT EXISTS payment_init_point TEXT,
       ADD COLUMN IF NOT EXISTS payment_id TEXT,
       ADD COLUMN IF NOT EXISTS payment_external_reference TEXT,
-      ADD COLUMN IF NOT EXISTS payment_detail JSONB NOT NULL DEFAULT '{}'::jsonb;
+      ADD COLUMN IF NOT EXISTS payment_detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS professional_notified_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS professional_notification_message_id TEXT,
+      ADD COLUMN IF NOT EXISTS professional_notification_error TEXT;
 
     CREATE INDEX IF NOT EXISTS appointments_lookup_idx
       ON appointments (professional_id, appointment_date, status);

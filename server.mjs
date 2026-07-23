@@ -5,6 +5,7 @@ import {
   validatePublicAgreementRoute,
 } from "./src/admin-api.mjs";
 import { handleBookingApi } from "./src/booking-api.mjs";
+import { handleProfessionalApi } from "./src/professional-api.mjs";
 import {
   assertSafeStartup,
   config,
@@ -46,6 +47,14 @@ const server = createServer(async (request, response) => {
 
     if (pathname.startsWith("/api/booking/")) {
       const handled = await handleBookingApi(request, response, requestUrl);
+      if (!handled) {
+        sendJson(response, 404, { error: "Endpoint no encontrado." });
+      }
+      return;
+    }
+
+    if (pathname.startsWith("/api/professional/")) {
+      const handled = await handleProfessionalApi(request, response, requestUrl);
       if (!handled) {
         sendJson(response, 404, { error: "Endpoint no encontrado." });
       }

@@ -9,6 +9,7 @@ import {
   verifyMercadoPagoWebhookSignature,
   getMercadoPagoSettings,
 } from "./mercado-pago.mjs";
+import { notifyProfessionalForAppointment } from "./appointment-notifications.mjs";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
@@ -468,6 +469,7 @@ const createAppointment = async (payload, response, url, link) => {
       source: url.pathname,
     },
   });
+  await notifyProfessionalForAppointment(appointment.id);
   sendJson(response, 201, {
     ok: true,
     appointment: {
@@ -534,6 +536,9 @@ const refreshPaymentStatus = async (url, response, link) => {
       return;
     }
     appointment = await updateAppointmentFromMercadoPagoPayment(payment);
+    if (appointment.status === "confirmed") {
+      await notifyProfessionalForAppointment(appointment.id);
+    }
     appointment = {
       ...appointment,
       appointment_date: current.appointment_date,
@@ -590,6 +595,9 @@ const handleMercadoPagoWebhook = async (request, response, url) => {
 
   const payment = await fetchMercadoPagoPayment(dataId);
   const appointment = await updateAppointmentFromMercadoPagoPayment(payment);
+  if (appointment.status === "confirmed") {
+    await notifyProfessionalForAppointment(appointment.id);
+  }
   await recordAudit("mercado_pago.payment_webhook", {
     detail: {
       appointment_id: appointment.id,
