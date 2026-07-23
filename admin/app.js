@@ -18,6 +18,7 @@
     patientAgreementFilter: '',
     patientTextFilter: '',
     nominaAgreementFilter: '',
+    nominaFormFilter: '',
     status: '',
     statusType: '',
     dialog: null,
@@ -739,7 +740,14 @@
     `;
   }
 
+  function filteredNominaEntries() {
+    if (!state.nominaFormFilter) return state.nominaEntries;
+    const mustHaveForm = state.nominaFormFilter === 'yes';
+    return state.nominaEntries.filter((item) => Boolean(item.form_submitted) === mustHaveForm);
+  }
+
   function renderNomina() {
+    const items = filteredNominaEntries();
     return `
       <section class="panel">
         <div class="toolbar">
@@ -749,6 +757,15 @@
               ${renderAgreementOptions({ onlyNomina: true })}
             </select>
           </label>
+          <label>
+            Form
+            <select id="nomina-form-filter">
+              <option value="">Todos</option>
+              <option value="yes">Sí</option>
+              <option value="no">No</option>
+            </select>
+          </label>
+          <span class="toolbar-count">${items.length} registros</span>
           <div class="toolbar-actions">
             <button type="button" class="secondary-button" data-action="open-nomina-csv">Subir CSV</button>
             <button type="button" class="primary-button" data-action="new-nomina">Agregar</button>
@@ -763,11 +780,12 @@
                 <th>Nombre</th>
                 <th>Apellido</th>
                 <th>Identificador</th>
+                <th>Form</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${state.nominaEntries.length ? state.nominaEntries.map(renderNominaRow).join('') : '<tr><td colspan="6">No hay registros de nómina.</td></tr>'}
+              ${items.length ? items.map(renderNominaRow).join('') : '<tr><td colspan="7">No hay registros de nómina para esos filtros.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -783,6 +801,7 @@
         <td>${escapeHtml(item.nombre)}</td>
         <td>${escapeHtml(item.apellido)}</td>
         <td><strong>${escapeHtml(item.identificador)}</strong></td>
+        <td>${item.form_submitted ? 'Sí' : 'No'}</td>
         <td><button type="button" class="danger-button" data-action="delete-nomina" data-id="${item.id}">Eliminar</button></td>
       </tr>
     `;
@@ -885,6 +904,15 @@
       nominaFilter.addEventListener('change', async () => {
         state.nominaAgreementFilter = nominaFilter.value;
         await loadData();
+        render();
+      });
+    }
+
+    const nominaFormFilter = document.getElementById('nomina-form-filter');
+    if (nominaFormFilter) {
+      nominaFormFilter.value = state.nominaFormFilter;
+      nominaFormFilter.addEventListener('change', () => {
+        state.nominaFormFilter = nominaFormFilter.value;
         render();
       });
     }

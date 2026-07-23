@@ -136,6 +136,9 @@ export const initDb = async () => {
       ON patient_intakes (created_at DESC);
     CREATE INDEX IF NOT EXISTS patient_intakes_agreement_id_idx
       ON patient_intakes (agreement_id);
+    CREATE INDEX IF NOT EXISTS patient_intakes_agreement_identifier_idx
+      ON patient_intakes (agreement_id, lower(identificador))
+      WHERE identificador IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS contacts (
       id BIGSERIAL PRIMARY KEY,

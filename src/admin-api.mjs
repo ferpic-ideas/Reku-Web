@@ -512,7 +512,15 @@ const listNomina = async (url, response) => {
   const agreementId = url.searchParams.get("agreement_id") || null;
   const result = await query(
     `
-      SELECT n.*, a.name AS agreement_name
+      SELECT
+        n.*,
+        a.name AS agreement_name,
+        EXISTS (
+          SELECT 1
+          FROM patient_intakes p
+          WHERE p.agreement_id = n.agreement_id
+            AND lower(p.identificador) = n.identificador_normalized
+        ) AS form_submitted
       FROM nomina_entries n
       INNER JOIN agreements a ON a.id = n.agreement_id
       WHERE ($1::bigint IS NULL OR n.agreement_id = $1::bigint)
@@ -532,6 +540,7 @@ const mapNominaEntry = (row) => ({
   nombre: row.nombre || "",
   apellido: row.apellido || "",
   identificador: row.identificador,
+  form_submitted: Boolean(row.form_submitted),
   created_at: row.created_at,
 });
 
