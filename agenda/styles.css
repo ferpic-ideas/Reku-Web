@@ -279,6 +279,13 @@ button {
   background: #ffffff;
 }
 
+.date-button.available:hover:not(.active),
+.date-button.available:focus-visible:not(.active),
+.time-button:hover:not(.active),
+.time-button:focus-visible:not(.active) {
+  background: #e9f8fb;
+}
+
 .date-button:disabled {
   cursor: not-allowed;
   opacity: 0.38;
