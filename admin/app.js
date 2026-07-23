@@ -38,13 +38,14 @@
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'agreements', label: 'Acuerdos' },
     { id: 'nomina', label: 'Nóminas' },
-    { id: 'patient-intakes', label: 'Altas Pacientes' },
-    { id: 'contacts', label: 'Contactos' },
     { id: 'services', label: 'Servicios' },
     { id: 'professionals', label: 'Profesionales' },
-    { id: 'appointments', label: 'Turnos' },
     { id: 'blocks', label: 'Bloquear horario' },
     { id: 'booking-test', label: 'Probar Agenda' },
+    { type: 'divider' },
+    { id: 'appointments', label: 'Turnos' },
+    { id: 'patient-intakes', label: 'Alta Pacientes' },
+    { id: 'contacts', label: 'Contactos' },
   ];
 
   const dayLabels = [
@@ -212,8 +213,10 @@
         </div>
         <nav class="side-nav">
           ${modules
-            .map(
-              (module) => `
+            .map((module) =>
+              module.type === 'divider'
+                ? '<span class="nav-divider" aria-hidden="true"></span>'
+                : `
                 <button
                   type="button"
                   class="nav-button${state.active === module.id ? ' active' : ''}"
