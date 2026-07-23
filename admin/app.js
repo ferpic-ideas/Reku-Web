@@ -32,24 +32,93 @@
     appointmentStatusFilter: 'future',
     appointmentProfessionalFilter: '',
     appointmentPatientFilter: '',
+    scheduleBlockDateFilter: 'future',
+    scheduleBlockProfessionalFilter: '',
     status: '',
     statusType: '',
     dialog: null,
   };
 
   const modules = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'agreements', label: 'Acuerdos' },
-    { id: 'nomina', label: 'Nóminas' },
-    { id: 'services', label: 'Servicios' },
-    { id: 'professionals', label: 'Profesionales' },
-    { id: 'blocks', label: 'Bloquear horario' },
-    { id: 'booking-test', label: 'Probar Agenda' },
+    { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+    { id: 'agreements', label: 'Acuerdos', icon: 'agreements' },
+    { id: 'nomina', label: 'Nóminas', icon: 'nomina' },
+    { id: 'services', label: 'Servicios', icon: 'services' },
+    { id: 'professionals', label: 'Profesionales', icon: 'professionals' },
+    { id: 'blocks', label: 'Bloquear horario', icon: 'blocks' },
+    { id: 'booking-test', label: 'Probar Agenda', icon: 'booking-test' },
     { type: 'divider' },
-    { id: 'appointments', label: 'Turnos' },
-    { id: 'patient-intakes', label: 'Alta Pacientes' },
-    { id: 'contacts', label: 'Contactos' },
+    { id: 'appointments', label: 'Turnos', icon: 'appointments' },
+    { id: 'patient-intakes', label: 'Alta Pacientes', icon: 'patient-intakes' },
+    { id: 'contacts', label: 'Contactos', icon: 'contacts' },
   ];
+
+  const navIcons = {
+    dashboard: `
+      <rect width="7" height="9" x="3" y="3" rx="1" />
+      <rect width="7" height="5" x="14" y="3" rx="1" />
+      <rect width="7" height="9" x="14" y="12" rx="1" />
+      <rect width="7" height="5" x="3" y="16" rx="1" />
+    `,
+    agreements: `
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M8 13h8" />
+      <path d="M8 17h5" />
+    `,
+    nomina: `
+      <rect width="8" height="4" x="8" y="2" rx="1" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <path d="M8 12h8" />
+      <path d="M8 16h8" />
+    `,
+    services: `
+      <path d="M10 6V5a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v1" />
+      <rect width="18" height="14" x="3" y="6" rx="2" />
+      <path d="M8 13h8" />
+      <path d="M12 9v8" />
+    `,
+    professionals: `
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21a8 8 0 0 1 16 0" />
+    `,
+    blocks: `
+      <path d="M8 2v4" />
+      <path d="M16 2v4" />
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M3 10h18" />
+      <path d="m10 14 4 4" />
+      <path d="m14 14-4 4" />
+    `,
+    'booking-test': `
+      <path d="M8 2v4" />
+      <path d="M16 2v4" />
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M3 10h18" />
+      <path d="m9 16 2 2 4-5" />
+    `,
+    appointments: `
+      <path d="M8 2v4" />
+      <path d="M16 2v4" />
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M3 10h18" />
+      <path d="M8 14h.01" />
+      <path d="M12 14h.01" />
+      <path d="M16 14h.01" />
+      <path d="M8 18h.01" />
+      <path d="M12 18h.01" />
+    `,
+    'patient-intakes': `
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M19 8v6" />
+      <path d="M22 11h-6" />
+    `,
+    contacts: `
+      <rect width="20" height="16" x="2" y="4" rx="2" />
+      <path d="m22 7-8.97 5.7a2 2 0 0 1-2.06 0L2 7" />
+    `,
+  };
 
   const dayLabels = [
     { id: 1, label: 'Lunes' },
@@ -68,6 +137,12 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+
+  const navIcon = (name) => `
+    <svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24">
+      ${navIcons[name] || ''}
+    </svg>
+  `;
 
   const formatDate = (value) => {
     if (!value) return '';
@@ -110,6 +185,18 @@
 
   const isPastAppointment = (item, now = new Date()) => {
     const endDate = appointmentDateTime(item, 'end_time') || appointmentDateTime(item);
+    return endDate ? endDate < now : false;
+  };
+
+  const scheduleBlockDateTime = (item, timeField = 'start_time') => {
+    const date = item.block_date;
+    const time = item[timeField] || item.start_time || '00:00';
+    const parsed = new Date(`${date}T${String(time).slice(0, 5)}:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const isPastScheduleBlock = (item, now = new Date()) => {
+    const endDate = scheduleBlockDateTime(item, 'end_time') || scheduleBlockDateTime(item);
     return endDate ? endDate < now : false;
   };
 
@@ -237,6 +324,7 @@
                   class="nav-button${state.active === module.id ? ' active' : ''}"
                   data-module="${module.id}"
                 >
+                  ${navIcon(module.icon)}
                   <span>${escapeHtml(module.label)}</span>
                 </button>
               `,
@@ -466,24 +554,24 @@
   function renderDashboard() {
     const data = state.dashboard || {};
     const cards = [
-      ['Contactos', data.contacts || 0],
-      ['Altas Pacientes', data.patient_intakes || 0],
-      ['Turnos', data.appointments || 0],
-      ['Facturado', formatMoney(data.revenue || 0)],
-      ['Servicios activos', data.services || 0],
-      ['Profesionales activos', data.professionals || 0],
-      ['Bloqueos próximos', data.upcoming_blocks || 0],
+      { label: 'Contactos', value: data.contacts || 0, module: 'contacts' },
+      { label: 'Altas Pacientes', value: data.patient_intakes || 0, module: 'patient-intakes' },
+      { label: 'Turnos', value: data.appointments || 0, module: 'appointments' },
+      { label: 'Facturado', value: formatMoney(data.revenue || 0), module: 'appointments' },
+      { label: 'Servicios activos', value: data.services || 0, module: 'services' },
+      { label: 'Profesionales activos', value: data.professionals || 0, module: 'professionals' },
+      { label: 'Bloqueos próximos', value: data.upcoming_blocks || 0, module: 'blocks' },
     ];
 
     return `
       <section class="dashboard-grid">
         ${cards
           .map(
-            ([label, value]) => `
-              <article class="metric-card">
-                <span>${escapeHtml(label)}</span>
-                <strong>${escapeHtml(value)}</strong>
-              </article>
+            (card) => `
+              <button type="button" class="metric-card" data-module="${escapeHtml(card.module)}">
+                <span>${escapeHtml(card.label)}</span>
+                <strong>${escapeHtml(card.value)}</strong>
+              </button>
             `,
           )
           .join('')}
@@ -954,11 +1042,29 @@
   }
 
   function renderScheduleBlocks() {
+    const items = filteredScheduleBlocks();
     return `
       <section class="panel">
-        <div class="panel-header">
-          <h2>Bloqueos de horario</h2>
-          <button type="button" class="primary-button" data-action="new-schedule-block">Nuevo bloqueo</button>
+        <div class="toolbar">
+          <label>
+            Fecha
+            <select id="schedule-block-date-filter">
+              <option value="">Todos</option>
+              <option value="past">Vencidos</option>
+              <option value="future">Próximos</option>
+            </select>
+          </label>
+          <label>
+            Profesional
+            <select id="schedule-block-professional-filter">
+              <option value="">Todos</option>
+              ${renderScheduleBlockProfessionalOptions()}
+            </select>
+          </label>
+          <span class="toolbar-count">${items.length} bloqueos</span>
+          <div class="toolbar-actions">
+            <button type="button" class="primary-button" data-action="new-schedule-block">Nuevo bloqueo</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -973,15 +1079,61 @@
             </thead>
             <tbody>
               ${
-                state.scheduleBlocks.length
-                  ? state.scheduleBlocks.map(renderScheduleBlockRow).join('')
-                  : '<tr><td colspan="5">No hay bloqueos cargados.</td></tr>'
+                items.length
+                  ? items.map(renderScheduleBlockRow).join('')
+                  : '<tr><td colspan="5">No hay bloqueos para esos filtros.</td></tr>'
               }
             </tbody>
           </table>
         </div>
       </section>
     `;
+  }
+
+  function renderScheduleBlockProfessionalOptions() {
+    const options = new Map();
+    state.professionals.forEach((professional) => {
+      options.set(String(professional.id), professional.name);
+    });
+    state.scheduleBlocks.forEach((item) => {
+      if (item.professional_id) {
+        options.set(
+          String(item.professional_id),
+          options.get(String(item.professional_id)) || item.professional_name,
+        );
+      }
+    });
+
+    return [...options.entries()]
+      .sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'es'))
+      .map(
+        ([id, name]) =>
+          `<option value="${escapeHtml(id)}">${escapeHtml(name || `Profesional ${id}`)}</option>`,
+      )
+      .join('');
+  }
+
+  function filteredScheduleBlocks(items = state.scheduleBlocks) {
+    const now = new Date();
+
+    return items
+      .filter((item) => {
+        if (state.scheduleBlockDateFilter === 'past' && !isPastScheduleBlock(item, now)) return false;
+        if (state.scheduleBlockDateFilter === 'future' && isPastScheduleBlock(item, now)) return false;
+        if (
+          state.scheduleBlockProfessionalFilter &&
+          String(item.professional_id) !== state.scheduleBlockProfessionalFilter
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aDate = scheduleBlockDateTime(a)?.getTime() || 0;
+        const bDate = scheduleBlockDateTime(b)?.getTime() || 0;
+        if (!state.scheduleBlockDateFilter) return bDate - aDate;
+        return state.scheduleBlockDateFilter === 'past' ? bDate - aDate : aDate - bDate;
+      });
   }
 
   function renderScheduleBlockRow(item) {
@@ -1765,6 +1917,26 @@
           state.appointmentPatientFilter.length,
           state.appointmentPatientFilter.length,
         );
+      });
+    }
+
+    const scheduleBlockDateFilter = document.getElementById('schedule-block-date-filter');
+    if (scheduleBlockDateFilter) {
+      scheduleBlockDateFilter.value = state.scheduleBlockDateFilter;
+      scheduleBlockDateFilter.addEventListener('change', () => {
+        state.scheduleBlockDateFilter = scheduleBlockDateFilter.value;
+        render();
+      });
+    }
+
+    const scheduleBlockProfessionalFilter = document.getElementById(
+      'schedule-block-professional-filter',
+    );
+    if (scheduleBlockProfessionalFilter) {
+      scheduleBlockProfessionalFilter.value = state.scheduleBlockProfessionalFilter;
+      scheduleBlockProfessionalFilter.addEventListener('change', () => {
+        state.scheduleBlockProfessionalFilter = scheduleBlockProfessionalFilter.value;
+        render();
       });
     }
   }

@@ -193,6 +193,22 @@ a:focus-visible {
   background: var(--sidebar-hover-bg);
 }
 
+.nav-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  opacity: 0.82;
+}
+
+.nav-button.active .nav-icon {
+  opacity: 1;
+}
+
 .nav-divider {
   display: block;
   height: 1px;
@@ -367,6 +383,59 @@ a:focus-visible {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 10px 24px rgb(22 32 42 / 6%);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.metric-card:nth-child(1) {
+  border-color: #cfeee9;
+  background: #f2fbf9;
+}
+
+.metric-card:nth-child(2) {
+  border-color: #d8e2ff;
+  background: #f5f7ff;
+}
+
+.metric-card:nth-child(3) {
+  border-color: #d5ecff;
+  background: #f2f9ff;
+}
+
+.metric-card:nth-child(4) {
+  border-color: #f7d9be;
+  background: #fff8f1;
+}
+
+.metric-card:nth-child(5) {
+  border-color: #d7ecd0;
+  background: #f5fbf2;
+}
+
+.metric-card:nth-child(6) {
+  border-color: #f2d4df;
+  background: #fff5f8;
+}
+
+.metric-card:nth-child(7) {
+  border-color: #dfd8ff;
+  background: #f8f6ff;
+}
+
+.metric-card:hover {
+  border-color: #7db7c1;
+  box-shadow: 0 14px 28px rgb(22 32 42 / 10%);
+  transform: translateY(-1px);
+}
+
+.metric-card:focus-visible {
+  outline: 3px solid rgb(71 177 193 / 22%);
+  outline-offset: 2px;
 }
 
 .metric-card span {
