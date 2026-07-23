@@ -6,7 +6,8 @@ import {
   recordAudit,
   tx,
 } from "./db.mjs";
-import { getClientIp, readBody, sendJson } from "./http.mjs";
+import QRCode from "qrcode";
+import { getClientIp, readBody, sendJson, withSecurityHeaders } from "./http.mjs";
 import { parseNominaCsv } from "./csv.mjs";
 import { sendEmail } from "./email.mjs";
 import {
@@ -51,6 +52,13 @@ const slugify = (value) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
+
+const downloadSlug = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "formulario";
 
 const optionalUrl = (value) => {
   const trimmed = String(value || "").trim();
@@ -390,6 +398,43 @@ const deleteAgreement = async (response, user, id) => {
     detail: { agreement_id: id },
   });
   sendJson(response, 200, { ok: true });
+};
+
+const downloadAgreementQr = async (response, id) => {
+  const agreement = await getAgreementById(id);
+  if (!agreement) {
+    sendJson(response, 404, { error: "Acuerdo no encontrado." });
+    return;
+  }
+
+  const formUrl = `${config.appPublicUrl}/alta-pacientes/?form=${encodeURIComponent(
+    agreement.slug,
+  )}`;
+  const filename = `reku-alta-pacientes-${downloadSlug(agreement.slug)}-qr.png`;
+  const png = await QRCode.toBuffer(formUrl, {
+    type: "png",
+    width: 500,
+    margin: 1,
+    errorCorrectionLevel: "M",
+    color: {
+      dark: "#18213f",
+      light: "#ffffff",
+    },
+  });
+
+  response.writeHead(
+    200,
+    withSecurityHeaders(
+      {
+        "Content-Type": "image/png",
+        "Content-Length": String(png.length),
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+      { privateRoute: true },
+    ),
+  );
+  response.end(png);
 };
 
 const listPatientIntakes = async (url, response) => {
@@ -734,6 +779,12 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (pathname === "/api/admin/agreements" && request.method === "POST") {
       await createAgreement(request, response, user);
+      return true;
+    }
+
+    const agreementQrMatch = pathname.match(/^\/api\/admin\/agreements\/(\d+)\/qr$/);
+    if (agreementQrMatch && request.method === "GET") {
+      await downloadAgreementQr(response, Number(agreementQrMatch[1]));
       return true;
     }
 

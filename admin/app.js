@@ -492,6 +492,13 @@
         <td>
           <div class="table-actions">
             <button type="button" class="secondary-button" data-action="copy-url" data-slug="${escapeHtml(agreement.slug)}">Get URL</button>
+            <a
+              class="secondary-button"
+              href="/api/admin/agreements/${agreement.id}/qr"
+              download="reku-alta-pacientes-${escapeHtml(agreement.slug)}-qr.png"
+            >
+              Get QR
+            </a>
             <button type="button" class="secondary-button" data-action="edit-agreement" data-id="${agreement.id}">Editar</button>
             <button type="button" class="danger-button" data-action="delete-agreement" data-id="${agreement.id}">Eliminar</button>
           </div>
