@@ -53,9 +53,17 @@ const requireAccessLink = async (token) => {
         p.nombre,
         p.apellido,
         p.email AS intake_email,
-        p.telefono AS intake_telefono
+        p.telefono AS intake_telefono,
+        p.agreement_id AS intake_agreement_id,
+        p.agreement_name_snapshot AS intake_agreement_name,
+        p.agreement_slug_snapshot AS intake_agreement_slug,
+        p.agreement_type_snapshot AS intake_agreement_type,
+        a.name AS current_agreement_name,
+        a.slug AS current_agreement_slug,
+        a.type AS current_agreement_type
       FROM booking_access_links l
       LEFT JOIN patient_intakes p ON p.id = l.patient_intake_id
+      LEFT JOIN agreements a ON a.id = COALESCE(p.agreement_id, l.agreement_id)
       WHERE l.token_hash = $1
         AND l.expires_at > NOW()
     `,
@@ -70,6 +78,26 @@ const requireAccessLink = async (token) => {
     id: Number(link.id),
     patient_intake_id: link.patient_intake_id ? Number(link.patient_intake_id) : null,
     expires_at: link.expires_at,
+    agreement: {
+      id: link.intake_agreement_id || link.agreement_id
+        ? Number(link.intake_agreement_id || link.agreement_id)
+        : null,
+      name:
+        link.current_agreement_name ||
+        link.intake_agreement_name ||
+        link.agreement_name_snapshot ||
+        "",
+      slug:
+        link.current_agreement_slug ||
+        link.intake_agreement_slug ||
+        link.agreement_slug_snapshot ||
+        "",
+      type:
+        link.current_agreement_type ||
+        link.intake_agreement_type ||
+        link.agreement_type_snapshot ||
+        "",
+    },
     patient: {
       name: [link.nombre, link.apellido].filter(Boolean).join(" ") || link.patient_name || "",
       email: link.intake_email || link.patient_email || "",
@@ -84,6 +112,11 @@ const mapService = (row) => ({
   duration_minutes: Number(row.duration_minutes),
   cost_amount: Number(row.cost_amount || 0),
   image_url: row.image_path ? `/uploads/${row.image_path}` : "",
+});
+
+const mapServiceForLink = (row, link) => ({
+  ...mapService(row),
+  covered_by_agreement: link.agreement?.type === "Nomina",
 });
 
 const mapProfessional = (row) => ({
@@ -103,7 +136,9 @@ const listServices = async (response, link) => {
   sendJson(response, 200, {
     expires_at: link.expires_at,
     patient: link.patient,
-    services: result.rows.map(mapService),
+    agreement: link.agreement,
+    payment_required: link.agreement?.type !== "Nomina",
+    services: result.rows.map((row) => mapServiceForLink(row, link)),
   });
 };
 
@@ -296,6 +331,13 @@ const createAppointment = async (payload, response, url, link) => {
   const patientEmail = String(payload.patient_email || patient.email || "").trim().toLowerCase();
   const patientPhone = String(payload.patient_phone || patient.phone || "").trim();
   const endTime = addMinutes(startTime, Number(service.duration_minutes));
+  const requiresPayment = link.agreement?.type !== "Nomina" && Number(service.cost_amount || 0) > 0;
+  const amount = requiresPayment ? Number(service.cost_amount || 0) : 0;
+  const paymentStatus = requiresPayment
+    ? "pending"
+    : link.agreement?.type === "Nomina"
+      ? "nomina"
+      : "free";
 
   const appointment = await tx(async (client) => {
     const conflict = await client.query(
@@ -334,14 +376,18 @@ const createAppointment = async (payload, response, url, link) => {
             patient_name,
             patient_email,
             patient_phone,
+            agreement_id,
+            agreement_name_snapshot,
+            agreement_slug_snapshot,
+            agreement_type_snapshot,
             amount,
             payment_status,
             payment_provider,
             status
           )
         VALUES (
-          $1, $2, $3, $4, $5::date, $6::time, $7::time, $8, $9, $10, $11,
-          $12, $13, $14
+          $1, $2, $3, $4, $5::date, $6::time, $7::time, $8, $9, $10,
+          $11, $12, $13, $14, $15, $16, $17, $18
         )
         RETURNING *
       `,
@@ -356,10 +402,14 @@ const createAppointment = async (payload, response, url, link) => {
         patientName,
         patientEmail,
         patientPhone,
-        Number(service.cost_amount || 0),
-        Number(service.cost_amount || 0) > 0 ? "pending" : "free",
-        Number(service.cost_amount || 0) > 0 ? "mercadopago" : "manual",
-        Number(service.cost_amount || 0) > 0 ? "pending_payment" : "confirmed",
+        link.agreement?.id || null,
+        link.agreement?.name || "",
+        link.agreement?.slug || "",
+        link.agreement?.type || "",
+        amount,
+        paymentStatus,
+        requiresPayment ? "mercadopago" : link.agreement?.type === "Nomina" ? "nomina" : "manual",
+        requiresPayment ? "pending_payment" : "confirmed",
       ],
     );
     await client.query("UPDATE booking_access_links SET used_at = NOW() WHERE id = $1", [
@@ -375,7 +425,7 @@ const createAppointment = async (payload, response, url, link) => {
     };
   });
 
-  if (Number(service.cost_amount || 0) > 0) {
+  if (requiresPayment) {
     let preference;
     try {
       preference = await createMercadoPagoPreference({
@@ -466,7 +516,8 @@ const createAppointment = async (payload, response, url, link) => {
       service_id: serviceId,
       professional_id: professionalId,
       date,
-      payment_status: "free",
+      payment_status: paymentStatus,
+      agreement_type: link.agreement?.type || "",
       source: url.pathname,
     },
   });
@@ -478,7 +529,7 @@ const createAppointment = async (payload, response, url, link) => {
       date,
       start_time: startTime,
       end_time: endTime,
-      payment_status: "free",
+      payment_status: paymentStatus,
       status: "confirmed",
     },
   });

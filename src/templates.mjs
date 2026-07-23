@@ -197,6 +197,39 @@ export const buildPatientEmail = ({ submission, agreement }) => {
   };
 };
 
+export const buildPatientBookingEmail = ({ submission, agreement }) => {
+  const isNomina = agreement?.type === "Nomina";
+  const patientName = [submission.values.nombre, submission.values.apellido]
+    .filter(Boolean)
+    .join(" ");
+  const subject = isNomina
+    ? "Ya podés reservar tu turno - Reku"
+    : "Continuá tu alta y reservá tu turno - Reku";
+  const intro = isNomina
+    ? `Hola ${patientName || ""}, validamos tus datos del acuerdo ${agreement?.name || "Reku"}. Ya podés elegir día y horario para tu turno.`
+    : `Hola ${patientName || ""}, recibimos tus datos. Continuá con la reserva del turno y el pago online desde el siguiente link.`;
+  const agendaCopy = submission.booking_url
+    ? `Reservar turno: ${submission.booking_url}`
+    : "El equipo de Reku te va a contactar para continuar.";
+
+  return {
+    subject,
+    text: [intro, "", agendaCopy].join("\n"),
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+        <h1 style="font-size: 20px;">${escapeHtml(subject)}</h1>
+        <p>${escapeHtml(intro)}</p>
+        ${
+          submission.booking_url
+            ? `<p><a href="${escapeHtml(submission.booking_url)}" style="display:inline-block;padding:12px 18px;background:#18213f;color:#ffffff;text-decoration:none;border-radius:8px;">Reservar turno</a></p>
+              <p style="font-size: 13px; color: #667085;">El link vence en 48 horas.</p>`
+            : ""
+        }
+      </div>
+    `,
+  };
+};
+
 export const buildContactEmail = (submission) => {
   const rows = Object.entries(submission.labels).map(([key, label]) => ({
     label,

@@ -9,6 +9,8 @@
     loading: true,
     error: '',
     patient: null,
+    agreement: null,
+    paymentRequired: true,
     services: [],
     professionals: [],
     availableDays: [],
@@ -76,6 +78,8 @@
     try {
       const payload = await api(`/api/booking/services?token=${encodeURIComponent(token)}`);
       state.patient = payload.patient;
+      state.agreement = payload.agreement || null;
+      state.paymentRequired = payload.payment_required !== false;
       state.services = payload.services || [];
     } catch (error) {
       state.error = error.message;
@@ -257,7 +261,11 @@
                   <h3>${escapeHtml(service.name)}</h3>
                   <div class="choice-meta">
                     <span>${escapeHtml(service.duration_minutes)} min</span>
-                    <strong>${escapeHtml(money(service.cost_amount))}</strong>
+                    <strong>${
+                      service.covered_by_agreement
+                        ? 'Cubierto por acuerdo'
+                        : escapeHtml(money(service.cost_amount))
+                    }</strong>
                   </div>
                 </button>
               `,
@@ -378,19 +386,28 @@
   }
 
   function renderPayment() {
+    const isCoveredByAgreement = !state.paymentRequired || state.service?.covered_by_agreement;
     return `
       <section>
-        <h2 class="section-title">Pago</h2>
-        <p class="section-copy">Vas a continuar en Mercado Pago para completar el pago online.</p>
+        <h2 class="section-title">${isCoveredByAgreement ? 'Confirmá tu turno' : 'Pago'}</h2>
+        <p class="section-copy">${
+          isCoveredByAgreement
+            ? 'Tu acuerdo ya validó la cobertura. Confirmá la reserva para finalizar.'
+            : 'Vas a continuar en Mercado Pago para completar el pago online.'
+        }</p>
         <div class="payment-card">
           <p><strong>Servicio:</strong> ${escapeHtml(state.service.name)}</p>
           <p><strong>Profesional:</strong> ${escapeHtml(state.professional.name)}</p>
           <p><strong>Fecha:</strong> ${escapeHtml(state.selectedDate)} ${escapeHtml(state.selectedSlot)}</p>
-          <p><strong>Total:</strong> ${escapeHtml(money(state.service.cost_amount))}</p>
+          <p><strong>Total:</strong> ${
+            isCoveredByAgreement ? 'Cubierto por acuerdo' : escapeHtml(money(state.service.cost_amount))
+          }</p>
         </div>
         <div class="actions">
           ${renderBackButton(3)}
-          <button type="button" class="primary-button" data-action="confirm-payment">Pagar con Mercado Pago</button>
+          <button type="button" class="primary-button" data-action="confirm-payment">${
+            isCoveredByAgreement ? 'Confirmar turno' : 'Pagar con Mercado Pago'
+          }</button>
         </div>
       </section>
     `;
@@ -398,14 +415,20 @@
 
   function renderSuccess() {
     const paymentStatus = state.appointment?.payment_status || '';
-    const isPaid = ['approved', 'paid_simulated', 'free'].includes(paymentStatus);
+    const isNomina = paymentStatus === 'nomina';
+    const isFree = paymentStatus === 'free';
+    const isPaid = ['approved', 'paid_simulated', 'free', 'nomina'].includes(paymentStatus);
     const isPending = ['pending', 'in_process', 'authorized'].includes(paymentStatus);
     const title = isPaid ? 'Turno reservado' : isPending ? 'Pago pendiente' : 'Pago no confirmado';
-    const copy = isPaid
-      ? 'El pago fue aprobado y el turno quedó confirmado.'
-      : isPending
-        ? 'Mercado Pago todavía está procesando el pago. Te avisaremos cuando se confirme.'
-        : 'Mercado Pago no informó un pago aprobado para este turno.';
+    const copy = isNomina
+      ? 'Tu acuerdo ya validó la cobertura y el turno quedó confirmado.'
+      : isFree
+        ? 'El turno quedó confirmado.'
+      : isPaid
+        ? 'El pago fue aprobado y el turno quedó confirmado.'
+        : isPending
+          ? 'Mercado Pago todavía está procesando el pago. Te avisaremos cuando se confirme.'
+          : 'Mercado Pago no informó un pago aprobado para este turno.';
     return `
       <section>
         <div class="payment-card">

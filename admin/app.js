@@ -22,6 +22,7 @@
     auditEvents: [],
     mercadoPagoSettings: null,
     testBookingUrl: '',
+    testBookingAgreementId: '',
     agreementTypeFilter: '',
     agreementCobrandFilter: '',
     agreementTextFilter: '',
@@ -144,6 +145,24 @@
     </svg>
   `;
 
+  const actionIcon = (name) => {
+    const icons = {
+      eye: `
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+        <circle cx="12" cy="12" r="3" />
+      `,
+      copy: `
+        <rect width="14" height="14" x="8" y="8" rx="2" />
+        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+      `,
+    };
+    return `
+      <svg class="action-icon" aria-hidden="true" viewBox="0 0 24 24">
+        ${icons[name] || ''}
+      </svg>
+    `;
+  };
+
   const formatDate = (value) => {
     if (!value) return '';
     return new Intl.DateTimeFormat('es-AR', {
@@ -171,6 +190,7 @@
       charged_back: 'Contracargo',
       paid_simulated: 'Pago simulado',
       free: 'Sin costo',
+      nomina: 'Nómina',
       preference_error: 'Error al crear pago',
     })[value] || value || '';
 
@@ -424,6 +444,49 @@
     return '';
   }
 
+  function selectedAppointment() {
+    if (state.dialog?.type !== 'appointment-view') return null;
+    return state.appointments.find((appointment) => appointment.id === state.dialog.id) || null;
+  }
+
+  function renderCopyInline(value, label) {
+    const cleanValue = String(value || '').trim();
+    if (!cleanValue) return '<span class="muted">Sin dato</span>';
+    return `
+      <span class="copy-inline">
+        <span>${escapeHtml(cleanValue)}</span>
+        <button
+          type="button"
+          class="icon-button mini-button"
+          data-action="copy-field"
+          data-copy="${escapeHtml(cleanValue)}"
+          aria-label="Copiar ${escapeHtml(label)}"
+          title="Copiar"
+        >
+          ${actionIcon('copy')}
+        </button>
+      </span>
+    `;
+  }
+
+  function detailRow(label, value) {
+    return `
+      <div class="detail-row">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(value || 'Sin dato')}</strong>
+      </div>
+    `;
+  }
+
+  function detailCopyRow(label, value) {
+    return `
+      <div class="detail-row">
+        <span>${escapeHtml(label)}</span>
+        <strong>${renderCopyInline(value, label)}</strong>
+      </div>
+    `;
+  }
+
   function renderDialog() {
     if (!state.dialog) return '';
 
@@ -458,6 +521,37 @@
             <div class="modal-actions">
               <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
               <button type="button" class="danger-button" data-action="confirm-delete">Eliminar</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (state.dialog.type === 'appointment-view') {
+      const appointment = selectedAppointment();
+      if (!appointment) return '';
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-panel modal-panel-wide" role="dialog" aria-modal="true">
+            <div class="modal-header">
+              <h2>Detalle del turno</h2>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            <div class="detail-grid">
+              ${detailRow('Fecha', appointment.appointment_date)}
+              ${detailRow('Hora', `${appointment.start_time} - ${appointment.end_time}`)}
+              ${detailRow('Servicio', appointment.service_name)}
+              ${detailRow('Profesional', appointment.professional_name)}
+              ${detailRow('Paciente', appointment.patient_name || 'Paciente')}
+              ${detailCopyRow('Teléfono', appointment.patient_phone)}
+              ${detailCopyRow('Mail', appointment.patient_email)}
+              ${detailRow('Acuerdo', appointment.agreement_name || 'Sin acuerdo')}
+              ${detailRow('Tipo de acuerdo', appointment.agreement_type || 'Sin dato')}
+              ${detailRow('Identificador', appointment.identificador || 'Sin dato')}
+              ${detailRow('Pago', paymentStatusLabel(appointment.payment_status))}
+              ${detailRow('Monto', formatMoney(appointment.amount))}
+              ${detailRow('Estado', appointment.status)}
+              ${detailRow('Alta paciente', appointment.patient_intake_id ? `#${appointment.patient_intake_id}` : 'Sin alta asociada')}
             </div>
           </div>
         </div>
@@ -998,13 +1092,14 @@
               <th>Paciente</th>
               <th>Pago</th>
               <th>Monto</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             ${
               items.length
                 ? items.map(renderAppointmentRow).join('')
-                : '<tr><td colspan="7">No hay turnos registrados.</td></tr>'
+                : '<tr><td colspan="8">No hay turnos registrados.</td></tr>'
             }
           </tbody>
         </table>
@@ -1022,6 +1117,18 @@
         <td>${escapeHtml(item.patient_name || item.patient_email || 'Paciente')}</td>
         <td>${escapeHtml(paymentStatusLabel(item.payment_status))}</td>
         <td>${escapeHtml(formatMoney(item.amount))}</td>
+        <td>
+          <button
+            type="button"
+            class="icon-button mini-button"
+            data-action="view-appointment"
+            data-id="${item.id}"
+            aria-label="Ver turno"
+            title="Ver"
+          >
+            ${actionIcon('eye')}
+          </button>
+        </td>
       </tr>
     `;
   }
@@ -1180,6 +1287,20 @@
       <section class="panel">
         <div class="panel-header">
           <h2>Probar agenda</h2>
+        </div>
+        <div class="toolbar booking-test-toolbar">
+          <label>
+            Acuerdo
+            <select id="test-booking-agreement">
+              <option value="">Seleccionar acuerdo</option>
+              ${state.agreements
+                .map(
+                  (agreement) =>
+                    `<option value="${agreement.id}">${escapeHtml(agreement.name)} (${escapeHtml(agreement.type)})</option>`,
+                )
+                .join('')}
+            </select>
+          </label>
           <button type="button" class="primary-button" data-action="create-test-booking-link">Generar link 48h</button>
         </div>
         ${
@@ -1964,6 +2085,16 @@
         render();
       });
     }
+
+    const testBookingAgreement = document.getElementById('test-booking-agreement');
+    if (testBookingAgreement) {
+      testBookingAgreement.value = state.testBookingAgreementId;
+      testBookingAgreement.addEventListener('change', () => {
+        state.testBookingAgreementId = testBookingAgreement.value;
+        state.testBookingUrl = '';
+        render();
+      });
+    }
   }
 
   async function handleActionClick(event) {
@@ -2024,6 +2155,19 @@
         }
         state.dialog = null;
         render();
+        return;
+      }
+      if (action === 'view-appointment') {
+        state.dialog = { type: 'appointment-view', id };
+        render();
+        return;
+      }
+      if (action === 'copy-field') {
+        const value = event.currentTarget.dataset.copy || '';
+        if (value) {
+          await navigator.clipboard.writeText(value);
+          setStatus('Dato copiado.', 'ok');
+        }
         return;
       }
       if (action === 'confirm-delete') {
@@ -2100,7 +2244,14 @@
         return;
       }
       if (action === 'create-test-booking-link') {
-        const payload = await api('/api/admin/booking-links/test', { method: 'POST' });
+        if (!state.testBookingAgreementId) {
+          setStatus('Seleccioná un acuerdo para probar la agenda.', 'error');
+          return;
+        }
+        const payload = await api('/api/admin/booking-links/test', {
+          method: 'POST',
+          body: { agreement_id: state.testBookingAgreementId },
+        });
         state.testBookingUrl = payload.booking_url || '';
         setStatus('Link de agenda generado.', 'ok');
         return;

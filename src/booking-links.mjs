@@ -9,6 +9,10 @@ export const createBookingAccessLink = async ({
   patientName = "",
   patientEmail = "",
   patientPhone = "",
+  agreementId = null,
+  agreementName = "",
+  agreementSlug = "",
+  agreementType = "",
   ttlHours = 48,
 } = {}) => {
   const token = randomBytes(32).toString("base64url");
@@ -16,8 +20,20 @@ export const createBookingAccessLink = async ({
   const result = await query(
     `
       INSERT INTO booking_access_links
-        (token_hash, patient_intake_id, label, patient_name, patient_email, patient_phone, expires_at)
-      VALUES ($1, $2, $3, $4, $5, $6, NOW() + ($7::text || ' hours')::interval)
+        (
+          token_hash,
+          patient_intake_id,
+          label,
+          patient_name,
+          patient_email,
+          patient_phone,
+          agreement_id,
+          agreement_name_snapshot,
+          agreement_slug_snapshot,
+          agreement_type_snapshot,
+          expires_at
+        )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW() + ($11::text || ' hours')::interval)
       RETURNING id, expires_at
     `,
     [
@@ -27,6 +43,10 @@ export const createBookingAccessLink = async ({
       String(patientName || ""),
       String(patientEmail || "").trim().toLowerCase(),
       String(patientPhone || ""),
+      agreementId || null,
+      String(agreementName || ""),
+      String(agreementSlug || ""),
+      String(agreementType || ""),
       Number(ttlHours),
     ],
   );

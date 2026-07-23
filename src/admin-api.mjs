@@ -1205,17 +1205,27 @@ const deleteScheduleBlock = async (response, user, id) => {
 
 const mapAppointment = (row) => ({
   id: Number(row.id),
+  booking_access_link_id: row.booking_access_link_id
+    ? Number(row.booking_access_link_id)
+    : null,
+  patient_intake_id: row.patient_intake_id ? Number(row.patient_intake_id) : null,
   professional_id: Number(row.professional_id),
   service_name: row.service_name || "",
   professional_name: row.professional_name || "",
+  agreement_id: row.agreement_id ? Number(row.agreement_id) : null,
+  agreement_name: row.agreement_name || "",
+  agreement_slug: row.agreement_slug || "",
+  agreement_type: row.agreement_type || "",
   appointment_date: row.appointment_date,
   start_time: String(row.start_time || "").slice(0, 5),
   end_time: String(row.end_time || "").slice(0, 5),
   patient_name: row.patient_name || "",
-  patient_email: row.patient_email || "",
-  patient_phone: row.patient_phone || "",
+  patient_email: row.patient_email || row.intake_email || "",
+  patient_phone: row.patient_phone || row.intake_phone || "",
+  identificador: row.identificador || "",
   amount: Number(row.amount || 0),
   payment_status: row.payment_status,
+  payment_provider: row.payment_provider || "",
   status: row.status,
   created_at: row.created_at,
 });
@@ -1226,12 +1236,20 @@ const listAppointments = async (response) => {
       a.*,
       s.name AS service_name,
       p.name AS professional_name,
+      pi.identificador,
+      pi.email AS intake_email,
+      pi.telefono AS intake_phone,
+      COALESCE(NULLIF(a.agreement_name_snapshot, ''), pi.agreement_name_snapshot, ag.name, '') AS agreement_name,
+      COALESCE(NULLIF(a.agreement_slug_snapshot, ''), pi.agreement_slug_snapshot, ag.slug, '') AS agreement_slug,
+      COALESCE(NULLIF(a.agreement_type_snapshot, ''), pi.agreement_type_snapshot, ag.type, '') AS agreement_type,
       to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
       to_char(a.start_time, 'HH24:MI') AS start_time,
       to_char(a.end_time, 'HH24:MI') AS end_time
     FROM appointments a
     INNER JOIN services s ON s.id = a.service_id
     INNER JOIN professionals p ON p.id = a.professional_id
+    LEFT JOIN patient_intakes pi ON pi.id = a.patient_intake_id
+    LEFT JOIN agreements ag ON ag.id = COALESCE(a.agreement_id, pi.agreement_id)
     ORDER BY a.appointment_date DESC, a.start_time DESC
     LIMIT 500
   `);
@@ -1316,16 +1334,27 @@ const listAuditEvents = async (response, user) => {
   });
 };
 
-const createTestBookingLink = async (response, user) => {
+const createTestBookingLink = async (request, response, user) => {
+  const payload = await parseJsonBody(request);
+  const agreementId = parsePositiveInteger(payload.agreement_id);
+  const agreement = await getAgreementById(agreementId);
+  if (!agreement) {
+    sendJson(response, 404, { error: "Acuerdo no encontrado." });
+    return;
+  }
   const link = await createBookingAccessLink({
-    label: `Prueba admin ${user.email}`,
+    label: `Prueba admin ${agreement.slug} ${user.email}`,
     patientName: user.name || user.email,
     patientEmail: user.email,
+    agreementId: agreement.id,
+    agreementName: agreement.name,
+    agreementSlug: agreement.slug,
+    agreementType: agreement.type,
     ttlHours: 48,
   });
   await recordAudit("booking_link.test_created", {
     actorUserId: user.id,
-    detail: { booking_access_link_id: link.id },
+    detail: { booking_access_link_id: link.id, agreement_id: agreement.id },
   });
   sendJson(response, 201, {
     booking_url: link.url,
@@ -1548,7 +1577,7 @@ export const handleAdminApi = async (request, response, url) => {
     }
 
     if (pathname === "/api/admin/booking-links/test" && request.method === "POST") {
-      await createTestBookingLink(response, user);
+      await createTestBookingLink(request, response, user);
       return true;
     }
 

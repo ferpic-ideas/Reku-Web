@@ -8,7 +8,11 @@ import {
 } from "./db.mjs";
 import { sendEmail } from "./email.mjs";
 import { getTrimmed, parseRequestBody, sendJson } from "./http.mjs";
-import { buildContactEmail, buildPatientEmail } from "./templates.mjs";
+import {
+  buildContactEmail,
+  buildPatientBookingEmail,
+  buildPatientEmail,
+} from "./templates.mjs";
 import { createBookingAccessLink } from "./booking-links.mjs";
 
 const genericDomains = new Set([
@@ -214,6 +218,7 @@ const insertPatientIntake = async (submission, agreement, requestUrl) => {
           agreement_id,
           agreement_slug_snapshot,
           agreement_name_snapshot,
+          agreement_type_snapshot,
           nombre,
           apellido,
           telefono,
@@ -221,13 +226,14 @@ const insertPatientIntake = async (submission, agreement, requestUrl) => {
           identificador,
           source_path
         )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING id
     `,
     [
       agreement?.id || null,
       agreement?.slug || submission.agreementSlug || "",
       agreement?.name || "",
+      agreement?.type || "",
       submission.values.nombre,
       submission.values.apellido,
       submission.values.telefono,
@@ -239,10 +245,26 @@ const insertPatientIntake = async (submission, agreement, requestUrl) => {
   return Number(result.rows[0].id);
 };
 
+const patientFullName = (submission) =>
+  [submission.values.nombre, submission.values.apellido].filter(Boolean).join(" ");
+
 const updateEmailResult = async (table, id, { messageId = null, error = null }) => {
   if (!pool || !id) return;
   await query(
     `UPDATE ${table} SET email_message_id = $1, email_error = $2 WHERE id = $3`,
+    [messageId, error, id],
+  );
+};
+
+const updatePatientBookingEmailResult = async (id, { messageId = null, error = null }) => {
+  if (!pool || !id) return;
+  await query(
+    `
+      UPDATE patient_intakes
+      SET booking_email_message_id = $1,
+          booking_email_error = $2
+      WHERE id = $3
+    `,
     [messageId, error, id],
   );
 };
@@ -272,6 +294,13 @@ const handlePatientIntake = async (submission, agreement, request, response) => 
     ? await createBookingAccessLink({
         patientIntakeId: recordId,
         label: `Alta ${submission.values.email}`,
+        patientName: patientFullName(submission),
+        patientEmail: submission.values.email,
+        patientPhone: submission.values.telefono,
+        agreementId: agreement?.id || null,
+        agreementName: agreement?.name || "",
+        agreementSlug: agreement?.slug || submission.agreementSlug || "",
+        agreementType: agreement?.type || "",
         ttlHours: 48,
       })
     : null;
@@ -286,6 +315,34 @@ const handlePatientIntake = async (submission, agreement, request, response) => 
       ...email,
     });
     await updateEmailResult("patient_intakes", recordId, { messageId: result?.id });
+    if (bookingLink?.url) {
+      const bookingEmail = buildPatientBookingEmail({ submission, agreement });
+      try {
+        const bookingResult = await sendEmail({
+          formName: "alta-pacientes-agenda",
+          to: submission.values.email,
+          replyTo: config.patientIntakeToEmail,
+          ...bookingEmail,
+        });
+        await updatePatientBookingEmailResult(recordId, {
+          messageId: bookingResult?.id,
+        });
+        await recordAudit("patient_intake.booking_email_sent", {
+          detail: { patient_intake_id: recordId, email: submission.values.email },
+        });
+      } catch (bookingError) {
+        await updatePatientBookingEmailResult(recordId, {
+          error: bookingError.message,
+        });
+        await recordAudit("patient_intake.booking_email_failed", {
+          detail: {
+            patient_intake_id: recordId,
+            email: submission.values.email,
+            error: bookingError.message,
+          },
+        });
+      }
+    }
     sendJson(response, 200, {
       ok: true,
       id: result?.id,

@@ -121,6 +121,7 @@ export const initDb = async () => {
       agreement_id BIGINT REFERENCES agreements(id),
       agreement_slug_snapshot TEXT,
       agreement_name_snapshot TEXT,
+      agreement_type_snapshot TEXT,
       nombre TEXT NOT NULL,
       apellido TEXT NOT NULL,
       telefono TEXT NOT NULL,
@@ -129,8 +130,15 @@ export const initDb = async () => {
       source_path TEXT,
       email_message_id TEXT,
       email_error TEXT,
+      booking_email_message_id TEXT,
+      booking_email_error TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE patient_intakes
+      ADD COLUMN IF NOT EXISTS agreement_type_snapshot TEXT,
+      ADD COLUMN IF NOT EXISTS booking_email_message_id TEXT,
+      ADD COLUMN IF NOT EXISTS booking_email_error TEXT;
 
     CREATE INDEX IF NOT EXISTS patient_intakes_created_at_idx
       ON patient_intakes (created_at DESC);
@@ -232,6 +240,10 @@ export const initDb = async () => {
       patient_name TEXT NOT NULL DEFAULT '',
       patient_email TEXT NOT NULL DEFAULT '',
       patient_phone TEXT NOT NULL DEFAULT '',
+      agreement_id BIGINT REFERENCES agreements(id) ON DELETE SET NULL,
+      agreement_name_snapshot TEXT NOT NULL DEFAULT '',
+      agreement_slug_snapshot TEXT NOT NULL DEFAULT '',
+      agreement_type_snapshot TEXT NOT NULL DEFAULT '',
       expires_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       used_at TIMESTAMPTZ
@@ -240,7 +252,26 @@ export const initDb = async () => {
     ALTER TABLE booking_access_links
       ADD COLUMN IF NOT EXISTS patient_name TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS patient_email TEXT NOT NULL DEFAULT '',
-      ADD COLUMN IF NOT EXISTS patient_phone TEXT NOT NULL DEFAULT '';
+      ADD COLUMN IF NOT EXISTS patient_phone TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS agreement_id BIGINT REFERENCES agreements(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS agreement_name_snapshot TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS agreement_slug_snapshot TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS agreement_type_snapshot TEXT NOT NULL DEFAULT '';
+
+    UPDATE booking_access_links l
+      SET agreement_id = COALESCE(l.agreement_id, p.agreement_id),
+          agreement_name_snapshot = COALESCE(NULLIF(l.agreement_name_snapshot, ''), p.agreement_name_snapshot, ''),
+          agreement_slug_snapshot = COALESCE(NULLIF(l.agreement_slug_snapshot, ''), p.agreement_slug_snapshot, ''),
+          agreement_type_snapshot = COALESCE(NULLIF(l.agreement_type_snapshot, ''), p.agreement_type_snapshot, a.type, '')
+      FROM patient_intakes p
+      LEFT JOIN agreements a ON a.id = p.agreement_id
+      WHERE l.patient_intake_id = p.id
+        AND (
+          l.agreement_id IS NULL
+          OR l.agreement_name_snapshot = ''
+          OR l.agreement_slug_snapshot = ''
+          OR l.agreement_type_snapshot = ''
+        );
 
     UPDATE booking_access_links
       SET patient_name = regexp_replace(label, '^Prueba admin\\s+', ''),
@@ -275,6 +306,10 @@ export const initDb = async () => {
       patient_name TEXT NOT NULL DEFAULT '',
       patient_email TEXT NOT NULL DEFAULT '',
       patient_phone TEXT NOT NULL DEFAULT '',
+      agreement_id BIGINT REFERENCES agreements(id) ON DELETE SET NULL,
+      agreement_name_snapshot TEXT NOT NULL DEFAULT '',
+      agreement_slug_snapshot TEXT NOT NULL DEFAULT '',
+      agreement_type_snapshot TEXT NOT NULL DEFAULT '',
       amount NUMERIC(12,2) NOT NULL DEFAULT 0,
       payment_status TEXT NOT NULL DEFAULT 'pending',
       payment_reference TEXT,
@@ -297,6 +332,10 @@ export const initDb = async () => {
     );
 
     ALTER TABLE appointments
+      ADD COLUMN IF NOT EXISTS agreement_id BIGINT REFERENCES agreements(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS agreement_name_snapshot TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS agreement_slug_snapshot TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS agreement_type_snapshot TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS payment_provider TEXT,
       ADD COLUMN IF NOT EXISTS payment_preference_id TEXT,
       ADD COLUMN IF NOT EXISTS payment_init_point TEXT,
@@ -321,6 +360,36 @@ export const initDb = async () => {
       WHERE a.booking_access_link_id = l.id
         AND a.patient_email = ''
         AND l.patient_email <> '';
+
+    UPDATE appointments a
+      SET agreement_id = COALESCE(
+            a.agreement_id,
+            (SELECT pi.agreement_id FROM patient_intakes pi WHERE pi.id = a.patient_intake_id),
+            (SELECT bal.agreement_id FROM booking_access_links bal WHERE bal.id = a.booking_access_link_id)
+          ),
+          agreement_name_snapshot = COALESCE(
+            NULLIF(a.agreement_name_snapshot, ''),
+            (SELECT pi.agreement_name_snapshot FROM patient_intakes pi WHERE pi.id = a.patient_intake_id),
+            (SELECT bal.agreement_name_snapshot FROM booking_access_links bal WHERE bal.id = a.booking_access_link_id),
+            ''
+          ),
+          agreement_slug_snapshot = COALESCE(
+            NULLIF(a.agreement_slug_snapshot, ''),
+            (SELECT pi.agreement_slug_snapshot FROM patient_intakes pi WHERE pi.id = a.patient_intake_id),
+            (SELECT bal.agreement_slug_snapshot FROM booking_access_links bal WHERE bal.id = a.booking_access_link_id),
+            ''
+          ),
+          agreement_type_snapshot = COALESCE(
+            NULLIF(a.agreement_type_snapshot, ''),
+            (SELECT pi.agreement_type_snapshot FROM patient_intakes pi WHERE pi.id = a.patient_intake_id),
+            (SELECT bal.agreement_type_snapshot FROM booking_access_links bal WHERE bal.id = a.booking_access_link_id),
+            (SELECT ag.type FROM agreements ag WHERE ag.id = a.agreement_id),
+            ''
+          )
+      WHERE a.agreement_id IS NULL
+        OR a.agreement_name_snapshot = ''
+        OR a.agreement_slug_snapshot = ''
+        OR a.agreement_type_snapshot = '';
 
     CREATE INDEX IF NOT EXISTS appointments_lookup_idx
       ON appointments (professional_id, appointment_date, status);

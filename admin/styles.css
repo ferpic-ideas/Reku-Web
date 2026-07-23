@@ -293,6 +293,16 @@ a:focus-visible {
   stroke-linejoin: round;
 }
 
+.action-icon {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .user-menu-trigger:hover,
 .icon-button:hover,
 .secondary-button:hover {
@@ -816,6 +826,48 @@ tr:hover td {
   padding: 0;
 }
 
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.detail-row {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.detail-row > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.detail-row strong {
+  min-width: 0;
+  color: #18213f;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.copy-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.booking-test-toolbar {
+  justify-content: flex-start;
+}
+
+.booking-test-toolbar label {
+  min-width: min(360px, 100%);
+}
+
 .booking-preview {
   width: min(430px, 100%);
   min-height: 720px;
@@ -926,6 +978,10 @@ code {
   }
 
   .inline-control {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 
