@@ -1261,6 +1261,8 @@ const listAuditEvents = async (response, user) => {
 const createTestBookingLink = async (response, user) => {
   const link = await createBookingAccessLink({
     label: `Prueba admin ${user.email}`,
+    patientName: user.name || user.email,
+    patientEmail: user.email,
     ttlHours: 48,
   });
   await recordAudit("booking_link.test_created", {

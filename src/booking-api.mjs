@@ -9,7 +9,7 @@ import {
   verifyMercadoPagoWebhookSignature,
   getMercadoPagoSettings,
 } from "./mercado-pago.mjs";
-import { notifyProfessionalForAppointment } from "./appointment-notifications.mjs";
+import { notifyConfirmedAppointment } from "./appointment-notifications.mjs";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
@@ -52,8 +52,8 @@ const requireAccessLink = async (token) => {
         l.*,
         p.nombre,
         p.apellido,
-        p.email,
-        p.telefono
+        p.email AS intake_email,
+        p.telefono AS intake_telefono
       FROM booking_access_links l
       LEFT JOIN patient_intakes p ON p.id = l.patient_intake_id
       WHERE l.token_hash = $1
@@ -71,9 +71,9 @@ const requireAccessLink = async (token) => {
     patient_intake_id: link.patient_intake_id ? Number(link.patient_intake_id) : null,
     expires_at: link.expires_at,
     patient: {
-      name: [link.nombre, link.apellido].filter(Boolean).join(" "),
-      email: link.email || "",
-      phone: link.telefono || "",
+      name: [link.nombre, link.apellido].filter(Boolean).join(" ") || link.patient_name || "",
+      email: link.intake_email || link.patient_email || "",
+      phone: link.intake_telefono || link.patient_phone || "",
     },
   };
 };
@@ -469,7 +469,7 @@ const createAppointment = async (payload, response, url, link) => {
       source: url.pathname,
     },
   });
-  await notifyProfessionalForAppointment(appointment.id);
+  await notifyConfirmedAppointment(appointment.id);
   sendJson(response, 201, {
     ok: true,
     appointment: {
@@ -537,7 +537,7 @@ const refreshPaymentStatus = async (url, response, link) => {
     }
     appointment = await updateAppointmentFromMercadoPagoPayment(payment);
     if (appointment.status === "confirmed") {
-      await notifyProfessionalForAppointment(appointment.id);
+      await notifyConfirmedAppointment(appointment.id);
     }
     appointment = {
       ...appointment,
@@ -596,7 +596,7 @@ const handleMercadoPagoWebhook = async (request, response, url) => {
   const payment = await fetchMercadoPagoPayment(dataId);
   const appointment = await updateAppointmentFromMercadoPagoPayment(payment);
   if (appointment.status === "confirmed") {
-    await notifyProfessionalForAppointment(appointment.id);
+    await notifyConfirmedAppointment(appointment.id);
   }
   await recordAudit("mercado_pago.payment_webhook", {
     detail: {

@@ -226,10 +226,24 @@ export const initDb = async () => {
       token_hash TEXT NOT NULL UNIQUE,
       patient_intake_id BIGINT REFERENCES patient_intakes(id) ON DELETE SET NULL,
       label TEXT NOT NULL DEFAULT '',
+      patient_name TEXT NOT NULL DEFAULT '',
+      patient_email TEXT NOT NULL DEFAULT '',
+      patient_phone TEXT NOT NULL DEFAULT '',
       expires_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       used_at TIMESTAMPTZ
     );
+
+    ALTER TABLE booking_access_links
+      ADD COLUMN IF NOT EXISTS patient_name TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS patient_email TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS patient_phone TEXT NOT NULL DEFAULT '';
+
+    UPDATE booking_access_links
+      SET patient_name = regexp_replace(label, '^Prueba admin\\s+', ''),
+          patient_email = lower(regexp_replace(label, '^Prueba admin\\s+', ''))
+      WHERE patient_email = ''
+        AND label ~* '^Prueba admin [^@\\s]+@[^@\\s]+\\.[^@\\s]+$';
 
     CREATE INDEX IF NOT EXISTS booking_access_links_expires_idx
       ON booking_access_links (expires_at);
@@ -270,6 +284,9 @@ export const initDb = async () => {
       professional_notified_at TIMESTAMPTZ,
       professional_notification_message_id TEXT,
       professional_notification_error TEXT,
+      patient_notified_at TIMESTAMPTZ,
+      patient_notification_message_id TEXT,
+      patient_notification_error TEXT,
       status TEXT NOT NULL DEFAULT 'confirmed',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -285,7 +302,22 @@ export const initDb = async () => {
       ADD COLUMN IF NOT EXISTS payment_detail JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS professional_notified_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS professional_notification_message_id TEXT,
-      ADD COLUMN IF NOT EXISTS professional_notification_error TEXT;
+      ADD COLUMN IF NOT EXISTS professional_notification_error TEXT,
+      ADD COLUMN IF NOT EXISTS patient_notified_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS patient_notification_message_id TEXT,
+      ADD COLUMN IF NOT EXISTS patient_notification_error TEXT;
+
+    UPDATE appointments a
+      SET patient_name = CASE
+            WHEN a.patient_name = '' OR a.patient_name = 'Paciente Reku' THEN l.patient_name
+            ELSE a.patient_name
+          END,
+          patient_email = l.patient_email,
+          updated_at = NOW()
+      FROM booking_access_links l
+      WHERE a.booking_access_link_id = l.id
+        AND a.patient_email = ''
+        AND l.patient_email <> '';
 
     CREATE INDEX IF NOT EXISTS appointments_lookup_idx
       ON appointments (professional_id, appointment_date, status);

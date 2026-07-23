@@ -6,6 +6,9 @@ import { hashToken } from "./security.mjs";
 export const createBookingAccessLink = async ({
   patientIntakeId = null,
   label = "",
+  patientName = "",
+  patientEmail = "",
+  patientPhone = "",
   ttlHours = 48,
 } = {}) => {
   const token = randomBytes(32).toString("base64url");
@@ -13,11 +16,19 @@ export const createBookingAccessLink = async ({
   const result = await query(
     `
       INSERT INTO booking_access_links
-        (token_hash, patient_intake_id, label, expires_at)
-      VALUES ($1, $2, $3, NOW() + ($4::text || ' hours')::interval)
+        (token_hash, patient_intake_id, label, patient_name, patient_email, patient_phone, expires_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW() + ($7::text || ' hours')::interval)
       RETURNING id, expires_at
     `,
-    [tokenHash, patientIntakeId || null, String(label || ""), Number(ttlHours)],
+    [
+      tokenHash,
+      patientIntakeId || null,
+      String(label || ""),
+      String(patientName || ""),
+      String(patientEmail || "").trim().toLowerCase(),
+      String(patientPhone || ""),
+      Number(ttlHours),
+    ],
   );
 
   return {
