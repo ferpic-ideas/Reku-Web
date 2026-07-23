@@ -375,6 +375,30 @@ a:focus-visible {
   font-size: 13px;
 }
 
+.compact-filter-toolbar {
+  align-items: flex-end;
+  justify-content: flex-start;
+}
+
+.compact-filter-actions {
+  gap: 12px;
+}
+
+.compact-filter-toolbar label {
+  width: 230px;
+  min-width: 0;
+}
+
+.compact-filter-toolbar .wide-filter {
+  width: 360px;
+}
+
+.compact-filter-toolbar .toolbar-count {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+}
+
 .appointments-toolbar .toolbar-count {
   margin-left: auto;
   color: var(--text);
@@ -983,6 +1007,16 @@ code {
 
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .compact-filter-toolbar {
+    align-items: stretch;
+  }
+
+  .compact-filter-actions,
+  .compact-filter-toolbar label,
+  .compact-filter-toolbar .wide-filter {
+    width: 100%;
   }
 
   .appointments-toolbar {

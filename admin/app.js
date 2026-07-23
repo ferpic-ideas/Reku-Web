@@ -28,6 +28,8 @@
     agreementTextFilter: '',
     patientAgreementFilter: '',
     patientTextFilter: '',
+    contactTextFilter: '',
+    contactOrganizationFilter: '',
     nominaAgreementFilter: '',
     nominaFormFilter: '',
     appointmentStatusFilter: 'future',
@@ -1658,26 +1660,59 @@
     );
   }
 
+  function contactOrganizationOptions() {
+    return [
+      ...new Set(
+        state.contacts
+          .map((contact) => String(contact.organizacion || '').trim())
+          .filter(Boolean),
+      ),
+    ]
+      .sort((a, b) => a.localeCompare(b, 'es'))
+      .map(
+        (organizacion) =>
+          `<option value="${escapeHtml(organizacion)}">${escapeHtml(organizacion)}</option>`,
+      )
+      .join('');
+  }
+
+  function filteredContacts() {
+    const contactTerm = state.contactTextFilter.trim().toLowerCase();
+    const organization = state.contactOrganizationFilter;
+    return state.contacts.filter((item) => {
+      const matchesContact =
+        !contactTerm ||
+        [item.nombre, item.apellido, item.email, item.telefono]
+          .join(' ')
+          .toLowerCase()
+          .includes(contactTerm);
+      const matchesOrganization = !organization || item.organizacion === organization;
+      return matchesContact && matchesOrganization;
+    });
+  }
+
   function renderPatientIntakes() {
     const items = filteredPatientIntakes();
     return `
       <section class="panel">
-        <div class="toolbar">
-          <label>
-            Filtrar por acuerdo
-            <select id="patient-agreement-filter">
-              ${renderAgreementOptions()}
-            </select>
-          </label>
-          <label>
-            Buscar
-            <input
-              id="patient-text-filter"
-              type="search"
-              value="${escapeHtml(state.patientTextFilter)}"
-              placeholder="Paciente, teléfono, mail o identificador"
-            />
-          </label>
+        <div class="toolbar compact-filter-toolbar">
+          <div class="toolbar-actions compact-filter-actions">
+            <label>
+              Filtrar por acuerdo
+              <select id="patient-agreement-filter">
+                ${renderAgreementOptions()}
+              </select>
+            </label>
+            <label class="wide-filter">
+              Buscar
+              <input
+                id="patient-text-filter"
+                type="search"
+                value="${escapeHtml(state.patientTextFilter)}"
+                placeholder="Paciente, teléfono, mail o identificador"
+              />
+            </label>
+          </div>
           <span class="toolbar-count">${items.length} altas</span>
         </div>
         <div class="table-wrap">
@@ -1731,8 +1766,30 @@
   }
 
   function renderContacts() {
+    const items = filteredContacts();
     return `
       <section class="panel">
+        <div class="toolbar compact-filter-toolbar">
+          <div class="toolbar-actions compact-filter-actions">
+            <label class="wide-filter">
+              Contacto
+              <input
+                id="contact-text-filter"
+                type="search"
+                value="${escapeHtml(state.contactTextFilter)}"
+                placeholder="Nombre, mail o teléfono"
+              />
+            </label>
+            <label>
+              Organización
+              <select id="contact-organization-filter">
+                <option value="">Todas</option>
+                ${contactOrganizationOptions()}
+              </select>
+            </label>
+          </div>
+          <span class="toolbar-count">${items.length} contactos</span>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -1748,7 +1805,7 @@
               </tr>
             </thead>
             <tbody>
-              ${state.contacts.length ? state.contacts.map(renderContactRow).join('') : '<tr><td colspan="8">No hay contactos registrados.</td></tr>'}
+              ${items.length ? items.map(renderContactRow).join('') : '<tr><td colspan="8">No hay contactos registrados.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -2009,6 +2066,27 @@
         const nextInput = document.getElementById('patient-text-filter');
         nextInput?.focus();
         nextInput?.setSelectionRange(state.patientTextFilter.length, state.patientTextFilter.length);
+      });
+    }
+
+    const contactTextFilter = document.getElementById('contact-text-filter');
+    if (contactTextFilter) {
+      contactTextFilter.value = state.contactTextFilter;
+      contactTextFilter.addEventListener('input', () => {
+        state.contactTextFilter = contactTextFilter.value;
+        render();
+        const nextInput = document.getElementById('contact-text-filter');
+        nextInput?.focus();
+        nextInput?.setSelectionRange(state.contactTextFilter.length, state.contactTextFilter.length);
+      });
+    }
+
+    const contactOrganizationFilter = document.getElementById('contact-organization-filter');
+    if (contactOrganizationFilter) {
+      contactOrganizationFilter.value = state.contactOrganizationFilter;
+      contactOrganizationFilter.addEventListener('change', () => {
+        state.contactOrganizationFilter = contactOrganizationFilter.value;
+        render();
       });
     }
 
