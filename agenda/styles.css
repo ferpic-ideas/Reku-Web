@@ -138,6 +138,10 @@ button {
   gap: 14px;
 }
 
+.card-grid + .back-button {
+  margin-top: 26px;
+}
+
 .choice-card,
 .calendar-card,
 .payment-card,
@@ -236,6 +240,7 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0 14px;
   border-radius: 12px;
   background: #ffffff;
   color: var(--navy);

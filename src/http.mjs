@@ -38,6 +38,14 @@ const securityHeaders = {
   ].join("; "),
 };
 
+const sameOriginFrameHeaders = {
+  "X-Frame-Options": "SAMEORIGIN",
+  "Content-Security-Policy": securityHeaders["Content-Security-Policy"].replace(
+    "frame-ancestors 'none'",
+    "frame-ancestors 'self'",
+  ),
+};
+
 export const withSecurityHeaders = (headers = {}, { privateRoute = false } = {}) => ({
   ...securityHeaders,
   ...(privateRoute ? { "X-Robots-Tag": "noindex, nofollow" } : {}),
@@ -165,12 +173,14 @@ export const serveStatic = async (request, response, pathname) => {
     const file = await readFile(filePath);
     const isPrivateRoute =
       pathname.startsWith("/admin") || pathname.startsWith("/uploads");
+    const allowsSameOriginFrame = pathname.startsWith("/agenda");
     const headers = withSecurityHeaders(
       {
         "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream",
         "Cache-Control": pathname.startsWith("/admin")
           ? "no-store"
           : "public, max-age=60",
+        ...(allowsSameOriginFrame ? sameOriginFrameHeaders : {}),
       },
       { privateRoute: isPrivateRoute },
     );
