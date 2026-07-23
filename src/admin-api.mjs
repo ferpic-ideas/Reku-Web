@@ -1,4 +1,3 @@
-import { extname } from "node:path";
 import {
   getAgreementById,
   getAgreementBySlug,
@@ -7,8 +6,9 @@ import {
   recordAudit,
   tx,
 } from "./db.mjs";
-import { getClientIp, parseRequestBody, readBody, sendJson } from "./http.mjs";
+import { getClientIp, readBody, sendJson } from "./http.mjs";
 import { parseNominaCsv } from "./csv.mjs";
+import { sendEmail } from "./email.mjs";
 import {
   clearSessionCookie,
   createSessionToken,
@@ -23,6 +23,7 @@ import { config } from "./config.mjs";
 import {
   defaultPatientBody,
   defaultPatientSubject,
+  buildPatientEmail,
   getTemplateErrors,
   renderTemplate,
   sampleTemplateContext,
@@ -35,6 +36,7 @@ import {
 } from "./uploads.mjs";
 
 const canDeleteRecords = (user) => user?.email?.toLowerCase() === "ferpic@gmail.com";
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 const parseJsonBody = async (request) => {
   const body = await readBody(request);
@@ -275,8 +277,10 @@ const agreementPayloadFromMultipart = async (request) => {
       slug,
       cobranded: fields.cobranded === "true" || fields.cobranded === "on",
       type,
-      payment_evaluation_url: optionalUrl(fields.payment_evaluation_url),
-      payment_treatment_url: optionalUrl(fields.payment_treatment_url),
+      payment_evaluation_url:
+        type === "Nomina" ? "" : optionalUrl(fields.payment_evaluation_url),
+      payment_treatment_url:
+        type === "Nomina" ? "" : optionalUrl(fields.payment_treatment_url),
       email_subject_template: subject,
       email_body_template: body,
       remove_logo: fields.remove_logo === "true",
@@ -507,17 +511,27 @@ const createNominaEntry = async (request, response, user) => {
     return;
   }
 
+  const existing = await one(
+    `
+      SELECT id
+      FROM nomina_entries
+      WHERE agreement_id = $1
+        AND identificador_normalized = lower($2)
+    `,
+    [agreementId, identificador],
+  );
+  if (existing) {
+    sendJson(response, 409, {
+      error: "Ese identificador ya existe para este acuerdo.",
+    });
+    return;
+  }
+
   const result = await query(
     `
       INSERT INTO nomina_entries
         (agreement_id, nombre, apellido, identificador, identificador_normalized)
       VALUES ($1, $2, $3, $4, lower($4))
-      ON CONFLICT (agreement_id, identificador_normalized)
-      DO UPDATE SET
-        nombre = EXCLUDED.nombre,
-        apellido = EXCLUDED.apellido,
-        identificador = EXCLUDED.identificador,
-        updated_at = NOW()
       RETURNING *
     `,
     [
@@ -527,7 +541,7 @@ const createNominaEntry = async (request, response, user) => {
       identificador,
     ],
   );
-  await recordAudit("nomina_entry.upserted", {
+  await recordAudit("nomina_entry.created", {
     actorUserId: user.id,
     detail: { agreement_id: agreementId, identificador },
   });
@@ -598,6 +612,62 @@ const validateTemplatePreview = async (request, response) => {
       body: renderTemplate(body, sampleTemplateContext()),
     },
   });
+};
+
+const sendTemplateTest = async (request, response, user) => {
+  const payload = await parseJsonBody(request);
+  const to = String(payload.to || "").trim().toLowerCase();
+  const subject = String(payload.subject || "");
+  const body = String(payload.body || "");
+  const type = payload.type === "Nomina" ? "Nomina" : "Pago";
+
+  if (!emailPattern.test(to)) {
+    const error = new Error("TEMPLATE_TEST_EMAIL_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const templateErrors = getTemplateErrors(subject, body);
+  if (templateErrors.length) {
+    const error = new Error("TEMPLATE_INVALID");
+    error.statusCode = 422;
+    error.details = templateErrors;
+    throw error;
+  }
+
+  const agreementId = Number(payload.agreement_id || 0);
+  const existingAgreement = agreementId ? await getAgreementById(agreementId) : null;
+  const sample = sampleTemplateContext();
+  const agreement = {
+    ...(existingAgreement || {}),
+    name:
+      String(payload.agreement_name || existingAgreement?.name || sample.agreement.name)
+        .trim() || sample.agreement.name,
+    type,
+    pdf_path: existingAgreement?.pdf_path || "",
+    payment_evaluation_url:
+      type === "Nomina" ? "" : optionalUrl(payload.payment_evaluation_url),
+    payment_treatment_url:
+      type === "Nomina" ? "" : optionalUrl(payload.payment_treatment_url),
+    email_subject_template: subject,
+    email_body_template: body,
+  };
+  const email = buildPatientEmail({
+    submission: { values: sample.patient },
+    agreement,
+  });
+  const result = await sendEmail({
+    formName: "template-test",
+    to,
+    replyTo: user.email,
+    ...email,
+  });
+
+  await recordAudit("template.test_sent", {
+    actorUserId: user.id,
+    detail: { to, agreement_id: agreementId || null },
+  });
+  sendJson(response, 200, { ok: true, id: result?.id || "" });
 };
 
 export const handlePublicAgreementApi = async (request, response, url) => {
@@ -719,6 +789,10 @@ export const handleAdminApi = async (request, response, url) => {
       await validateTemplatePreview(request, response);
       return true;
     }
+    if (pathname === "/api/admin/templates/test" && request.method === "POST") {
+      await sendTemplateTest(request, response, user);
+      return true;
+    }
 
     return false;
   } catch (error) {
@@ -741,6 +815,10 @@ export const handleAdminApi = async (request, response, url) => {
       });
       return true;
     }
+    if (error.message === "TEMPLATE_TEST_EMAIL_INVALID") {
+      sendJson(response, 422, { error: "Ingresá un mail válido para enviar el test." });
+      return true;
+    }
     if (error.message === "NOMINA_AGREEMENT_REQUIRED") {
       sendJson(response, 422, { error: "Seleccioná un acuerdo de tipo Nómina." });
       return true;
@@ -759,6 +837,13 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (error.message === "INVALID_CSV" || error.message === "CSV_REQUIRED") {
       sendJson(response, 415, { error: "Subí un archivo CSV válido." });
+      return true;
+    }
+    if (
+      error.message === "SES_SEND_FAILED" ||
+      error.message === "SES_CONFIGURATION_MISSING"
+    ) {
+      sendJson(response, 502, { error: "No se pudo enviar el mail de test." });
       return true;
     }
     sendJson(response, error.statusCode || 500, {

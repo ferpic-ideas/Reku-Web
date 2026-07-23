@@ -111,6 +111,25 @@ textarea {
   font-size: 15px;
 }
 
+input[type="file"] {
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  padding: 18px 24px;
+  line-height: 1;
+}
+
+input[type="file"]::file-selector-button {
+  margin: 0 12px 0 0;
+  padding: 8px 14px;
+  border: 1px solid #9aa7b4;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #18213f;
+  font: inherit;
+  cursor: pointer;
+}
+
 textarea {
   min-height: 138px;
   padding: 10px 12px;
@@ -485,6 +504,20 @@ tr:hover td {
   font-size: 13px;
 }
 
+.template-test {
+  display: grid;
+  gap: 7px;
+  color: #18213f;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.inline-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -572,6 +605,10 @@ tr:hover td {
 
   .grid-two,
   .grid-three {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-control {
     grid-template-columns: 1fr;
   }
 

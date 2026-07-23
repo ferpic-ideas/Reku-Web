@@ -282,7 +282,7 @@
         <div class="modal-backdrop">
           <form class="modal-panel" id="nomina-form">
             <div class="modal-header">
-              <h2>Nueva nómina</h2>
+              <h2>Agregar nómina</h2>
               <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
             </div>
             ${renderNominaFormFields()}
@@ -346,7 +346,7 @@
         </label>
         <label>
           Tipo
-          <select name="type">
+          <select name="type" id="agreement-type-select">
             <option value="Pago" ${item.type === 'Pago' ? 'selected' : ''}>Pago</option>
             <option value="Nomina" ${item.type === 'Nomina' ? 'selected' : ''}>Nómina</option>
           </select>
@@ -355,21 +355,23 @@
           <input type="checkbox" name="cobranded" ${item.cobranded ? 'checked' : ''} />
           Cobranded
         </label>
-        <label>
-          Link pago evaluación
-          <input name="payment_evaluation_url" type="url" value="${escapeHtml(item.payment_evaluation_url)}" />
-        </label>
-        <label>
-          Link pago tratamiento
-          <input name="payment_treatment_url" type="url" value="${escapeHtml(item.payment_treatment_url)}" />
-        </label>
+        <div class="span-two grid-two payment-fields" data-payment-fields ${item.type === 'Nomina' ? 'hidden' : ''}>
+          <label>
+            Link pago evaluación
+            <input name="payment_evaluation_url" type="url" value="${escapeHtml(item.payment_evaluation_url)}" />
+          </label>
+          <label>
+            Link pago tratamiento
+            <input name="payment_treatment_url" type="url" value="${escapeHtml(item.payment_treatment_url)}" />
+          </label>
+        </div>
         <label>
           Logo
-          <input name="logo" type="file" accept="image/*" />
+          <input class="file-input" name="logo" type="file" accept="image/*" />
         </label>
         <label>
           PDF Cómo funciona
-          <input name="pdf" type="file" accept="application/pdf" />
+          <input class="file-input" name="pdf" type="file" accept="application/pdf" />
         </label>
         ${item.logo_url || item.pdf_url ? `
           <div class="span-two grid-two">
@@ -398,6 +400,13 @@
         <div class="template-help span-two">
           <strong>Variables permitidas</strong>
           <span>{{patient.nombre}}, {{patient.apellido}}, {{patient.telefono}}, {{patient.email}}, {{patient.identificador}}, {{agreement.name}}, {{agreement.type}}</span>
+        </div>
+        <div class="template-test span-two">
+          <label for="template-test-email">Mail para test</label>
+          <div class="inline-control">
+            <input id="template-test-email" name="template_test_email" type="email" placeholder="mail@dominio.com" />
+            <button type="button" class="secondary-button" data-action="send-template-test">Enviar test</button>
+          </div>
         </div>
         <div class="form-actions span-two">
           <button type="button" class="secondary-button" data-action="validate-template">Validar template</button>
@@ -688,7 +697,7 @@
           </label>
           <div class="toolbar-actions">
             <button type="button" class="secondary-button" data-action="open-nomina-csv">Subir CSV</button>
-            <button type="button" class="primary-button" data-action="new-nomina">Nueva</button>
+            <button type="button" class="primary-button" data-action="new-nomina">Agregar</button>
           </div>
         </div>
         <div class="table-wrap">
@@ -746,6 +755,23 @@
     document
       .getElementById('change-password-form')
       ?.addEventListener('submit', handleChangePasswordSubmit);
+
+    const agreementTypeSelect = document.getElementById('agreement-type-select');
+    if (agreementTypeSelect) {
+      const togglePaymentFields = () => {
+        const isNomina = agreementTypeSelect.value === 'Nomina';
+        document.querySelectorAll('[data-payment-fields]').forEach((wrapper) => {
+          wrapper.hidden = isNomina;
+          if (isNomina) {
+            wrapper.querySelectorAll('input').forEach((input) => {
+              input.value = '';
+            });
+          }
+        });
+      };
+      agreementTypeSelect.addEventListener('change', togglePaymentFields);
+      togglePaymentFields();
+    }
 
     const patientFilter = document.getElementById('patient-agreement-filter');
     if (patientFilter) {
@@ -836,6 +862,10 @@
       }
       if (action === 'validate-template') {
         await validateTemplate();
+        return;
+      }
+      if (action === 'send-template-test') {
+        await sendTemplateTest();
         return;
       }
       if (action === 'copy-url') {
@@ -971,6 +1001,36 @@
     } catch (error) {
       const details = error.payload?.errors?.join(' ') || '';
       setStatus(`${error.message} ${details}`, 'error');
+    }
+  }
+
+  async function sendTemplateTest() {
+    const form = document.getElementById('agreement-form');
+    if (!form) return;
+    const to = form.elements.template_test_email.value.trim();
+    if (!to) {
+      setStatus('Ingresá un mail para enviar el test.', 'error');
+      return;
+    }
+
+    try {
+      await api('/api/admin/templates/test', {
+        method: 'POST',
+        body: {
+          to,
+          agreement_id: state.editingAgreementId || '',
+          agreement_name: form.elements.name.value,
+          type: form.elements.type.value,
+          payment_evaluation_url: form.elements.payment_evaluation_url?.value || '',
+          payment_treatment_url: form.elements.payment_treatment_url?.value || '',
+          subject: form.elements.email_subject_template.value,
+          body: form.elements.email_body_template.value,
+        },
+      });
+      setStatus(`Mail de test enviado a ${to}.`, 'ok');
+    } catch (error) {
+      const details = error.payload?.errors?.join(' ') || '';
+      setStatus(`${error.message}${details ? ` ${details}` : ''}`, 'error');
     }
   }
 
