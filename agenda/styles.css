@@ -165,6 +165,8 @@ button {
 .time-button.active {
   border-color: var(--accent);
   background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 800;
 }
 
 .choice-media {
@@ -252,6 +254,13 @@ button {
   border: 1px solid var(--border);
 }
 
+.icon-btn:hover,
+.icon-btn:focus-visible,
+.back-button:hover,
+.back-button:focus-visible {
+  background: #e9f8fb;
+}
+
 .calendar-grid,
 .weekday-grid {
   display: grid;
@@ -297,6 +306,12 @@ button {
   gap: 10px;
 }
 
+.time-section-title {
+  display: block;
+  margin-top: 4px;
+  font-size: 16px;
+}
+
 .time-button {
   min-height: 48px;
   border: 1px solid transparent;
@@ -329,6 +344,11 @@ button {
 .primary-button {
   color: #ffffff;
   background: var(--accent);
+}
+
+.primary-button[data-action="go-payment"]:not(:disabled):hover,
+.primary-button[data-action="go-payment"]:not(:disabled):focus-visible {
+  font-weight: 800;
 }
 
 .secondary-button,

@@ -117,6 +117,7 @@
     state.professional = null;
     state.selectedDate = '';
     state.selectedSlot = '';
+    state.slots = [];
     state.step = 2;
     state.loading = true;
     render();
@@ -137,7 +138,16 @@
     state.professional = state.professionals.find((professional) => professional.id === professionalId);
     state.selectedDate = '';
     state.selectedSlot = '';
+    state.slots = [];
     state.step = 3;
+    await loadDays();
+  }
+
+  async function changeMonth(offset) {
+    state.month = new Date(state.month.getFullYear(), state.month.getMonth() + offset, 1);
+    state.selectedDate = '';
+    state.selectedSlot = '';
+    state.slots = [];
     await loadDays();
   }
 
@@ -337,6 +347,7 @@
           ${
             state.selectedDate
               ? `
+                <strong class="time-section-title">Seleccione un horario</strong>
                 <div class="time-grid">
                   ${state.slots
                     .map(
@@ -467,12 +478,10 @@
           render();
         }
         if (action === 'previous-month') {
-          state.month = new Date(state.month.getFullYear(), state.month.getMonth() - 1, 1);
-          await loadDays();
+          await changeMonth(-1);
         }
         if (action === 'next-month') {
-          state.month = new Date(state.month.getFullYear(), state.month.getMonth() + 1, 1);
-          await loadDays();
+          await changeMonth(1);
         }
       });
     });
