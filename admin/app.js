@@ -22,9 +22,9 @@
 
   const modules = [
     { id: 'agreements', label: 'Acuerdos' },
+    { id: 'nomina', label: 'Nóminas' },
     { id: 'patient-intakes', label: 'Altas Pacientes' },
     { id: 'contacts', label: 'Contactos' },
-    { id: 'nomina', label: 'Nóminas' },
   ];
 
   const escapeHtml = (value) =>
