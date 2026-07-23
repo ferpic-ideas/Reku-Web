@@ -158,7 +158,14 @@
             </div>
           </div>
           <div class="topbar-actions">
-            <button type="button" class="secondary-button" data-action="refresh">Actualizar</button>
+            <button type="button" class="icon-button refresh-button" data-action="refresh" aria-label="Actualizar" title="Actualizar">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" />
+                <path d="M3 21v-5h5" />
+                <path d="M3 12A9 9 0 0 1 18.4 5.6L21 8" />
+                <path d="M21 3v5h-5" />
+              </svg>
+            </button>
             <div class="user-menu">
               <button type="button" class="user-menu-trigger" data-action="toggle-user-menu">
                 ${escapeHtml(state.user.email)} ▾

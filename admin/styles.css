@@ -228,6 +228,22 @@ a:focus-visible {
   cursor: pointer;
 }
 
+.refresh-button {
+  width: 42px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.refresh-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .user-menu-trigger:hover,
 .icon-button:hover,
 .secondary-button:hover {
