@@ -35,6 +35,7 @@ import {
   saveAgreementLogo,
   saveAgreementPdf,
   saveProfessionalPhoto,
+  saveServiceImage,
 } from "./uploads.mjs";
 import { createBookingAccessLink } from "./booking-links.mjs";
 import {
@@ -52,6 +53,11 @@ const parseJsonBody = async (request) => {
   const body = await readBody(request);
   return body ? JSON.parse(body) : {};
 };
+
+const isMultipartRequest = (request) =>
+  String(request.headers["content-type"] || "")
+    .toLowerCase()
+    .includes("multipart/form-data");
 
 const slugify = (value) =>
   String(value || "")
@@ -756,6 +762,8 @@ const mapService = (row) => ({
   duration_minutes: Number(row.duration_minutes),
   cost_amount: Number(row.cost_amount || 0),
   payment_url: row.payment_url || "",
+  image_path: row.image_path || "",
+  image_url: row.image_path ? `/uploads/${row.image_path}` : "",
   active: Boolean(row.active),
   created_at: row.created_at,
   updated_at: row.updated_at,
@@ -785,34 +793,82 @@ const servicePayloadFromJson = async (request) => {
     cost_amount: parseMoney(payload.cost_amount),
     payment_url: optionalUrl(payload.payment_url),
     active: payload.active !== false,
+    remove_image: payload.remove_image === true,
+  };
+};
+
+const servicePayloadFromMultipart = async (request) => {
+  const { fields, files } = await parseMultipartForm(request);
+  const name = String(fields.name || "").trim();
+  if (!name) {
+    const error = new Error("SERVICE_NAME_REQUIRED");
+    error.statusCode = 422;
+    throw error;
+  }
+  return {
+    fields: {
+      name,
+      duration_minutes: parsePositiveInteger(fields.duration_minutes, {
+        min: 5,
+        max: 480,
+      }),
+      cost_amount: parseMoney(fields.cost_amount),
+      payment_url: optionalUrl(fields.payment_url),
+      active: fields.active !== "false",
+      remove_image: fields.remove_image === "true",
+    },
+    files,
+  };
+};
+
+const servicePayloadFromRequest = async (request) => {
+  if (isMultipartRequest(request)) {
+    return servicePayloadFromMultipart(request);
+  }
+  return {
+    fields: await servicePayloadFromJson(request),
+    files: {},
   };
 };
 
 const createService = async (request, response, user) => {
-  const payload = await servicePayloadFromJson(request);
+  const payload = await servicePayloadFromRequest(request);
+  const imagePath = await saveServiceImage(payload.files.image);
   const result = await query(
     `
-      INSERT INTO services (name, duration_minutes, cost_amount, payment_url, active)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO services (name, duration_minutes, cost_amount, payment_url, image_path, active)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
     `,
     [
-      payload.name,
-      payload.duration_minutes,
-      payload.cost_amount,
-      payload.payment_url,
-      payload.active,
+      payload.fields.name,
+      payload.fields.duration_minutes,
+      payload.fields.cost_amount,
+      payload.fields.payment_url,
+      imagePath || null,
+      payload.fields.active,
     ],
   );
   await recordAudit("service.created", {
     actorUserId: user.id,
-    detail: { service_id: result.rows[0].id, name: payload.name },
+    detail: { service_id: result.rows[0].id, name: payload.fields.name },
   });
   sendJson(response, 201, { service: mapService(result.rows[0]) });
 };
 
 const updateService = async (request, response, user, id) => {
-  const payload = await servicePayloadFromJson(request);
+  const currentResult = await query(
+    "SELECT * FROM services WHERE id = $1 AND deleted_at IS NULL",
+    [id],
+  );
+  const current = currentResult.rows[0];
+  if (!current) {
+    sendJson(response, 404, { error: "Servicio no encontrado." });
+    return;
+  }
+
+  const payload = await servicePayloadFromRequest(request);
+  const imagePath = await saveServiceImage(payload.files.image);
   const result = await query(
     `
       UPDATE services
@@ -820,18 +876,20 @@ const updateService = async (request, response, user, id) => {
           duration_minutes = $2,
           cost_amount = $3,
           payment_url = $4,
-          active = $5,
+          image_path = $5,
+          active = $6,
           updated_at = NOW()
-      WHERE id = $6
+      WHERE id = $7
         AND deleted_at IS NULL
       RETURNING *
     `,
     [
-      payload.name,
-      payload.duration_minutes,
-      payload.cost_amount,
-      payload.payment_url,
-      payload.active,
+      payload.fields.name,
+      payload.fields.duration_minutes,
+      payload.fields.cost_amount,
+      payload.fields.payment_url,
+      payload.fields.remove_image ? null : imagePath || current.image_path || null,
+      payload.fields.active,
       id,
     ],
   );
@@ -1633,7 +1691,7 @@ export const handleAdminApi = async (request, response, url) => {
       return true;
     }
     if (error.message === "INVALID_IMAGE") {
-      sendJson(response, 415, { error: "El logo debe ser una imagen válida." });
+      sendJson(response, 415, { error: "El archivo debe ser una imagen válida." });
       return true;
     }
     if (error.message === "INVALID_PDF") {

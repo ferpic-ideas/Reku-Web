@@ -124,6 +124,17 @@ export const saveProfessionalPhoto = async (file) => {
   return saveUploadFile("professionals", file.buffer, extension);
 };
 
+export const saveServiceImage = async (file) => {
+  if (!file) return "";
+  const extension = imageMimeTypes.get(file.mimeType);
+  if (!extension || !["image/jpeg", "image/png", "image/webp"].includes(file.mimeType)) {
+    const error = new Error("INVALID_IMAGE");
+    error.statusCode = 415;
+    throw error;
+  }
+  return saveUploadFile("services", file.buffer, extension);
+};
+
 const saveAgreementFile = async (buffer, extension) => {
   return saveUploadFile("agreements", buffer, extension);
 };

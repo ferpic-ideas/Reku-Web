@@ -83,6 +83,7 @@ const mapService = (row) => ({
   name: row.name,
   duration_minutes: Number(row.duration_minutes),
   cost_amount: Number(row.cost_amount || 0),
+  image_url: row.image_path ? `/uploads/${row.image_path}` : "",
 });
 
 const mapProfessional = (row) => ({

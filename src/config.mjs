@@ -60,4 +60,5 @@ export const assertSafeStartup = () => {
 export const ensureRuntimeDirectories = async () => {
   await mkdir(join(uploadRoot, "agreements"), { recursive: true });
   await mkdir(join(uploadRoot, "professionals"), { recursive: true });
+  await mkdir(join(uploadRoot, "services"), { recursive: true });
 };

@@ -174,6 +174,9 @@ export const initDb = async () => {
       ON services (active)
       WHERE deleted_at IS NULL;
 
+    ALTER TABLE services
+      ADD COLUMN IF NOT EXISTS image_path TEXT;
+
     CREATE TABLE IF NOT EXISTS professionals (
       id BIGSERIAL PRIMARY KEY,
       name TEXT NOT NULL,

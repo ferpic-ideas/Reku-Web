@@ -592,6 +592,7 @@
         duration_minutes: 30,
         cost_amount: '',
         payment_url: '',
+        image_url: '',
         active: true,
       }
     );
@@ -617,6 +618,24 @@
           Link de pago fallback
           <input name="payment_url" type="url" value="${escapeHtml(item.payment_url)}" placeholder="Opcional" />
         </label>
+        <label class="span-two">
+          Imagen
+          <input class="file-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" />
+          <span class="field-help">Recomendado: 1200 × 720 px, formato JPG/PNG/WebP, hasta 10 MB. Se usa recortada en la selección de la agenda.</span>
+        </label>
+        ${
+          item.image_url
+            ? `
+              <div class="span-two current-asset">
+                <img src="${escapeHtml(item.image_url)}" alt="" />
+                <label class="check-row">
+                  <input type="checkbox" name="remove_image" />
+                  Quitar imagen actual
+                </label>
+              </div>
+            `
+            : ''
+        }
         <label class="check-row span-two">
           <input type="checkbox" name="active" ${item.active ? 'checked' : ''} />
           Activo
@@ -640,6 +659,7 @@
           <table>
             <thead>
               <tr>
+                <th>Imagen</th>
                 <th>Nombre</th>
                 <th>Duración</th>
                 <th>Costo</th>
@@ -652,7 +672,7 @@
               ${
                 state.services.length
                   ? state.services.map(renderServiceRow).join('')
-                  : '<tr><td colspan="6">No hay servicios cargados.</td></tr>'
+                  : '<tr><td colspan="7">No hay servicios cargados.</td></tr>'
               }
             </tbody>
           </table>
@@ -664,6 +684,11 @@
   function renderServiceRow(service) {
     return `
       <tr>
+        <td>
+          <span class="asset-thumb">
+            ${service.image_url ? `<img src="${escapeHtml(service.image_url)}" alt="" />` : '<span>Sin imagen</span>'}
+          </span>
+        </td>
         <td><strong>${escapeHtml(service.name)}</strong></td>
         <td>${escapeHtml(service.duration_minutes)} min</td>
         <td>${escapeHtml(formatMoney(service.cost_amount))}</td>
@@ -2228,22 +2253,17 @@
   async function handleServiceSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
+    const data = new FormData(form);
+    data.set('active', form.active.checked ? 'true' : 'false');
+    data.set('remove_image', form.remove_image?.checked ? 'true' : 'false');
+
     const path = state.editingServiceId
       ? `/api/admin/services/${state.editingServiceId}`
       : '/api/admin/services';
     const method = state.editingServiceId ? 'PUT' : 'POST';
 
     try {
-      await api(path, {
-        method,
-        body: {
-          name: form.name.value,
-          duration_minutes: form.duration_minutes.value,
-          cost_amount: form.cost_amount.value,
-          payment_url: form.payment_url.value,
-          active: form.active.checked,
-        },
-      });
+      await api(path, { method, body: data });
       state.editingServiceId = null;
       state.dialog = null;
       await loadData();

@@ -247,7 +247,13 @@
             .map(
               (service) => `
                 <button type="button" class="choice-card" data-action="select-service" data-id="${service.id}">
-                  <div class="choice-media">Reku</div>
+                  <div class="choice-media service-media">
+                    ${
+                      service.image_url
+                        ? `<img class="service-image" src="${escapeHtml(service.image_url)}" alt="" />`
+                        : 'Reku'
+                    }
+                  </div>
                   <h3>${escapeHtml(service.name)}</h3>
                   <div class="choice-meta">
                     <span>${escapeHtml(service.duration_minutes)} min</span>
