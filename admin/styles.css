@@ -371,6 +371,29 @@ a:focus-visible {
   font-weight: 800;
 }
 
+.appointments-toolbar {
+  align-items: flex-end;
+}
+
+.appointments-toolbar .toolbar-actions {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 180px 220px minmax(260px, 1fr);
+  align-items: end;
+  gap: 12px;
+}
+
+.appointments-toolbar label {
+  min-width: 0;
+}
+
+.appointments-toolbar .toolbar-count {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
 .panel-header h2 {
   margin: 0;
   font-size: 18px;
@@ -904,6 +927,19 @@ code {
 
   .inline-control {
     grid-template-columns: 1fr;
+  }
+
+  .appointments-toolbar {
+    align-items: stretch;
+  }
+
+  .appointments-toolbar .toolbar-actions {
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .appointments-toolbar .toolbar-count {
+    margin-left: 0;
   }
 
   .span-two {
