@@ -20,10 +20,10 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 
 - `web`: Node.js, sirve la web estatica, formularios, admin y API.
 - `db`: Postgres 16, solo red interna de Docker.
-- `uploads`: volumen bind en `/docker/reku-web/uploads`, usado para logos y PDFs de acuerdos.
+- `uploads`: volumen bind en `/docker/reku-web/uploads`, usado para logos, PDFs e imagenes cargadas desde el admin.
 - `backups`: carpeta bind en `/docker/reku-web/backups`, usada para dumps manuales.
 - Traefik: enruta `www.reku.io`, `reku.io` y el dominio tecnico hacia el servicio `web`.
-- SES: el backend envia mails por AWS SES usando `SES_FROM_EMAIL`.
+- Email: el backend envia mails con proveedor configurable (`EMAIL_PROVIDER=ses|resend`).
 
 ## Rutas principales
 
@@ -73,7 +73,7 @@ devuelve 404.
 |   |-- config.mjs              # Configuracion y validaciones de arranque
 |   |-- csv.mjs                 # Parser CSV para nominas
 |   |-- db.mjs                  # Pool Postgres, migracion inicial y helpers
-|   |-- email.mjs               # Envio por SES y dry-run
+|   |-- email.mjs               # Envio por SES/Resend y dry-run
 |   |-- forms.mjs               # Procesamiento de formularios publicos
 |   |-- http.mjs                # Helpers HTTP, headers y static serving
 |   |-- mercado-pago.mjs        # Checkout Pro, consulta de pagos y webhook signature
@@ -244,15 +244,31 @@ Variables clave:
 - `CSV_UPLOAD_MAX_BYTES`
 - `CONTACT_TO_EMAIL`
 - `PATIENT_INTAKE_TO_EMAIL`
+- `EMAIL_PROVIDER`
+- `EMAIL_FROM`
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 - `AWS_SESSION_TOKEN`
 - `AWS_REGION`
 - `SES_FROM_EMAIL`
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
 - `EMAIL_DRY_RUN`
 
 En produccion, `SESSION_SECRET` y `POSTGRES_PASSWORD` son obligatorios. No
 imprimir ni pegar el `.env` en chats, commits o logs.
+
+Para usar Resend temporalmente mientras SES esta en sandbox:
+
+```env
+EMAIL_PROVIDER=resend
+EMAIL_FROM=Reku <hola@reku.io>
+RESEND_FROM_EMAIL=Reku <hola@reku.io>
+RESEND_API_KEY=<api-key-en-.env-del-vps>
+```
+
+`hola@reku.io` debe estar habilitado/verificado en Resend. Para volver a SES,
+cambiar `EMAIL_PROVIDER=ses`.
 
 ## Desarrollo local
 

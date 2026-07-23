@@ -409,7 +409,10 @@ export const handleFormSubmission = async (request, response) => {
   } catch (error) {
     const statusCode =
       error.statusCode ||
-      (error.message === "SES_CONFIGURATION_MISSING" ? 503 : 502);
+      (error.message === "SES_CONFIGURATION_MISSING" ||
+      error.message === "EMAIL_CONFIGURATION_MISSING"
+        ? 503
+        : 502);
     sendJson(response, statusCode, {
       error:
         error.message === "AGREEMENT_NOT_FOUND"

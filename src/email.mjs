@@ -87,16 +87,11 @@ const signAwsRequest = ({ body, host, method, path, region, service }) => {
   };
 };
 
-export const sendEmail = async ({ formName, to, replyTo, subject, text, html }) => {
-  if (config.emailDryRun) {
-    console.log("EMAIL_DRY_RUN", { formName, to, subject });
-    return { id: "dry-run" };
-  }
-
+const sendSesEmail = async ({ to, replyTo, subject, text, html }) => {
   const host = `email.${config.awsRegion}.amazonaws.com`;
   const path = "/v2/email/outbound-emails";
   const body = JSON.stringify({
-    FromEmailAddress: config.sesFromEmail,
+    FromEmailAddress: config.emailFromEmail || config.sesFromEmail,
     Destination: {
       ToAddresses: [to],
     },
@@ -146,8 +141,73 @@ export const sendEmail = async ({ formName, to, replyTo, subject, text, html }) 
         responseBody.slice(0, 300) ||
         "unknown",
     });
-    throw new Error("SES_SEND_FAILED");
+    throw new Error("EMAIL_SEND_FAILED");
   }
 
   return { id: payload.MessageId };
+};
+
+const sendResendEmail = async ({ to, replyTo, subject, text, html }) => {
+  if (!config.resendApiKey) {
+    throw new Error("EMAIL_CONFIGURATION_MISSING");
+  }
+
+  const body = JSON.stringify({
+    from: config.resendFromEmail,
+    to: [to],
+    reply_to: replyTo ? [replyTo] : undefined,
+    subject,
+    text,
+    html,
+  });
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.resendApiKey}`,
+      "content-type": "application/json",
+    },
+    body,
+  });
+
+  const responseBody = await response.text();
+  const payload = parseJson(responseBody);
+
+  if (!response.ok) {
+    console.error("Resend error", {
+      status: response.status,
+      error:
+        payload?.message ||
+        payload?.error ||
+        payload?.name ||
+        responseBody.slice(0, 300) ||
+        "unknown",
+    });
+    throw new Error("EMAIL_SEND_FAILED");
+  }
+
+  return { id: payload.id };
+};
+
+export const sendEmail = async ({ formName, to, replyTo, subject, text, html }) => {
+  if (config.emailDryRun) {
+    console.log("EMAIL_DRY_RUN", { formName, to, subject });
+    return { id: "dry-run" };
+  }
+
+  if (config.emailProvider === "resend") {
+    return sendResendEmail({ to, replyTo, subject, text, html });
+  }
+
+  if (config.emailProvider === "ses") {
+    try {
+      return await sendSesEmail({ to, replyTo, subject, text, html });
+    } catch (error) {
+      if (error.message === "SES_CONFIGURATION_MISSING") {
+        throw new Error("EMAIL_CONFIGURATION_MISSING");
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("EMAIL_CONFIGURATION_MISSING");
 };

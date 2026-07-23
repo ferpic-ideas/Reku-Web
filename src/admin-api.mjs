@@ -1733,7 +1733,9 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (
       error.message === "SES_SEND_FAILED" ||
-      error.message === "SES_CONFIGURATION_MISSING"
+      error.message === "SES_CONFIGURATION_MISSING" ||
+      error.message === "EMAIL_SEND_FAILED" ||
+      error.message === "EMAIL_CONFIGURATION_MISSING"
     ) {
       sendJson(response, 502, { error: "No se pudo enviar el mail de test." });
       return true;

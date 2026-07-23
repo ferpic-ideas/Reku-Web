@@ -18,7 +18,7 @@ if ! git check-ignore -q .env; then
   failed=1
 fi
 
-if git grep -n -E 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|APP_USR-[A-Za-z0-9_-]{20,}|AWS_SECRET_ACCESS_KEY=[^[:space:]]+|POSTGRES_PASSWORD=[^[:space:]]+|SESSION_SECRET=[^[:space:]]+|BOOTSTRAP_ADMIN_PASSWORD=[^[:space:]]+' -- . ':!*.md' ':!scripts/secrets_check.sh' ':!.env.example'; then
+if git grep -n -E 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|APP_USR-[A-Za-z0-9_-]{20,}|AWS_SECRET_ACCESS_KEY=[^[:space:]]+|RESEND_API_KEY=[^[:space:]]+|POSTGRES_PASSWORD=[^[:space:]]+|SESSION_SECRET=[^[:space:]]+|BOOTSTRAP_ADMIN_PASSWORD=[^[:space:]]+' -- . ':!*.md' ':!scripts/secrets_check.sh' ':!.env.example'; then
   echo "ERROR: potential secret found in tracked files"
   failed=1
 fi

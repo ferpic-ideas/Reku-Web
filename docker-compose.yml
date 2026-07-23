@@ -56,11 +56,15 @@ services:
       CSV_UPLOAD_MAX_BYTES: ${CSV_UPLOAD_MAX_BYTES:-2097152}
       CONTACT_TO_EMAIL: ${CONTACT_TO_EMAIL:-hola@reku.io}
       PATIENT_INTAKE_TO_EMAIL: ${PATIENT_INTAKE_TO_EMAIL:-altas-pacientes@reku.io}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-ses}
+      EMAIL_FROM: ${EMAIL_FROM:-Reku <hola@reku.io>}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
       AWS_REGION: ${AWS_REGION:-}
       SES_FROM_EMAIL: ${SES_FROM_EMAIL:-Reku <hola@reku.io>}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Reku <hola@reku.io>}
       EMAIL_DRY_RUN: ${EMAIL_DRY_RUN:-false}
     volumes:
       - ./uploads:/app/uploads

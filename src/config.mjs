@@ -31,7 +31,18 @@ export const config = {
   contactToEmail: process.env.CONTACT_TO_EMAIL || "hola@reku.io",
   patientIntakeToEmail:
     process.env.PATIENT_INTAKE_TO_EMAIL || "altas-pacientes@reku.io",
+  emailProvider: (process.env.EMAIL_PROVIDER || "ses").trim().toLowerCase(),
+  emailFromEmail:
+    process.env.EMAIL_FROM ||
+    process.env.SES_FROM_EMAIL ||
+    "Reku <hola@reku.io>",
   sesFromEmail: process.env.SES_FROM_EMAIL || "Reku <hola@reku.io>",
+  resendApiKey: process.env.RESEND_API_KEY || "",
+  resendFromEmail:
+    process.env.RESEND_FROM_EMAIL ||
+    process.env.EMAIL_FROM ||
+    process.env.SES_FROM_EMAIL ||
+    "Reku <hola@reku.io>",
   awsRegion: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "",
   emailDryRun: process.env.EMAIL_DRY_RUN === "true",
 };
@@ -54,6 +65,9 @@ export const assertSafeStartup = () => {
   }
   if (config.uploadMaxBytes < 1 || config.csvUploadMaxBytes < 1) {
     throw new Error("Upload limits must be positive");
+  }
+  if (!["ses", "resend"].includes(config.emailProvider)) {
+    throw new Error("EMAIL_PROVIDER must be ses or resend");
   }
 };
 
