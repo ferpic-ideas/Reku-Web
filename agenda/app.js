@@ -29,6 +29,22 @@
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
 
+  const isEmbedded = () => {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  };
+
+  const redirectToPayment = (url) => {
+    if (isEmbedded()) {
+      window.top.location.href = url;
+      return;
+    }
+    window.location.href = url;
+  };
+
   const money = (value) =>
     new Intl.NumberFormat('es-AR', {
       style: 'currency',
@@ -176,7 +192,7 @@
         }),
       });
       if (payload.payment?.url) {
-        window.location.href = payload.payment.url;
+        redirectToPayment(payload.payment.url);
         return;
       }
       state.appointment = payload.appointment;
