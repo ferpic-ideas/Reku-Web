@@ -81,6 +81,15 @@ export const renderTemplate = (template, context) =>
     return context[group]?.[field] ?? "";
   });
 
+const renderTemplateHtml = (template, context) =>
+  String(template || "")
+    .replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => {
+      const [group, field] = key.split(".");
+      const value = escapeHtml(context[group]?.[field] ?? "");
+      return key === "agreement.type" ? `<strong>${value}</strong>` : value;
+    })
+    .replaceAll("\n", "<br />");
+
 export const agreementFileUrl = (path) =>
   path ? `${config.appPublicUrl}/uploads/${path}` : "";
 
@@ -158,7 +167,10 @@ export const buildPatientEmail = ({ submission, agreement }) => {
   const linksText = links.length
     ? `\n\nRecursos:\n${links.map((link) => `${link.label}: ${link.url}`).join("\n")}`
     : "";
-  const htmlBody = escapeHtml(body).replaceAll("\n", "<br />");
+  const htmlBody = renderTemplateHtml(
+    agreement.email_body_template || defaultPatientBody,
+    context,
+  );
   const linksHtml = links.length
     ? `<h2 style="font-size: 16px;">Recursos</h2>${links
         .map(

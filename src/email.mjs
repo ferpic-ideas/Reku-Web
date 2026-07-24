@@ -151,11 +151,12 @@ const sendResendEmail = async ({ to, replyTo, subject, text, html }) => {
   if (!config.resendApiKey) {
     throw new Error("EMAIL_CONFIGURATION_MISSING");
   }
+  const resendReplyTo = config.resendReplyToEmail || replyTo;
 
   const body = JSON.stringify({
     from: config.resendFromEmail,
     to: [to],
-    reply_to: replyTo ? [replyTo] : undefined,
+    reply_to: resendReplyTo ? [resendReplyTo] : undefined,
     subject,
     text,
     html,

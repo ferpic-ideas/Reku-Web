@@ -43,6 +43,10 @@ export const config = {
     process.env.EMAIL_FROM ||
     process.env.SES_FROM_EMAIL ||
     "Reku <hola@reku.io>",
+  resendReplyToEmail:
+    process.env.RESEND_REPLY_TO_EMAIL ||
+    process.env.EMAIL_REPLY_TO ||
+    "hola@reku.io",
   awsRegion: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "",
   emailDryRun: process.env.EMAIL_DRY_RUN === "true",
 };
