@@ -390,18 +390,25 @@ a:focus-visible {
 }
 
 .compact-filter-toolbar label {
-  width: 230px;
+  width: clamp(180px, 18vw, 230px);
   min-width: 0;
 }
 
 .compact-filter-toolbar .wide-filter {
-  width: 360px;
+  width: clamp(260px, 28vw, 360px);
 }
 
 .compact-filter-toolbar .toolbar-count {
   min-height: 42px;
   display: inline-flex;
   align-items: center;
+}
+
+.total-right-toolbar .toolbar-count {
+  margin-left: auto;
+  color: var(--text);
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .appointments-toolbar .toolbar-count {

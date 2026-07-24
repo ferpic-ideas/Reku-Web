@@ -1236,23 +1236,24 @@
     const items = filteredScheduleBlocks();
     return `
       <section class="panel">
-        <div class="toolbar">
-          <label>
-            Fecha
-            <select id="schedule-block-date-filter">
-              <option value="">Todos</option>
-              <option value="past">Vencidos</option>
-              <option value="future">Próximos</option>
-            </select>
-          </label>
-          <label>
-            Profesional
-            <select id="schedule-block-professional-filter">
-              <option value="">Todos</option>
-              ${renderScheduleBlockProfessionalOptions()}
-            </select>
-          </label>
-          <span class="toolbar-count">${items.length} bloqueos</span>
+        <div class="toolbar compact-filter-toolbar">
+          <div class="toolbar-actions compact-filter-actions">
+            <label>
+              Fecha
+              <select id="schedule-block-date-filter">
+                <option value="">Todos</option>
+                <option value="past">Vencidos</option>
+                <option value="future">Próximos</option>
+              </select>
+            </label>
+            <label>
+              Profesional
+              <select id="schedule-block-professional-filter">
+                <option value="">Todos</option>
+                ${renderScheduleBlockProfessionalOptions()}
+              </select>
+            </label>
+          </div>
           <div class="toolbar-actions">
             <button type="button" class="primary-button" data-action="new-schedule-block">Nuevo bloqueo</button>
           </div>
@@ -1586,33 +1587,34 @@
     const agreements = filteredAgreements();
     return `
       <section class="panel">
-        <div class="toolbar">
-          <label>
-            Buscar
-            <input
-              id="agreement-text-filter"
-              type="search"
-              value="${escapeHtml(state.agreementTextFilter)}"
-              placeholder="Nombre del acuerdo"
-            />
-          </label>
-          <label>
-            Tipo
-            <select id="agreement-type-filter">
-              <option value="">Todos</option>
-              <option value="Pago">Pago</option>
-              <option value="Nomina">Nómina</option>
-            </select>
-          </label>
-          <label>
-            Co-Branded
-            <select id="agreement-cobrand-filter">
-              <option value="">Todos</option>
-              <option value="yes">Sí</option>
-              <option value="no">No</option>
-            </select>
-          </label>
-          <span class="toolbar-count">${agreements.length} acuerdos</span>
+        <div class="toolbar compact-filter-toolbar">
+          <div class="toolbar-actions compact-filter-actions">
+            <label>
+              Buscar
+              <input
+                id="agreement-text-filter"
+                type="search"
+                value="${escapeHtml(state.agreementTextFilter)}"
+                placeholder="Nombre del acuerdo"
+              />
+            </label>
+            <label>
+              Tipo
+              <select id="agreement-type-filter">
+                <option value="">Todos</option>
+                <option value="Pago">Pago</option>
+                <option value="Nomina">Nómina</option>
+              </select>
+            </label>
+            <label>
+              Co-Branded
+              <select id="agreement-cobrand-filter">
+                <option value="">Todos</option>
+                <option value="yes">Sí</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+          </div>
           <div class="toolbar-actions">
             <button type="button" class="primary-button" data-action="new-agreement">Nuevo</button>
           </div>
@@ -1751,7 +1753,7 @@
     const items = filteredPatientIntakes();
     return `
       <section class="panel">
-        <div class="toolbar compact-filter-toolbar">
+        <div class="toolbar compact-filter-toolbar total-right-toolbar">
           <div class="toolbar-actions compact-filter-actions">
             <label>
               Filtrar por acuerdo
@@ -1769,7 +1771,7 @@
               />
             </label>
           </div>
-          <span class="toolbar-count">${items.length} altas</span>
+          <span class="toolbar-count">Total: ${items.length}</span>
         </div>
         <div class="table-wrap">
           <table class="centered-table">
@@ -1825,7 +1827,7 @@
     const items = filteredContacts();
     return `
       <section class="panel">
-        <div class="toolbar compact-filter-toolbar">
+        <div class="toolbar compact-filter-toolbar total-right-toolbar">
           <div class="toolbar-actions compact-filter-actions">
             <label class="wide-filter">
               Contacto
@@ -1844,7 +1846,7 @@
               </select>
             </label>
           </div>
-          <span class="toolbar-count">${items.length} contactos</span>
+          <span class="toolbar-count">Total: ${items.length}</span>
         </div>
         <div class="table-wrap">
           <table>
@@ -1969,22 +1971,23 @@
     const items = filteredNominaEntries();
     return `
       <section class="panel">
-        <div class="toolbar">
-          <label>
-            Filtrar por acuerdo
-            <select id="nomina-agreement-filter">
-              ${renderAgreementOptions({ onlyNomina: true })}
-            </select>
-          </label>
-          <label>
-            Form
-            <select id="nomina-form-filter">
-              <option value="">Todos</option>
-              <option value="yes">Sí</option>
-              <option value="no">No</option>
-            </select>
-          </label>
-          <span class="toolbar-count">${items.length} registros</span>
+        <div class="toolbar compact-filter-toolbar">
+          <div class="toolbar-actions compact-filter-actions">
+            <label>
+              Filtrar por acuerdo
+              <select id="nomina-agreement-filter">
+                ${renderAgreementOptions({ onlyNomina: true })}
+              </select>
+            </label>
+            <label>
+              Form
+              <select id="nomina-form-filter">
+                <option value="">Todos</option>
+                <option value="yes">Sí</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+          </div>
           <div class="toolbar-actions">
             <button type="button" class="secondary-button" data-action="open-nomina-csv">Subir CSV</button>
             <button type="button" class="primary-button" data-action="new-nomina">Agregar</button>
