@@ -52,7 +52,7 @@
     { id: 'booking-test', label: 'Probar Agenda', icon: 'booking-test' },
     { type: 'divider' },
     { id: 'appointments', label: 'Turnos', icon: 'appointments' },
-    { id: 'patient-intakes', label: 'Alta Pacientes', icon: 'patient-intakes' },
+    { id: 'patient-intakes', label: 'Pacientes', icon: 'patient-intakes' },
     { id: 'contacts', label: 'Contactos', icon: 'contacts' },
   ];
 
