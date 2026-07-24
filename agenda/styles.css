@@ -211,6 +211,10 @@ button {
   justify-content: flex-end;
 }
 
+.form-actions .primary-button {
+  min-width: 150px;
+}
+
 .choice-card {
   cursor: pointer;
 }
@@ -407,6 +411,7 @@ button {
   border-radius: 14px;
   cursor: pointer;
   text-decoration: none;
+  font-weight: 700;
 }
 
 .primary-button {
@@ -414,15 +419,26 @@ button {
   background: var(--accent);
 }
 
-.primary-button[data-action="go-payment"]:not(:disabled):hover,
-.primary-button[data-action="go-payment"]:not(:disabled):focus-visible {
+.primary-button:not(:disabled):hover,
+.primary-button:not(:disabled):focus-visible {
   font-weight: 800;
+}
+
+.actions .primary-button {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .secondary-button,
 .back-button {
   color: var(--navy);
   background: #ffffff;
+}
+
+.how-it-works-button:hover,
+.how-it-works-button:focus-visible {
+  background: #e9f8fb;
 }
 
 .status-error {

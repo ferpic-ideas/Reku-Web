@@ -307,7 +307,7 @@
       <header class="booking-header">
         <div class="booking-title">
           <img src="/images/logo-reku.svg" alt="Reku" />
-          <h1>Nueva Reserva</h1>
+          <h1>Reserva tu turno</h1>
         </div>
         <div class="stepper">
           ${[1, 2, 3, 4, 5, 6]
@@ -338,7 +338,7 @@
       <section>
         <div class="intake-brand">
           ${agreement.logo_url ? `<img src="${escapeHtml(agreement.logo_url)}" alt="" />` : ''}
-          ${agreement.pdf_url ? `<a class="secondary-button" href="${escapeHtml(agreement.pdf_url)}" target="_blank" rel="noreferrer">Cómo funciona</a>` : ''}
+          ${agreement.pdf_url ? `<a class="secondary-button how-it-works-button" href="${escapeHtml(agreement.pdf_url)}" target="_blank" rel="noreferrer">Cómo funciona</a>` : ''}
         </div>
         <h2 class="section-title">Tus datos</h2>
         <p class="section-copy">Completá tus datos para iniciar el alta y continuar con la reserva.</p>
@@ -502,7 +502,7 @@
           ${
             state.selectedDate
               ? `
-                <strong class="time-section-title">Seleccione un horario</strong>
+                <strong class="time-section-title">Seleccioná un horario</strong>
                 <div class="time-grid">
                   ${state.slots
                     .map(
