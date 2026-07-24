@@ -33,6 +33,7 @@
     nominaAgreementFilter: '',
     nominaFormFilter: '',
     appointmentStatusFilter: 'future',
+    appointmentPaymentFilter: '',
     appointmentProfessionalFilter: '',
     appointmentPatientFilter: '',
     scheduleBlockDateFilter: 'future',
@@ -167,17 +168,46 @@
     return routeModules[normalized] || 'dashboard';
   };
 
-  const navigateToModule = async (moduleId, { replace = false } = {}) => {
+  const applyModuleFiltersFromSearch = (moduleId, search = window.location.search) => {
+    if (moduleId !== 'appointments') return;
+    const paymentFilter = new URLSearchParams(search).get('pago') || '';
+    if (['pending', 'confirmed'].includes(paymentFilter)) {
+      state.appointmentStatusFilter = '';
+      state.appointmentPaymentFilter = paymentFilter;
+      return;
+    }
+    state.appointmentPaymentFilter = '';
+  };
+
+  const syncAppointmentPaymentSearch = () => {
+    if (state.active !== 'appointments') return;
+    const params = new URLSearchParams(window.location.search);
+    if (state.appointmentPaymentFilter) {
+      params.set('pago', state.appointmentPaymentFilter);
+    } else {
+      params.delete('pago');
+    }
+    const nextSearch = params.toString();
+    window.history.replaceState(
+      { module: 'appointments' },
+      '',
+      `${modulePath('appointments')}${nextSearch ? `?${nextSearch}` : ''}`,
+    );
+  };
+
+  const navigateToModule = async (moduleId, { replace = false, search = '' } = {}) => {
     const nextModule = moduleRoutes[moduleId] ? moduleId : 'dashboard';
     state.active = nextModule;
     state.userMenuOpen = false;
     state.dialog = null;
     clearStatus();
+    applyModuleFiltersFromSearch(nextModule, search);
 
     const nextPath = modulePath(nextModule);
-    if (window.location.pathname !== nextPath) {
+    const nextLocation = `${nextPath}${search}`;
+    if (`${window.location.pathname}${window.location.search}` !== nextLocation) {
       const method = replace ? 'replaceState' : 'pushState';
-      window.history[method]({ module: nextModule }, '', nextPath);
+      window.history[method]({ module: nextModule }, '', nextLocation);
     }
 
     if (state.user) {
@@ -247,6 +277,13 @@
       nomina: 'Nómina',
       preference_error: 'Error al crear pago',
     })[value] || value || '';
+
+  const appointmentPaymentMatches = (item, filter) => {
+    if (!filter) return true;
+    if (filter === 'pending') return item.payment_status === 'pending';
+    if (filter === 'confirmed') return ['approved', 'nomina'].includes(item.payment_status);
+    return true;
+  };
 
   const todayInput = () => new Date().toISOString().slice(0, 10);
 
@@ -324,6 +361,7 @@
 
   async function loadSession() {
     state.active = moduleFromPath();
+    applyModuleFiltersFromSearch(state.active);
     try {
       const payload = await api('/api/admin/auth/me');
       csrfToken = payload.csrf_token;
@@ -708,10 +746,31 @@
 
   function renderDashboard() {
     const data = state.dashboard || {};
+    const confirmedAppointments =
+      data.appointments_confirmed ??
+      state.appointments.filter((appointment) =>
+        appointmentPaymentMatches(appointment, 'confirmed'),
+      ).length;
+    const pendingAppointments =
+      data.appointments_pending ??
+      state.appointments.filter((appointment) =>
+        appointmentPaymentMatches(appointment, 'pending'),
+      ).length;
     const cards = [
       { label: 'Contactos', value: data.contacts || 0, module: 'contacts' },
       { label: 'Altas Pacientes', value: data.patient_intakes || 0, module: 'patient-intakes' },
-      { label: 'Turnos', value: data.appointments || 0, module: 'appointments' },
+      {
+        label: 'Turnos Confirmados',
+        value: confirmedAppointments,
+        module: 'appointments',
+        appointmentPaymentFilter: 'confirmed',
+      },
+      {
+        label: 'Turnos Pendientes',
+        value: pendingAppointments,
+        module: 'appointments',
+        appointmentPaymentFilter: 'pending',
+      },
       { label: 'Facturado', value: formatMoney(data.revenue || 0), module: 'appointments' },
       { label: 'Servicios activos', value: data.services || 0, module: 'services' },
       { label: 'Profesionales activos', value: data.professionals || 0, module: 'professionals' },
@@ -723,7 +782,12 @@
         ${cards
           .map(
             (card) => `
-              <a href="${modulePath(card.module)}" class="metric-card" data-module="${escapeHtml(card.module)}">
+              <a
+                href="${modulePath(card.module)}${card.appointmentPaymentFilter ? `?pago=${card.appointmentPaymentFilter}` : ''}"
+                class="metric-card"
+                data-module="${escapeHtml(card.module)}"
+                ${card.appointmentPaymentFilter ? `data-appointment-payment-filter="${escapeHtml(card.appointmentPaymentFilter)}"` : ''}
+              >
                 <span>${escapeHtml(card.label)}</span>
                 <strong>${escapeHtml(card.value)}</strong>
               </a>
@@ -1058,6 +1122,14 @@
               </select>
             </label>
             <label>
+              Pago
+              <select id="appointment-payment-filter">
+                <option value="">Todos</option>
+                <option value="pending">Pendientes</option>
+                <option value="confirmed">Confirmados</option>
+              </select>
+            </label>
+            <label>
               Profesional
               <select id="appointment-professional-filter">
                 <option value="">Todos</option>
@@ -1112,6 +1184,7 @@
       .filter((item) => {
         if (state.appointmentStatusFilter === 'past' && !isPastAppointment(item, now)) return false;
         if (state.appointmentStatusFilter === 'future' && isPastAppointment(item, now)) return false;
+        if (!appointmentPaymentMatches(item, state.appointmentPaymentFilter)) return false;
         if (
           state.appointmentProfessionalFilter &&
           String(item.professional_id) !== state.appointmentProfessionalFilter
@@ -2055,7 +2128,14 @@
           return;
         }
         event.preventDefault();
-        navigateToModule(link.dataset.module).catch((error) => {
+        if (link.dataset.module === 'appointments' && link.dataset.appointmentPaymentFilter) {
+          state.appointmentStatusFilter = '';
+          state.appointmentPaymentFilter = link.dataset.appointmentPaymentFilter;
+          state.appointmentProfessionalFilter = '';
+          state.appointmentPatientFilter = '';
+        }
+        const search = link instanceof HTMLAnchorElement ? link.search : '';
+        navigateToModule(link.dataset.module, { search }).catch((error) => {
           setStatus(error.message, 'error');
         });
       });
@@ -2188,6 +2268,16 @@
       appointmentStatusFilter.value = state.appointmentStatusFilter;
       appointmentStatusFilter.addEventListener('change', () => {
         state.appointmentStatusFilter = appointmentStatusFilter.value;
+        render();
+      });
+    }
+
+    const appointmentPaymentFilter = document.getElementById('appointment-payment-filter');
+    if (appointmentPaymentFilter) {
+      appointmentPaymentFilter.value = state.appointmentPaymentFilter;
+      appointmentPaymentFilter.addEventListener('change', () => {
+        state.appointmentPaymentFilter = appointmentPaymentFilter.value;
+        syncAppointmentPaymentSearch();
         render();
       });
     }
@@ -2849,7 +2939,7 @@
   });
 
   window.addEventListener('popstate', () => {
-    navigateToModule(moduleFromPath(), { replace: true }).catch((error) => {
+    navigateToModule(moduleFromPath(), { replace: true, search: window.location.search }).catch((error) => {
       setStatus(error.message, 'error');
     });
   });

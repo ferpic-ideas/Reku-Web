@@ -1261,7 +1261,8 @@ const dashboard = async (response) => {
     SELECT
       (SELECT COUNT(*)::int FROM contacts) AS contacts,
       (SELECT COUNT(*)::int FROM patient_intakes) AS patient_intakes,
-      (SELECT COUNT(*)::int FROM appointments WHERE status = 'confirmed') AS appointments,
+      (SELECT COUNT(*)::int FROM appointments WHERE payment_status IN ('approved', 'nomina')) AS appointments_confirmed,
+      (SELECT COUNT(*)::int FROM appointments WHERE payment_status = 'pending') AS appointments_pending,
       (SELECT COALESCE(SUM(amount), 0)::numeric
        FROM appointments
        WHERE payment_status IN ('approved', 'paid_simulated', 'free')) AS revenue,
@@ -1273,7 +1274,9 @@ const dashboard = async (response) => {
     dashboard: {
       contacts: Number(result.rows[0].contacts || 0),
       patient_intakes: Number(result.rows[0].patient_intakes || 0),
-      appointments: Number(result.rows[0].appointments || 0),
+      appointments: Number(result.rows[0].appointments_confirmed || 0),
+      appointments_confirmed: Number(result.rows[0].appointments_confirmed || 0),
+      appointments_pending: Number(result.rows[0].appointments_pending || 0),
       revenue: Number(result.rows[0].revenue || 0),
       services: Number(result.rows[0].services || 0),
       professionals: Number(result.rows[0].professionals || 0),

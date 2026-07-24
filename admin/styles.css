@@ -424,7 +424,7 @@ a:focus-visible {
 .appointments-toolbar .toolbar-actions {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: 180px 220px minmax(260px, 1fr);
+  grid-template-columns: 150px 180px 220px minmax(260px, 1fr);
   align-items: end;
   gap: 12px;
 }
@@ -502,6 +502,11 @@ a:focus-visible {
 .metric-card:nth-child(7) {
   border-color: #dfd8ff;
   background: #f8f6ff;
+}
+
+.metric-card:nth-child(8) {
+  border-color: #d9e7ee;
+  background: #f5fafc;
 }
 
 .metric-card:hover {
