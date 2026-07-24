@@ -278,6 +278,22 @@
       preference_error: 'Error al crear pago',
     })[value] || value || '';
 
+  const appointmentStatusLabel = (appointment) => {
+    if (appointment?.payment_status === 'nomina') return 'Nómina';
+    if (appointment?.status === 'confirmed') return 'Confirmado';
+    if (appointment?.status === 'pending_payment' || appointment?.payment_status === 'pending') {
+      return 'Pendiente';
+    }
+    return (
+      {
+        payment_failed: 'Pago rechazado',
+        payment_reversed: 'Pago revertido',
+      }[appointment?.status] ||
+      appointment?.status ||
+      'Sin dato'
+    );
+  };
+
   const appointmentPaymentMatches = (item, filter) => {
     if (!filter) return true;
     if (filter === 'pending') return item.payment_status === 'pending';
@@ -656,7 +672,7 @@
               ${detailRow('Identificador', appointment.identificador || 'Sin dato')}
               ${detailRow('Pago', paymentStatusLabel(appointment.payment_status))}
               ${detailRow('Monto', formatMoney(appointment.amount))}
-              ${detailRow('Estado', appointment.status)}
+              ${detailRow('Estado', appointmentStatusLabel(appointment))}
               ${detailRow('Alta paciente', appointment.patient_intake_id ? `#${appointment.patient_intake_id}` : 'Sin alta asociada')}
             </div>
           </div>
@@ -1334,7 +1350,7 @@
               </select>
             </label>
           </div>
-          <div class="toolbar-actions">
+          <div class="toolbar-actions toolbar-end-actions">
             <button type="button" class="primary-button" data-action="new-schedule-block">Nuevo bloqueo</button>
           </div>
         </div>
@@ -1695,7 +1711,7 @@
               </select>
             </label>
           </div>
-          <div class="toolbar-actions">
+          <div class="toolbar-actions toolbar-end-actions">
             <button type="button" class="primary-button" data-action="new-agreement">Nuevo</button>
           </div>
         </div>
@@ -2068,7 +2084,7 @@
               </select>
             </label>
           </div>
-          <div class="toolbar-actions">
+          <div class="toolbar-actions toolbar-end-actions">
             <button type="button" class="secondary-button" data-action="open-nomina-csv">Subir CSV</button>
             <button type="button" class="primary-button" data-action="new-nomina">Agregar</button>
           </div>

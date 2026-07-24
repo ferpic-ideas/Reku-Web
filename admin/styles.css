@@ -404,6 +404,11 @@ a:focus-visible {
   align-items: center;
 }
 
+.toolbar-end-actions {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
 .total-right-toolbar .toolbar-count {
   margin-left: auto;
   color: var(--text);
