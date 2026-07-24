@@ -15,6 +15,7 @@
     contacts: [],
     nominaEntries: [],
     dashboard: null,
+    users: [],
     services: [],
     professionals: [],
     appointments: [],
@@ -68,6 +69,7 @@
     appointments: '/admin/turnos',
     'patient-intakes': '/admin/alta-pacientes',
     contacts: '/admin/contactos',
+    users: '/admin/usuarios',
     config: '/admin/configurar',
     audit: '/admin/auditoria',
   };
@@ -168,6 +170,8 @@
     return routeModules[normalized] || 'dashboard';
   };
 
+  const isAdminOnlyModule = (moduleId) => ['config', 'audit'].includes(moduleId);
+
   const applyModuleFiltersFromSearch = (moduleId, search = window.location.search) => {
     if (moduleId !== 'appointments') return;
     const paymentFilter = new URLSearchParams(search).get('pago') || '';
@@ -196,7 +200,12 @@
   };
 
   const navigateToModule = async (moduleId, { replace = false, search = '' } = {}) => {
-    const nextModule = moduleRoutes[moduleId] ? moduleId : 'dashboard';
+    let nextModule = moduleRoutes[moduleId] ? moduleId : 'dashboard';
+    if (state.user && isAdminOnlyModule(nextModule) && !state.user.can_manage_system) {
+      nextModule = 'dashboard';
+      search = '';
+      replace = true;
+    }
     state.active = nextModule;
     state.userMenuOpen = false;
     state.dialog = null;
@@ -330,6 +339,12 @@
   const dayLabel = (dayOfWeek) =>
     dayLabels.find((day) => day.id === Number(dayOfWeek))?.label || '';
 
+  const roleLabel = (role) =>
+    ({
+      admin: 'Admin',
+      user: 'User',
+    })[role] || role || 'User';
+
   const setStatus = (message, type = '') => {
     state.status = message;
     state.statusType = type;
@@ -382,6 +397,10 @@
       const payload = await api('/api/admin/auth/me');
       csrfToken = payload.csrf_token;
       state.user = payload.user;
+      if (isAdminOnlyModule(state.active) && !state.user.can_manage_system) {
+        state.active = 'dashboard';
+        window.history.replaceState({ module: 'dashboard' }, '', modulePath('dashboard'));
+      }
       await loadData();
       if (state.active === 'config') {
         await loadMercadoPagoSettings();
@@ -408,6 +427,7 @@
       professionalData,
       appointmentData,
       blockData,
+      userData,
     ] = await Promise.all([
       api('/api/admin/dashboard'),
       api('/api/admin/agreements'),
@@ -418,6 +438,7 @@
       api('/api/admin/professionals'),
       api('/api/admin/appointments'),
       api('/api/admin/schedule-blocks'),
+      api('/api/admin/users'),
     ]);
     state.dashboard = dashboardData.dashboard || null;
     state.agreements = agreementData.agreements || [];
@@ -428,6 +449,7 @@
     state.professionals = professionalData.professionals || [];
     state.appointments = appointmentData.appointments || [];
     state.scheduleBlocks = blockData.schedule_blocks || [];
+    state.users = userData.users || [];
   }
 
   function render() {
@@ -489,6 +511,7 @@
                 ${escapeHtml(state.user.email)} ▾
               </button>
               <div class="user-menu-popover" ${state.userMenuOpen ? '' : 'hidden'}>
+                <button type="button" class="dropdown-button" data-action="open-users">Usuarios</button>
                 ${
                   state.user.can_manage_system
                     ? `
@@ -538,6 +561,7 @@
   }
 
   function activeModuleLabel() {
+    if (state.active === 'users') return 'Usuarios';
     if (state.active === 'config') return 'Configurar';
     if (state.active === 'audit') return 'Auditoría';
     return modules.find((module) => module.id === state.active)?.label || 'Admin';
@@ -554,6 +578,7 @@
     if (state.active === 'appointments') return renderAppointments();
     if (state.active === 'blocks') return renderScheduleBlocks();
     if (state.active === 'booking-test') return renderBookingTest();
+    if (state.active === 'users') return renderUsers();
     if (state.active === 'config') return renderConfig();
     if (state.active === 'audit') return renderAudit();
     return '';
@@ -604,6 +629,39 @@
 
   function renderDialog() {
     if (!state.dialog) return '';
+
+    if (state.dialog.type === 'user-form') {
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel" id="user-form">
+            <h2>Nuevo usuario</h2>
+            <label>
+              Nombre
+              <input name="name" autocomplete="name" />
+            </label>
+            <label>
+              Email
+              <input name="email" type="email" autocomplete="email" required />
+            </label>
+            <label>
+              Clave
+              <input name="password" type="password" autocomplete="new-password" minlength="10" required />
+            </label>
+            <label>
+              Rol
+              <select name="role" ${state.user.can_manage_system ? '' : 'disabled'}>
+                <option value="user" selected>User</option>
+                ${state.user.can_manage_system ? '<option value="admin">Admin</option>' : ''}
+              </select>
+            </label>
+            <div class="modal-actions">
+              <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
+              <button type="submit" class="primary-button">Crear usuario</button>
+            </div>
+          </form>
+        </div>
+      `;
+    }
 
     if (state.dialog.type === 'change-password') {
       return `
@@ -1473,6 +1531,64 @@
     `;
   }
 
+  function renderUsers() {
+    return `
+      <section class="panel">
+        <div class="panel-header panel-header-actions-only">
+          <button type="button" class="primary-button" data-action="new-user">Nuevo usuario</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Email</th>
+                <th>Rol</th>
+                <th>Último login</th>
+                <th>Creado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                state.users.length
+                  ? state.users.map(renderUserRow).join('')
+                  : '<tr><td colspan="6">No hay usuarios activos.</td></tr>'
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderUserRow(item) {
+    const isSelf = Number(item.id) === Number(state.user.id);
+    const canDelete = !isSelf && (state.user.can_manage_system || item.role !== 'admin');
+    return `
+      <tr>
+        <td><strong>${escapeHtml(item.name || 'Sin nombre')}</strong></td>
+        <td>${escapeHtml(item.email)}</td>
+        <td>${escapeHtml(roleLabel(item.role))}</td>
+        <td>${escapeHtml(item.last_login_at ? formatDate(item.last_login_at) : 'Sin login')}</td>
+        <td>${escapeHtml(formatDate(item.created_at))}</td>
+        <td>
+          <div class="table-actions">
+            <button
+              type="button"
+              class="danger-button"
+              data-action="delete-user"
+              data-id="${item.id}"
+              ${canDelete ? '' : 'disabled'}
+            >
+              Eliminar
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
   function renderConfig() {
     if (!state.user.can_manage_system) return '<section class="panel">Sin permisos.</section>';
     const settings = {
@@ -2173,6 +2289,7 @@
     document.getElementById('professional-form')?.addEventListener('submit', handleProfessionalSubmit);
     document.getElementById('schedule-block-form')?.addEventListener('submit', handleScheduleBlockSubmit);
     document.getElementById('mercado-pago-form')?.addEventListener('submit', handleMercadoPagoSubmit);
+    document.getElementById('user-form')?.addEventListener('submit', handleUserSubmit);
     document
       .getElementById('change-password-form')
       ?.addEventListener('submit', handleChangePasswordSubmit);
@@ -2392,6 +2509,10 @@
         render();
         return;
       }
+      if (action === 'open-users') {
+        await navigateToModule('users');
+        return;
+      }
       if (action === 'open-config') {
         await navigateToModule('config');
         return;
@@ -2489,6 +2610,11 @@
       }
       if (action === 'new-schedule-block') {
         state.dialog = { type: 'schedule-block-form' };
+        render();
+        return;
+      }
+      if (action === 'new-user') {
+        state.dialog = { type: 'user-form' };
         render();
         return;
       }
@@ -2597,6 +2723,17 @@
           id,
           title: 'Eliminar registro de nómina',
           message: 'Esta acción elimina el identificador de la nómina.',
+        };
+        render();
+      }
+      if (action === 'delete-user') {
+        const targetUser = state.users.find((item) => Number(item.id) === id);
+        state.dialog = {
+          type: 'confirm-delete',
+          target: 'user',
+          id,
+          title: 'Eliminar usuario',
+          message: `El usuario ${targetUser?.email || ''} dejará de poder ingresar.`,
         };
         render();
       }
@@ -2758,6 +2895,27 @@
       });
       state.mercadoPagoSettings = payload.settings || {};
       setStatus('Configuración de Mercado Pago guardada.', 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  async function handleUserSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      await api('/api/admin/users', {
+        method: 'POST',
+        body: {
+          name: form.name.value,
+          email: form.email.value,
+          password: form.password.value,
+          role: state.user.can_manage_system ? form.role.value : 'user',
+        },
+      });
+      state.dialog = null;
+      await loadData();
+      setStatus('Usuario creado.', 'ok');
     } catch (error) {
       setStatus(error.message, 'error');
     }
@@ -2931,6 +3089,7 @@
       service: `/api/admin/services/${id}`,
       professional: `/api/admin/professionals/${id}`,
       'schedule-block': `/api/admin/schedule-blocks/${id}`,
+      user: `/api/admin/users/${id}`,
     };
     const labels = {
       agreement: 'Acuerdo eliminado.',
@@ -2940,6 +3099,7 @@
       service: 'Servicio eliminado.',
       professional: 'Profesional eliminado.',
       'schedule-block': 'Bloqueo eliminado.',
+      user: 'Usuario eliminado.',
     };
 
     try {

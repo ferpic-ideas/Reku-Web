@@ -44,10 +44,11 @@ import {
 } from "./mercado-pago.mjs";
 
 const canDeleteRecords = (user) => user?.email?.toLowerCase() === "ferpic@gmail.com";
-const canManageSystem = canDeleteRecords;
+const canManageSystem = (user) => user?.role === "admin";
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
+const userRoles = new Set(["user", "admin"]);
 
 const parseJsonBody = async (request) => {
   const body = await readBody(request);
@@ -171,6 +172,11 @@ const requireSystemAdmin = (user) => {
   }
 };
 
+const normalizeUserRole = (value) => {
+  const role = String(value || "user").trim().toLowerCase();
+  return userRoles.has(role) ? role : "user";
+};
+
 const requireCurrentUser = async (request) => {
   const session = readSessionFromRequest(request);
   if (!session) {
@@ -222,6 +228,16 @@ const publicUser = (user) => ({
   role: user.role,
   can_delete_records: Boolean(user.can_delete_records),
   can_manage_system: Boolean(user.can_manage_system),
+});
+
+const mapAdminUser = (row) => ({
+  id: Number(row.id),
+  email: row.email,
+  name: row.name || "",
+  role: row.role,
+  is_active: Boolean(row.is_active),
+  last_login_at: row.last_login_at,
+  created_at: row.created_at,
 });
 
 const handleLogin = async (request, response) => {
@@ -316,6 +332,133 @@ const handleChangePassword = async (request, response) => {
   );
   await recordAudit("auth.password_changed", { actorUserId: user.id });
   sendJson(response, 200, { ok: true }, { "Set-Cookie": clearSessionCookie() });
+};
+
+const listUsers = async (response) => {
+  const result = await query(`
+    SELECT id, email, name, role, is_active, last_login_at, created_at
+    FROM users
+    WHERE is_active = TRUE
+    ORDER BY created_at DESC
+  `);
+  sendJson(response, 200, { users: result.rows.map(mapAdminUser) });
+};
+
+const createUser = async (request, response, user) => {
+  const payload = await parseJsonBody(request);
+  const email = String(payload.email || "").trim().toLowerCase();
+  const name = String(payload.name || "").trim();
+  const password = String(payload.password || "");
+  const requestedRole = normalizeUserRole(payload.role);
+
+  if (!emailPattern.test(email)) {
+    sendJson(response, 422, { error: "Ingresá un email válido." });
+    return;
+  }
+  if (password.length < 10) {
+    sendJson(response, 422, { error: "La clave debe tener al menos 10 caracteres." });
+    return;
+  }
+  if (requestedRole === "admin" && !canManageSystem(user)) {
+    sendJson(response, 403, { error: "Solo un admin puede crear usuarios admin." });
+    return;
+  }
+
+  const role = canManageSystem(user) ? requestedRole : "user";
+  const safeName = name || email.split("@")[0];
+  const passwordHash = await hashPassword(password);
+  const existing = await one(
+    `
+      SELECT id, is_active
+      FROM users
+      WHERE lower(email) = lower($1)
+    `,
+    [email],
+  );
+
+  let result;
+  if (existing?.is_active) {
+    sendJson(response, 409, { error: "Ya existe un usuario con ese email." });
+    return;
+  }
+  if (existing) {
+    result = await one(
+      `
+        UPDATE users
+        SET name = $1,
+            password_hash = $2,
+            role = $3,
+            is_active = TRUE,
+            session_version = session_version + 1,
+            updated_at = NOW()
+        WHERE id = $4
+        RETURNING id, email, name, role, is_active, last_login_at, created_at
+      `,
+      [safeName, passwordHash, role, existing.id],
+    );
+  } else {
+    result = await one(
+      `
+        INSERT INTO users (email, name, password_hash, role)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, email, name, role, is_active, last_login_at, created_at
+      `,
+      [email, safeName, passwordHash, role],
+    );
+  }
+
+  await recordAudit("user.created", {
+    actorUserId: user.id,
+    detail: { target_user_id: Number(result.id), email, role },
+  });
+  sendJson(response, 200, { user: mapAdminUser(result) });
+};
+
+const deleteUser = async (response, user, id) => {
+  if (Number(user.id) === Number(id)) {
+    sendJson(response, 422, { error: "No podés eliminar tu propio usuario." });
+    return;
+  }
+
+  const target = await one(
+    `
+      SELECT id, email, role, is_active
+      FROM users
+      WHERE id = $1
+    `,
+    [id],
+  );
+  if (!target || !target.is_active) {
+    sendJson(response, 404, { error: "Usuario no encontrado." });
+    return;
+  }
+
+  if (target.role === "admin") {
+    requireSystemAdmin(user);
+    const adminCount = await one(
+      "SELECT COUNT(*)::int AS count FROM users WHERE role = 'admin' AND is_active = TRUE",
+    );
+    if (Number(adminCount?.count || 0) <= 1) {
+      sendJson(response, 422, { error: "No podés eliminar el último admin activo." });
+      return;
+    }
+  }
+
+  await query(
+    `
+      UPDATE users
+      SET is_active = FALSE,
+          session_version = session_version + 1,
+          updated_at = NOW()
+      WHERE id = $1
+    `,
+    [id],
+  );
+  await recordAudit("user.deleted", {
+    actorUserId: user.id,
+    detail: { target_user_id: Number(target.id), email: target.email, role: target.role },
+  });
+  sendJson(response, 200, { ok: true });
 };
 
 const listAgreements = async (response) => {
@@ -1491,6 +1634,20 @@ export const handleAdminApi = async (request, response, url) => {
       request.method === "POST"
     ) {
       await handleChangePassword(request, response);
+      return true;
+    }
+
+    if (pathname === "/api/admin/users" && request.method === "GET") {
+      await listUsers(response);
+      return true;
+    }
+    if (pathname === "/api/admin/users" && request.method === "POST") {
+      await createUser(request, response, user);
+      return true;
+    }
+    const userMatch = pathname.match(/^\/api\/admin\/users\/(\d+)$/);
+    if (userMatch && request.method === "DELETE") {
+      await deleteUser(response, user, Number(userMatch[1]));
       return true;
     }
 

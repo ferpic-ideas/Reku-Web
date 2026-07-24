@@ -57,7 +57,7 @@ export const initDb = async () => {
       email TEXT NOT NULL,
       name TEXT NOT NULL DEFAULT '',
       password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'admin',
+      role TEXT NOT NULL DEFAULT 'user',
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       session_version INTEGER NOT NULL DEFAULT 1,
       last_login_at TIMESTAMPTZ,
@@ -67,6 +67,19 @@ export const initDb = async () => {
 
     CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_key
       ON users (lower(email));
+
+    UPDATE users
+      SET role = 'user'
+      WHERE role NOT IN ('user', 'admin');
+
+    ALTER TABLE users
+      ALTER COLUMN role SET DEFAULT 'user';
+
+    ALTER TABLE users
+      DROP CONSTRAINT IF EXISTS users_role_check;
+
+    ALTER TABLE users
+      ADD CONSTRAINT users_role_check CHECK (role IN ('user', 'admin'));
 
     CREATE TABLE IF NOT EXISTS agreements (
       id BIGSERIAL PRIMARY KEY,
@@ -428,6 +441,13 @@ export const initDb = async () => {
       ON audit_events (actor_user_id);
   `);
 
+  if (config.bootstrapAdminEmail) {
+    await query(
+      "UPDATE users SET role = 'admin', is_active = TRUE WHERE lower(email) = lower($1)",
+      [config.bootstrapAdminEmail],
+    );
+  }
+
   await bootstrapAdmin();
 };
 
@@ -437,7 +457,10 @@ export const bootstrapAdmin = async () => {
   const existing = await one("SELECT id FROM users WHERE lower(email) = lower($1)", [
     config.bootstrapAdminEmail,
   ]);
-  if (existing) return;
+  if (existing) {
+    await query("UPDATE users SET role = 'admin', is_active = TRUE WHERE id = $1", [existing.id]);
+    return;
+  }
 
   const passwordHash = await hashPassword(config.bootstrapAdminPassword);
   await query(
