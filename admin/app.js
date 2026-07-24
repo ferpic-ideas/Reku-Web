@@ -174,18 +174,22 @@
     state.dialog = null;
     clearStatus();
 
-    if (state.user && nextModule === 'config') {
-      await loadMercadoPagoSettings();
-    }
-    if (state.user && nextModule === 'audit') {
-      await loadAuditEvents();
-    }
-
     const nextPath = modulePath(nextModule);
     if (window.location.pathname !== nextPath) {
       const method = replace ? 'replaceState' : 'pushState';
       window.history[method]({ module: nextModule }, '', nextPath);
     }
+
+    if (state.user) {
+      await loadData();
+      if (nextModule === 'config') {
+        await loadMercadoPagoSettings();
+      }
+      if (nextModule === 'audit') {
+        await loadAuditEvents();
+      }
+    }
+
     render();
   };
 
@@ -287,7 +291,7 @@
   async function api(path, options = {}) {
     const method = options.method || 'GET';
     const headers = { ...(options.headers || {}) };
-    const request = { method, headers, credentials: 'same-origin' };
+    const request = { method, headers, credentials: 'same-origin', cache: 'no-store' };
 
     if (csrfToken && !['GET', 'HEAD'].includes(method)) {
       headers['X-CSRF-Token'] = csrfToken;

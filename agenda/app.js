@@ -607,6 +607,11 @@
     const isFree = paymentStatus === 'free';
     const isPaid = ['approved', 'paid_simulated', 'free', 'nomina'].includes(paymentStatus);
     const isPending = ['pending', 'in_process', 'authorized'].includes(paymentStatus);
+    const date = state.appointment?.date || state.selectedDate;
+    const startTime = state.appointment?.start_time || state.selectedSlot;
+    const professionalName =
+      state.appointment?.professional_name || state.professional?.name || '';
+    const serviceName = state.appointment?.service_name || state.service?.name || '';
     const title = isPaid ? 'Turno reservado' : isPending ? 'Pago pendiente' : 'Pago no confirmado';
     const copy = isNomina
       ? 'Tu acuerdo ya validó la cobertura y el turno quedó confirmado.'
@@ -624,10 +629,15 @@
           <h2 class="section-title">${escapeHtml(title)}</h2>
           <p class="section-copy">${escapeHtml(copy)}</p>
           ${
-            state.appointment?.date
-              ? `<p><strong>Fecha:</strong> ${escapeHtml(state.appointment.date)} ${escapeHtml(state.appointment.start_time)}</p>`
+            date
+              ? `
+                <p><strong>Fecha:</strong> ${escapeHtml(date)}</p>
+                <p><strong>Hora:</strong> ${escapeHtml(startTime)}</p>
+              `
               : ''
           }
+          ${professionalName ? `<p><strong>Profesional:</strong> ${escapeHtml(professionalName)}</p>` : ''}
+          ${serviceName ? `<p><strong>Práctica:</strong> ${escapeHtml(serviceName)}</p>` : ''}
           ${
             isPaid
               ? ''
