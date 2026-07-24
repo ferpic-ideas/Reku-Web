@@ -205,15 +205,17 @@ a:focus-visible {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
+  color: var(--accent);
   stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
   fill: none;
-  opacity: 0.82;
+  opacity: 0.95;
 }
 
 .nav-button.active .nav-icon {
+  color: #5ac5d3;
   opacity: 1;
 }
 
