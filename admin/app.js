@@ -629,6 +629,13 @@
     if (state.dialog.type === 'appointment-view') {
       const appointment = selectedAppointment();
       if (!appointment) return '';
+      const isPaidAppointment = ['approved', 'paid_simulated', 'free', 'nomina'].includes(
+        appointment.payment_status,
+      );
+      const detailPaymentClass =
+        appointment.agreement_type === 'Pago' && !isPaidAppointment
+          ? 'detail-payment-alert'
+          : 'detail-payment-ok';
       return `
         <div class="modal-backdrop">
           <div class="modal-panel modal-panel-wide" role="dialog" aria-modal="true">
@@ -636,7 +643,7 @@
               <h2>Detalle del turno</h2>
               <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
             </div>
-            <div class="detail-grid">
+            <div class="detail-grid appointment-detail-grid ${detailPaymentClass}">
               ${detailRow('Fecha', appointment.appointment_date)}
               ${detailRow('Hora', `${appointment.start_time} - ${appointment.end_time}`)}
               ${detailRow('Servicio', appointment.service_name)}

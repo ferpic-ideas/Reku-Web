@@ -884,6 +884,26 @@ tr:hover td {
   background: var(--surface-soft);
 }
 
+.appointment-detail-grid .detail-row:nth-child(-n + 4) {
+  border-color: #cfeaf0;
+  background: #eef9fb;
+}
+
+.appointment-detail-grid .detail-row:nth-child(n + 5):nth-child(-n + 8) {
+  border-color: #ded7ff;
+  background: #f7f5ff;
+}
+
+.appointment-detail-grid.detail-payment-alert .detail-row:nth-child(n + 9) {
+  border-color: #f1dea0;
+  background: #fff8df;
+}
+
+.appointment-detail-grid.detail-payment-ok .detail-row:nth-child(n + 9) {
+  border-color: #cfe9d8;
+  background: #f3fbf6;
+}
+
 .detail-row > span {
   color: var(--muted);
   font-size: 12px;
