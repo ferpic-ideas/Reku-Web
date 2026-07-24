@@ -67,8 +67,18 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" || request.method === "HEAD") {
+      if (pathname === "/alta-pacientes" || pathname.startsWith("/alta-pacientes/")) {
+        const slug = String(requestUrl.searchParams.get("form") || "").trim();
+        sendRedirect(
+          response,
+          slug ? `/agenda/?form=${encodeURIComponent(slug)}` : "/agenda/",
+          308,
+        );
+        return;
+      }
+
       if (
-        ["/alta-pacientes", "/alta-pacientes/"].includes(pathname) &&
+        (pathname === "/agenda" || pathname === "/agenda/") &&
         !(await validatePublicAgreementRoute(requestUrl, response))
       ) {
         return;

@@ -10,6 +10,12 @@ import {
   getMercadoPagoSettings,
 } from "./mercado-pago.mjs";
 import { notifyConfirmedAppointment } from "./appointment-notifications.mjs";
+import {
+  buildPatientIntakeSubmission,
+  loadPatientIntakeAgreement,
+  savePatientIntakeAndNotify,
+  validatePatientIntakeSubmission,
+} from "./patient-intakes.mjs";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
@@ -119,6 +125,16 @@ const mapServiceForLink = (row, link) => ({
   covered_by_agreement: link.agreement?.type === "Nomina",
 });
 
+const mapAgreement = (agreement) => ({
+  id: agreement.id,
+  name: agreement.name,
+  slug: agreement.slug,
+  cobranded: agreement.cobranded,
+  type: agreement.type,
+  logo_url: agreement.cobranded ? agreement.logo_url : "",
+  pdf_url: agreement.pdf_url,
+});
+
 const mapProfessional = (row) => ({
   id: Number(row.id),
   name: row.name,
@@ -139,6 +155,66 @@ const listServices = async (response, link) => {
     agreement: link.agreement,
     payment_required: link.agreement?.type !== "Nomina",
     services: result.rows.map((row) => mapServiceForLink(row, link)),
+  });
+};
+
+const getAgreementForIntake = async (url, response) => {
+  const agreementSlug = String(url.searchParams.get("form") || "").trim();
+  if (!agreementSlug) {
+    sendJson(response, 422, { error: "Indicá el acuerdo para iniciar la agenda." });
+    return;
+  }
+  const submission = buildPatientIntakeSubmission({ agreementSlug });
+  const agreement = await loadPatientIntakeAgreement(submission);
+  sendJson(response, 200, { agreement: mapAgreement(agreement) });
+};
+
+const createIntakeAccess = async (payload, response) => {
+  const submission = buildPatientIntakeSubmission({
+    agreementSlug: payload.agreement_slug || payload.form || "",
+    values: payload,
+  });
+  const agreement = await loadPatientIntakeAgreement(submission);
+  const errors = await validatePatientIntakeSubmission(submission, agreement);
+
+  if (Object.keys(errors).length > 0) {
+    sendJson(response, 422, {
+      error: "Revisá los campos marcados para poder continuar.",
+      errors,
+    });
+    return;
+  }
+
+  const sourcePath = `/agenda/?form=${encodeURIComponent(agreement.slug)}`;
+  const result = await savePatientIntakeAndNotify({
+    submission,
+    agreement,
+    sourcePath,
+  });
+
+  await recordAudit(result.created ? "patient_intake.created" : "patient_intake.updated", {
+    detail: {
+      patient_intake_id: result.recordId,
+      email: submission.values.email,
+      agreement_slug: agreement.slug,
+      source: "/agenda/",
+    },
+  });
+
+  sendJson(response, result.created ? 201 : 200, {
+    ok: true,
+    patient_intake_id: result.recordId,
+    created: result.created,
+    booking_token: result.bookingLink?.token || "",
+    booking_url: result.bookingLink?.url || "",
+    booking_expires_at: result.bookingLink?.expires_at || "",
+    patient: {
+      name: [submission.values.nombre, submission.values.apellido].filter(Boolean).join(" "),
+      email: submission.values.email,
+      phone: submission.values.telefono,
+    },
+    agreement: mapAgreement(agreement),
+    notifications: result.notifications,
   });
 };
 
@@ -674,6 +750,16 @@ export const handleBookingApi = async (request, response, url) => {
     if (request.method === "POST") {
       payload = await parseJsonBody(request);
     }
+
+    if (pathname === "/api/booking/agreement" && request.method === "GET") {
+      await getAgreementForIntake(url, response);
+      return true;
+    }
+    if (pathname === "/api/booking/intake" && request.method === "POST") {
+      await createIntakeAccess(payload, response);
+      return true;
+    }
+
     const token = readToken(url, payload);
     const link = await requireAccessLink(token);
 
@@ -734,6 +820,14 @@ export const handleBookingApi = async (request, response, url) => {
       sendJson(response, 502, {
         error: "Mercado Pago no pudo crear o consultar el pago.",
       });
+      return true;
+    }
+    if (error.message === "AGREEMENT_NOT_FOUND") {
+      sendJson(response, 404, { error: "Acuerdo no encontrado." });
+      return true;
+    }
+    if (error.message === "DB_UNAVAILABLE") {
+      sendJson(response, 503, { error: "La agenda no está disponible." });
       return true;
     }
     throw error;

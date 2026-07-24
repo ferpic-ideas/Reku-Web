@@ -1,19 +1,14 @@
 import { config } from "./config.mjs";
-import {
-  findNominaEntry,
-  getAgreementBySlug,
-  pool,
-  query,
-  recordAudit,
-} from "./db.mjs";
+import { pool, query, recordAudit } from "./db.mjs";
 import { sendEmail } from "./email.mjs";
 import { getTrimmed, parseRequestBody, sendJson } from "./http.mjs";
+import { buildContactEmail } from "./templates.mjs";
 import {
-  buildContactEmail,
-  buildPatientBookingEmail,
-  buildPatientEmail,
-} from "./templates.mjs";
-import { createBookingAccessLink } from "./booking-links.mjs";
+  buildPatientIntakeSubmission,
+  loadPatientIntakeAgreement,
+  savePatientIntakeAndNotify,
+  validatePatientIntakeSubmission,
+} from "./patient-intakes.mjs";
 
 const genericDomains = new Set([
   "gmail.com",
@@ -104,10 +99,7 @@ const normalizeSubmission = (params) => {
   }
 
   if (formName === "alta-pacientes") {
-    return {
-      formName,
-      to: config.patientIntakeToEmail,
-      replyTo: getTrimmed(params, "email").toLowerCase(),
+    return buildPatientIntakeSubmission({
       agreementSlug: getTrimmed(params, "agreement_slug"),
       values: {
         nombre: getTrimmed(params, "nombre"),
@@ -116,7 +108,7 @@ const normalizeSubmission = (params) => {
         email: getTrimmed(params, "email").toLowerCase(),
         identificador: getTrimmed(params, "identificador"),
       },
-    };
+    });
   }
 
   return null;
@@ -143,47 +135,16 @@ const validateBaseSubmission = (submission) => {
 };
 
 const loadSubmissionAgreement = async (submission) => {
-  if (submission.formName !== "alta-pacientes" || !submission.agreementSlug) {
-    return null;
-  }
-
-  if (!pool) {
-    const error = new Error("DB_UNAVAILABLE");
-    error.statusCode = 503;
-    throw error;
-  }
-
-  const agreement = await getAgreementBySlug(submission.agreementSlug);
-  if (!agreement) {
-    const error = new Error("AGREEMENT_NOT_FOUND");
-    error.statusCode = 404;
-    throw error;
-  }
-  return agreement;
+  if (submission.formName !== "alta-pacientes") return null;
+  return loadPatientIntakeAgreement(submission);
 };
 
 const validateAgreementSubmission = async (submission, agreement, errors) => {
-  if (!agreement || agreement.type !== "Nomina") return errors;
-
-  if (!submission.values.identificador) {
-    return {
-      ...errors,
-      identificador: "Ingresá tu identificador para validar la nómina.",
-    };
-  }
-
-  const nominaEntry = await findNominaEntry(
-    agreement.id,
-    submission.values.identificador,
-  );
-  if (!nominaEntry) {
-    return {
-      ...errors,
-      identificador: "No encontramos ese identificador en la nómina del acuerdo.",
-    };
-  }
-
-  return errors;
+  if (submission.formName !== "alta-pacientes") return errors;
+  return {
+    ...errors,
+    ...(await validatePatientIntakeSubmission(submission, agreement)),
+  };
 };
 
 const insertContact = async (submission, requestUrl) => {
@@ -209,62 +170,10 @@ const insertContact = async (submission, requestUrl) => {
   return Number(result.rows[0].id);
 };
 
-const insertPatientIntake = async (submission, agreement, requestUrl) => {
-  if (!pool) return null;
-  const result = await query(
-    `
-      INSERT INTO patient_intakes
-        (
-          agreement_id,
-          agreement_slug_snapshot,
-          agreement_name_snapshot,
-          agreement_type_snapshot,
-          nombre,
-          apellido,
-          telefono,
-          email,
-          identificador,
-          source_path
-        )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id
-    `,
-    [
-      agreement?.id || null,
-      agreement?.slug || submission.agreementSlug || "",
-      agreement?.name || "",
-      agreement?.type || "",
-      submission.values.nombre,
-      submission.values.apellido,
-      submission.values.telefono,
-      submission.values.email,
-      submission.values.identificador || null,
-      requestUrl,
-    ],
-  );
-  return Number(result.rows[0].id);
-};
-
-const patientFullName = (submission) =>
-  [submission.values.nombre, submission.values.apellido].filter(Boolean).join(" ");
-
 const updateEmailResult = async (table, id, { messageId = null, error = null }) => {
   if (!pool || !id) return;
   await query(
     `UPDATE ${table} SET email_message_id = $1, email_error = $2 WHERE id = $3`,
-    [messageId, error, id],
-  );
-};
-
-const updatePatientBookingEmailResult = async (id, { messageId = null, error = null }) => {
-  if (!pool || !id) return;
-  await query(
-    `
-      UPDATE patient_intakes
-      SET booking_email_message_id = $1,
-          booking_email_error = $2
-      WHERE id = $3
-    `,
     [messageId, error, id],
   );
 };
@@ -289,70 +198,18 @@ const handleContact = async (submission, request, response) => {
 };
 
 const handlePatientIntake = async (submission, agreement, request, response) => {
-  const recordId = await insertPatientIntake(submission, agreement, request.url);
-  const bookingLink = pool
-    ? await createBookingAccessLink({
-        patientIntakeId: recordId,
-        label: `Alta ${submission.values.email}`,
-        patientName: patientFullName(submission),
-        patientEmail: submission.values.email,
-        patientPhone: submission.values.telefono,
-        agreementId: agreement?.id || null,
-        agreementName: agreement?.name || "",
-        agreementSlug: agreement?.slug || submission.agreementSlug || "",
-        agreementType: agreement?.type || "",
-        ttlHours: 48,
-      })
-    : null;
-  submission.booking_url = bookingLink?.url || "";
-  const email = buildPatientEmail({ submission, agreement });
-
-  try {
-    const result = await sendEmail({
-      formName: submission.formName,
-      to: submission.to,
-      replyTo: submission.replyTo,
-      ...email,
-    });
-    await updateEmailResult("patient_intakes", recordId, { messageId: result?.id });
-    if (bookingLink?.url) {
-      const bookingEmail = buildPatientBookingEmail({ submission, agreement });
-      try {
-        const bookingResult = await sendEmail({
-          formName: "alta-pacientes-agenda",
-          to: submission.values.email,
-          replyTo: config.patientIntakeToEmail,
-          ...bookingEmail,
-        });
-        await updatePatientBookingEmailResult(recordId, {
-          messageId: bookingResult?.id,
-        });
-        await recordAudit("patient_intake.booking_email_sent", {
-          detail: { patient_intake_id: recordId, email: submission.values.email },
-        });
-      } catch (bookingError) {
-        await updatePatientBookingEmailResult(recordId, {
-          error: bookingError.message,
-        });
-        await recordAudit("patient_intake.booking_email_failed", {
-          detail: {
-            patient_intake_id: recordId,
-            email: submission.values.email,
-            error: bookingError.message,
-          },
-        });
-      }
-    }
-    sendJson(response, 200, {
-      ok: true,
-      id: result?.id,
-      booking_url: bookingLink?.url || "",
-      booking_expires_at: bookingLink?.expires_at || "",
-    });
-  } catch (error) {
-    await updateEmailResult("patient_intakes", recordId, { error: error.message });
-    throw error;
-  }
+  const result = await savePatientIntakeAndNotify({
+    submission,
+    agreement,
+    sourcePath: request.url,
+  });
+  sendJson(response, 200, {
+    ok: true,
+    id: result.notifications.intake.id || "",
+    patient_intake_id: result.recordId,
+    booking_url: result.bookingLink?.url || "",
+    booking_expires_at: result.bookingLink?.expires_at || "",
+  });
 };
 
 export const handleFormSubmission = async (request, response) => {

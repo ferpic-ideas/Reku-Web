@@ -68,7 +68,7 @@ button {
 
 .stepper {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   align-items: center;
   gap: 4px;
 }
@@ -145,6 +145,7 @@ button {
 .choice-card,
 .calendar-card,
 .payment-card,
+.intake-card,
 .empty-card {
   width: 100%;
   padding: 18px;
@@ -154,6 +155,60 @@ button {
   box-shadow: 0 12px 34px rgb(24 33 63 / 6%);
   color: inherit;
   text-align: left;
+}
+
+.intake-brand {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.intake-brand img {
+  max-width: 160px;
+  max-height: 54px;
+  object-fit: contain;
+}
+
+.intake-card {
+  display: grid;
+  gap: 14px;
+}
+
+.intake-card label {
+  display: grid;
+  gap: 7px;
+  color: var(--navy);
+  font-weight: 800;
+}
+
+.intake-card input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--navy);
+  outline: none;
+}
+
+.intake-card input:focus-visible {
+  border-color: #7bc7d2;
+  box-shadow: 0 0 0 3px rgb(66 168 184 / 16%);
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .choice-card {
@@ -409,6 +464,14 @@ button {
 
   .card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .intake-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .span-two {
+    grid-column: span 2;
   }
 
   .time-grid {

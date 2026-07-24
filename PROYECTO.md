@@ -30,9 +30,9 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/`: home estatica.
 - `/producto.html`: pagina de producto.
 - `/evidencia.html`: pagina de evidencia.
-- `/alta-pacientes/`: formulario generico de alta.
-- `/alta-pacientes/?form=<slug>`: formulario asociado a un acuerdo.
+- `/agenda/?form=<slug>`: inicio de alta de paciente y reserva para un acuerdo.
 - `/agenda/?token=<token>`: agenda mobile para reservar turno con link firmado.
+- `/alta-pacientes/?form=<slug>`: redirige a `/agenda/?form=<slug>`.
 - `/profesional-turnos/?token=<token>`: vista simple para que un profesional vea sus turnos próximos.
 - `/admin/`: admin interno.
 - `/admin/<modulo>`: deep links del admin para cada módulo, por ejemplo `/admin/turnos`.
@@ -43,7 +43,7 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/api/professional/appointments`: API publica de turnos del profesional con token firmado.
 - `/uploads/*`: logos y PDFs cargados desde el admin.
 
-Si `/alta-pacientes/?form=<slug>` recibe un slug que no existe o esta borrado,
+Si `/agenda/?form=<slug>` recibe un slug que no existe o esta borrado,
 devuelve 404.
 
 ## Estructura de archivos
@@ -53,7 +53,7 @@ devuelve 404.
 |-- index.html                  # Web publica principal
 |-- producto.html               # Pagina producto
 |-- evidencia.html              # Pagina evidencia
-|-- alta-pacientes/index.html   # Formulario de alta de pacientes
+|-- alta-pacientes/index.html   # Formulario legado; la ruta redirige a agenda
 |-- admin/
 |   |-- index.html              # Shell del admin
 |   |-- app.js                  # UI y llamadas API del admin
@@ -127,7 +127,7 @@ Tablas principales:
 - `users`: usuarios admin, password hash, rol, estado y version de sesion.
 - `agreements`: acuerdos, co-branding, PDF, links de pago y templates.
 - `nomina_entries`: registros de nomina asociados a acuerdos tipo `Nomina`.
-- `patient_intakes`: altas enviadas desde `/alta-pacientes/`.
+- `patient_intakes`: altas iniciadas desde `/agenda/?form=<slug>`.
 - `contacts`: contactos enviados desde la web principal.
 - `services`: servicios reservables con duracion, costo y link fallback.
 - `professionals`: profesionales, foto, mail, estado.
@@ -342,7 +342,7 @@ ssh ferpic-ideas 'cd /docker/reku-web && docker compose ps'
 ssh ferpic-ideas 'cd /docker/reku-web && docker compose logs --no-color --tail=100 web'
 
 curl -fsSI https://www.reku.io/
-curl -fsSI https://www.reku.io/alta-pacientes/
+curl -fsSI https://www.reku.io/agenda/
 curl -fsSI https://www.reku.io/admin/
 curl -sSI https://reku.io/admin/
 ```
@@ -350,7 +350,8 @@ curl -sSI https://reku.io/admin/
 Resultado esperado:
 
 - `www.reku.io` responde `200`.
-- `/alta-pacientes/` responde `200`.
+- `/agenda/` responde `200`.
+- `/alta-pacientes/?form=<slug>` responde redirect `308` hacia `/agenda/?form=<slug>`.
 - `/admin/` responde `200` y `x-robots-tag: noindex, nofollow`.
 - `reku.io` responde redirect `308` hacia `www.reku.io`.
 

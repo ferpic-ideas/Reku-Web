@@ -1354,7 +1354,7 @@
                 .join('')}
             </select>
           </label>
-          <button type="button" class="primary-button" data-action="create-test-booking-link">Generar link 48h</button>
+          <button type="button" class="primary-button" data-action="create-test-booking-link">Generar link</button>
         </div>
         ${
           state.testBookingUrl
@@ -1653,7 +1653,7 @@
             <a
               class="secondary-button"
               href="/api/admin/agreements/${agreement.id}/qr"
-              download="reku-alta-pacientes-${escapeHtml(agreement.slug)}-qr.png"
+              download="reku-agenda-${escapeHtml(agreement.slug)}-qr.png"
             >
               Get QR
             </a>
@@ -2331,7 +2331,7 @@
         return;
       }
       if (action === 'copy-url') {
-        const url = `${publicBaseUrl}/alta-pacientes/?form=${encodeURIComponent(slug)}`;
+        const url = `${publicBaseUrl}/agenda/?form=${encodeURIComponent(slug)}`;
         await navigator.clipboard.writeText(url);
         setStatus(`URL copiada: ${url}`, 'ok');
         return;
@@ -2384,11 +2384,12 @@
           setStatus('Seleccioná un acuerdo para probar la agenda.', 'error');
           return;
         }
-        const payload = await api('/api/admin/booking-links/test', {
-          method: 'POST',
-          body: { agreement_id: state.testBookingAgreementId },
-        });
-        state.testBookingUrl = payload.booking_url || '';
+        const agreement = state.agreements.find(
+          (item) => String(item.id) === String(state.testBookingAgreementId),
+        );
+        state.testBookingUrl = agreement
+          ? `${publicBaseUrl}/agenda/?form=${encodeURIComponent(agreement.slug)}`
+          : '';
         setStatus('Link de agenda generado.', 'ok');
         return;
       }

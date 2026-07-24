@@ -132,18 +132,24 @@ export const initDb = async () => {
       email_error TEXT,
       booking_email_message_id TEXT,
       booking_email_error TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     ALTER TABLE patient_intakes
       ADD COLUMN IF NOT EXISTS agreement_type_snapshot TEXT,
       ADD COLUMN IF NOT EXISTS booking_email_message_id TEXT,
-      ADD COLUMN IF NOT EXISTS booking_email_error TEXT;
+      ADD COLUMN IF NOT EXISTS booking_email_error TEXT,
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
     CREATE INDEX IF NOT EXISTS patient_intakes_created_at_idx
       ON patient_intakes (created_at DESC);
     CREATE INDEX IF NOT EXISTS patient_intakes_agreement_id_idx
       ON patient_intakes (agreement_id);
+    CREATE INDEX IF NOT EXISTS patient_intakes_email_idx
+      ON patient_intakes (lower(email));
+    CREATE INDEX IF NOT EXISTS patient_intakes_agreement_email_idx
+      ON patient_intakes (agreement_id, lower(email));
     CREATE INDEX IF NOT EXISTS patient_intakes_agreement_identifier_idx
       ON patient_intakes (agreement_id, lower(identificador))
       WHERE identificador IS NOT NULL;

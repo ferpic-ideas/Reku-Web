@@ -510,10 +510,10 @@ const downloadAgreementQr = async (response, id) => {
     return;
   }
 
-  const formUrl = `${config.appPublicUrl}/alta-pacientes/?form=${encodeURIComponent(
+  const formUrl = `${config.appPublicUrl}/agenda/?form=${encodeURIComponent(
     agreement.slug,
   )}`;
-  const filename = `reku-alta-pacientes-${downloadSlug(agreement.slug)}-qr.png`;
+  const filename = `reku-agenda-${downloadSlug(agreement.slug)}-qr.png`;
   const png = await QRCode.toBuffer(formUrl, {
     type: "png",
     width: 500,

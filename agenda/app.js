@@ -1,13 +1,24 @@
 (() => {
   const app = document.getElementById('booking-app');
   const urlParams = new URLSearchParams(window.location.search);
-  const token = urlParams.get('token') || '';
+  const initialToken = urlParams.get('token') || '';
+  const formSlug = urlParams.get('form') || '';
   const returnAppointmentId = urlParams.get('appointment_id') || '';
   const returnPaymentId = urlParams.get('payment_id') || urlParams.get('collection_id') || '';
   const state = {
-    step: 1,
+    step: initialToken ? 2 : 1,
     loading: true,
     error: '',
+    token: initialToken,
+    formSlug,
+    intakeErrors: {},
+    intakeValues: {
+      nombre: '',
+      apellido: '',
+      telefono: '',
+      email: '',
+      identificador: '',
+    },
     patient: null,
     agreement: null,
     paymentRequired: true,
@@ -63,12 +74,16 @@
   async function api(path, options = {}) {
     const response = await fetch(path, options);
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || 'No se pudo completar la acción.');
+    if (!response.ok) {
+      const error = new Error(payload.error || 'No se pudo completar la acción.');
+      error.payload = payload;
+      throw error;
+    }
     return payload;
   }
 
   async function loadServices() {
-    if (!token) {
+    if (!state.token) {
       state.error = 'El link de agenda no es válido.';
       state.loading = false;
       render();
@@ -76,7 +91,7 @@
     }
 
     try {
-      const payload = await api(`/api/booking/services?token=${encodeURIComponent(token)}`);
+      const payload = await api(`/api/booking/services?token=${encodeURIComponent(state.token)}`);
       state.patient = payload.patient;
       state.agreement = payload.agreement || null;
       state.paymentRequired = payload.payment_required !== false;
@@ -90,16 +105,16 @@
   }
 
   async function loadPaymentReturn() {
-    if (!token || !returnAppointmentId) return false;
+    if (!state.token || !returnAppointmentId) return false;
     try {
       const query = new URLSearchParams({
-        token,
+        token: state.token,
         appointment_id: returnAppointmentId,
       });
       if (returnPaymentId) query.set('payment_id', returnPaymentId);
       const payload = await api(`/api/booking/payment-status?${query.toString()}`);
       state.appointment = payload.appointment;
-      state.step = 5;
+      state.step = 6;
       state.loading = false;
       render();
       return true;
@@ -113,7 +128,75 @@
 
   async function loadInitial() {
     if (await loadPaymentReturn()) return;
-    await loadServices();
+    if (state.token) {
+      state.step = 2;
+      await loadServices();
+      return;
+    }
+    if (state.formSlug) {
+      await loadAgreement();
+      return;
+    }
+    state.error = 'El link de agenda no es válido.';
+    state.loading = false;
+    render();
+  }
+
+  async function loadAgreement() {
+    try {
+      const payload = await api(
+        `/api/booking/agreement?form=${encodeURIComponent(state.formSlug)}`,
+      );
+      state.agreement = payload.agreement || null;
+      state.paymentRequired = state.agreement?.type !== 'Nomina';
+    } catch (error) {
+      state.error = error.message;
+    } finally {
+      state.loading = false;
+      render();
+    }
+  }
+
+  async function submitIntake(form) {
+    const data = Object.fromEntries(new FormData(form).entries());
+    state.intakeValues = {
+      nombre: data.nombre || '',
+      apellido: data.apellido || '',
+      telefono: data.telefono || '',
+      email: data.email || '',
+      identificador: data.identificador || '',
+    };
+    state.intakeErrors = {};
+    state.loading = true;
+    render();
+
+    try {
+      const payload = await api('/api/booking/intake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agreement_slug: state.formSlug,
+          ...state.intakeValues,
+        }),
+      });
+      if (!payload.booking_token) {
+        throw new Error('No se pudo generar el link de agenda.');
+      }
+      state.token = payload.booking_token;
+      state.patient = payload.patient || null;
+      state.agreement = payload.agreement || state.agreement;
+      state.paymentRequired = state.agreement?.type !== 'Nomina';
+      state.step = 2;
+      window.history.replaceState({}, '', `/agenda/?token=${encodeURIComponent(state.token)}`);
+      await loadServices();
+    } catch (error) {
+      state.loading = false;
+      state.intakeErrors = error.payload?.errors || {};
+      state.error = state.intakeErrors && Object.keys(state.intakeErrors).length
+        ? ''
+        : error.message;
+      render();
+    }
   }
 
   async function selectService(serviceId) {
@@ -122,12 +205,12 @@
     state.selectedDate = '';
     state.selectedSlot = '';
     state.slots = [];
-    state.step = 2;
+    state.step = 3;
     state.loading = true;
     render();
     try {
       const payload = await api(
-        `/api/booking/professionals?token=${encodeURIComponent(token)}&service_id=${serviceId}`,
+        `/api/booking/professionals?token=${encodeURIComponent(state.token)}&service_id=${serviceId}`,
       );
       state.professionals = payload.professionals || [];
     } catch (error) {
@@ -143,7 +226,7 @@
     state.selectedDate = '';
     state.selectedSlot = '';
     state.slots = [];
-    state.step = 3;
+    state.step = 4;
     await loadDays();
   }
 
@@ -161,7 +244,7 @@
     render();
     try {
       const payload = await api(
-        `/api/booking/days?token=${encodeURIComponent(token)}&service_id=${state.service.id}&professional_id=${state.professional.id}&month=${monthKey(state.month)}`,
+        `/api/booking/days?token=${encodeURIComponent(state.token)}&service_id=${state.service.id}&professional_id=${state.professional.id}&month=${monthKey(state.month)}`,
       );
       state.availableDays = payload.days || [];
     } catch (error) {
@@ -179,7 +262,7 @@
     render();
     try {
       const payload = await api(
-        `/api/booking/slots?token=${encodeURIComponent(token)}&service_id=${state.service.id}&professional_id=${state.professional.id}&date=${date}`,
+        `/api/booking/slots?token=${encodeURIComponent(state.token)}&service_id=${state.service.id}&professional_id=${state.professional.id}&date=${date}`,
       );
       state.slots = payload.slots || [];
     } catch (error) {
@@ -198,7 +281,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          token,
+          token: state.token,
           service_id: state.service.id,
           professional_id: state.professional.id,
           date: state.selectedDate,
@@ -210,7 +293,7 @@
         return;
       }
       state.appointment = payload.appointment;
-      state.step = 5;
+      state.step = 6;
     } catch (error) {
       state.error = error.message;
     } finally {
@@ -227,7 +310,7 @@
           <h1>Nueva Reserva</h1>
         </div>
         <div class="stepper">
-          ${[1, 2, 3, 4, 5]
+          ${[1, 2, 3, 4, 5, 6]
             .map(
               (step) => `
                 <div class="step${state.step === step ? ' active' : ''}${state.step > step ? ' done' : ''}">
@@ -238,6 +321,64 @@
             .join('')}
         </div>
       </header>
+    `;
+  }
+
+  function fieldError(name) {
+    return state.intakeErrors[name]
+      ? `<span class="field-error">${escapeHtml(state.intakeErrors[name])}</span>`
+      : '';
+  }
+
+  function renderIntakeForm() {
+    const agreement = state.agreement || {};
+    const values = state.intakeValues;
+    const showIdentifier = agreement.type === 'Nomina';
+    return `
+      <section>
+        <div class="intake-brand">
+          ${agreement.logo_url ? `<img src="${escapeHtml(agreement.logo_url)}" alt="" />` : ''}
+          ${agreement.pdf_url ? `<a class="secondary-button" href="${escapeHtml(agreement.pdf_url)}" target="_blank" rel="noreferrer">Cómo funciona</a>` : ''}
+        </div>
+        <h2 class="section-title">Tus datos</h2>
+        <p class="section-copy">Completá tus datos para iniciar el alta y continuar con la reserva.</p>
+        <form class="intake-card" id="booking-intake-form" novalidate>
+          <label>
+            Nombre
+            <input name="nombre" value="${escapeHtml(values.nombre)}" autocomplete="given-name" required />
+            ${fieldError('nombre')}
+          </label>
+          <label>
+            Apellido
+            <input name="apellido" value="${escapeHtml(values.apellido)}" autocomplete="family-name" required />
+            ${fieldError('apellido')}
+          </label>
+          <label>
+            Teléfono
+            <input name="telefono" value="${escapeHtml(values.telefono)}" autocomplete="tel" inputmode="tel" required />
+            ${fieldError('telefono')}
+          </label>
+          <label>
+            Mail
+            <input name="email" type="email" value="${escapeHtml(values.email)}" autocomplete="email" required />
+            ${fieldError('email')}
+          </label>
+          ${
+            showIdentifier
+              ? `
+                <label class="span-two">
+                  Identificador
+                  <input name="identificador" value="${escapeHtml(values.identificador)}" autocomplete="off" required />
+                  ${fieldError('identificador')}
+                </label>
+              `
+              : ''
+          }
+          <div class="form-actions span-two">
+            <button type="submit" class="primary-button">Continuar</button>
+          </div>
+        </form>
+      </section>
     `;
   }
 
@@ -308,7 +449,7 @@
             )
             .join('') || '<div class="empty-card">No hay profesionales para este servicio.</div>'}
         </div>
-        ${renderBackButton(1)}
+        ${renderBackButton(2)}
       </section>
     `;
   }
@@ -378,7 +519,7 @@
           }
         </div>
         <div class="actions">
-          ${renderBackButton(2)}
+          ${renderBackButton(3)}
           <button type="button" class="primary-button" data-action="go-payment" ${state.selectedSlot ? '' : 'disabled'}>Continuar</button>
         </div>
       </section>
@@ -404,7 +545,7 @@
           }</p>
         </div>
         <div class="actions">
-          ${renderBackButton(3)}
+          ${renderBackButton(4)}
           <button type="button" class="primary-button" data-action="confirm-payment">${
             isCoveredByAgreement ? 'Confirmar turno' : 'Pagar con Mercado Pago'
           }</button>
@@ -468,17 +609,24 @@
     }
 
     const content = {
-      1: renderServices,
-      2: renderProfessionals,
-      3: renderCalendar,
-      4: renderPayment,
-      5: renderSuccess,
+      1: renderIntakeForm,
+      2: renderServices,
+      3: renderProfessionals,
+      4: renderCalendar,
+      5: renderPayment,
+      6: renderSuccess,
     }[state.step]();
     app.innerHTML = `${renderHeader()}${content}`;
     bindEvents();
   }
 
   function bindEvents() {
+    app.querySelector('#booking-intake-form')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      state.error = '';
+      await submitIntake(event.currentTarget);
+    });
+
     app.querySelectorAll('[data-action]').forEach((element) => {
       element.addEventListener('click', async () => {
         const action = element.dataset.action;
@@ -491,13 +639,13 @@
           render();
         }
         if (action === 'go-payment' && state.selectedSlot) {
-          state.step = 4;
+          state.step = 5;
           render();
         }
         if (action === 'confirm-payment') await confirmPayment();
         if (action === 'restart-booking') {
-          window.history.replaceState({}, '', `/agenda/?token=${encodeURIComponent(token)}`);
-          state.step = 1;
+          window.history.replaceState({}, '', `/agenda/?token=${encodeURIComponent(state.token)}`);
+          state.step = 2;
           state.appointment = null;
           state.error = '';
           await loadServices();
