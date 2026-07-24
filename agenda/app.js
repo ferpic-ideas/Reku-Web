@@ -5,6 +5,7 @@
   const formSlug = urlParams.get('form') || '';
   const returnAppointmentId = urlParams.get('appointment_id') || '';
   const returnPaymentId = urlParams.get('payment_id') || urlParams.get('collection_id') || '';
+  const returnResult = urlParams.get('mp_return') || '';
   const state = {
     step: initialToken ? 2 : 1,
     loading: true,
@@ -32,6 +33,8 @@
     selectedSlot: '',
     month: new Date(),
     appointment: null,
+    paymentNotice: '',
+    retryPaymentUrl: '',
   };
 
   const escapeHtml = (value) =>
@@ -70,6 +73,17 @@
 
   const monthTitle = (date) =>
     new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' }).format(date);
+
+  const paymentReturnNotice = (payload) => {
+    if (payload.payment_error) return payload.payment_error;
+    if (returnResult === 'pending') {
+      return 'El pago quedó pendiente en Mercado Pago. Si no lo completaste, podés reintentarlo.';
+    }
+    if (returnResult === 'failure') {
+      return 'No se realizó el pago. Podés reintentarlo para confirmar el turno.';
+    }
+    return 'No pudimos confirmar el pago. Podés reintentarlo para reservar el turno.';
+  };
 
   async function api(path, options = {}) {
     const response = await fetch(path, options);
@@ -114,7 +128,25 @@
       if (returnPaymentId) query.set('payment_id', returnPaymentId);
       const payload = await api(`/api/booking/payment-status?${query.toString()}`);
       state.appointment = payload.appointment;
-      state.step = 6;
+      state.paymentRequired = payload.payment_required !== false;
+      if (payload.selection) {
+        state.service = payload.selection.service || null;
+        state.professional = payload.selection.professional || null;
+        state.selectedDate = payload.selection.date || '';
+        state.selectedSlot = payload.selection.start_time || '';
+        if (state.selectedDate) {
+          state.month = new Date(`${state.selectedDate}T12:00:00`);
+        }
+      }
+      if (payload.appointment?.status === 'confirmed') {
+        state.paymentNotice = '';
+        state.retryPaymentUrl = '';
+        state.step = 6;
+      } else {
+        state.paymentNotice = paymentReturnNotice(payload);
+        state.retryPaymentUrl = payload.payment?.url || '';
+        state.step = 5;
+      }
       state.loading = false;
       render();
       return true;
@@ -205,6 +237,8 @@
     state.selectedDate = '';
     state.selectedSlot = '';
     state.slots = [];
+    state.paymentNotice = '';
+    state.retryPaymentUrl = '';
     state.step = 3;
     state.loading = true;
     render();
@@ -226,6 +260,8 @@
     state.selectedDate = '';
     state.selectedSlot = '';
     state.slots = [];
+    state.paymentNotice = '';
+    state.retryPaymentUrl = '';
     state.step = 4;
     await loadDays();
   }
@@ -258,6 +294,8 @@
   async function selectDate(date) {
     state.selectedDate = date;
     state.selectedSlot = '';
+    state.paymentNotice = '';
+    state.retryPaymentUrl = '';
     state.loading = true;
     render();
     try {
@@ -274,6 +312,10 @@
   }
 
   async function confirmPayment() {
+    if (state.retryPaymentUrl) {
+      redirectToPayment(state.retryPaymentUrl);
+      return;
+    }
     state.loading = true;
     render();
     try {
@@ -295,7 +337,7 @@
       state.appointment = payload.appointment;
       state.step = 6;
     } catch (error) {
-      state.error = error.message;
+      state.paymentNotice = error.message;
     } finally {
       state.loading = false;
       render();
@@ -537,6 +579,7 @@
             : 'Vas a continuar en Mercado Pago para completar el pago online.'
         }</p>
         <div class="payment-card">
+          ${state.paymentNotice ? `<div class="status-warning">${escapeHtml(state.paymentNotice)}</div>` : ''}
           <p><strong>Servicio:</strong> ${escapeHtml(state.service.name)}</p>
           <p><strong>Profesional:</strong> ${escapeHtml(state.professional.name)}</p>
           <p><strong>Fecha:</strong> ${escapeHtml(state.selectedDate)} ${escapeHtml(state.selectedSlot)}</p>
@@ -547,7 +590,11 @@
         <div class="actions">
           ${renderBackButton(4)}
           <button type="button" class="primary-button" data-action="confirm-payment">${
-            isCoveredByAgreement ? 'Confirmar turno' : 'Pagar con Mercado Pago'
+            isCoveredByAgreement
+              ? 'Confirmar turno'
+              : state.paymentNotice
+                ? 'Reintentar pago'
+                : 'Pagar con Mercado Pago'
           }</button>
         </div>
       </section>
@@ -636,6 +683,8 @@
         if (action === 'select-date') await selectDate(element.dataset.date);
         if (action === 'select-slot') {
           state.selectedSlot = element.dataset.slot;
+          state.paymentNotice = '';
+          state.retryPaymentUrl = '';
           render();
         }
         if (action === 'go-payment' && state.selectedSlot) {
@@ -652,6 +701,10 @@
         }
         if (action === 'go-step') {
           state.step = Number(element.dataset.step);
+          if (state.step === 4 && state.service && state.professional && !state.availableDays.length) {
+            await loadDays();
+            return;
+          }
           render();
         }
         if (action === 'previous-month') {

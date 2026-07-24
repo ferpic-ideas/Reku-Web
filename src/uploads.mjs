@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { extname, join } from "node:path";
 import Busboy from "busboy";
+import sharp from "sharp";
 import { config, uploadRoot } from "./config.mjs";
 
 const imageMimeTypes = new Map([
@@ -19,8 +20,16 @@ const csvMimeTypes = new Set([
   "text/plain",
 ]);
 
+const optimizableImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+
 const normalizeMimeType = (mimeType) =>
   String(mimeType || "").split(";", 1)[0].trim().toLowerCase();
+
+const invalidImageError = () => {
+  const error = new Error("INVALID_IMAGE");
+  error.statusCode = 415;
+  return error;
+};
 
 export const parseMultipartForm = (request, { maxBytes = config.uploadMaxBytes } = {}) =>
   new Promise((resolve, reject) => {
@@ -96,9 +105,7 @@ export const saveAgreementLogo = async (file) => {
   if (!file) return "";
   const extension = imageMimeTypes.get(file.mimeType);
   if (!extension) {
-    const error = new Error("INVALID_IMAGE");
-    error.statusCode = 415;
-    throw error;
+    throw invalidImageError();
   }
   return saveAgreementFile(file.buffer, extension);
 };
@@ -115,25 +122,47 @@ export const saveAgreementPdf = async (file) => {
 
 export const saveProfessionalPhoto = async (file) => {
   if (!file) return "";
-  const extension = imageMimeTypes.get(file.mimeType);
-  if (!extension) {
-    const error = new Error("INVALID_IMAGE");
-    error.statusCode = 415;
-    throw error;
-  }
-  return saveUploadFile("professionals", file.buffer, extension);
+  const buffer = await optimizeImageUpload(file, {
+    width: 512,
+    height: 512,
+    fit: "cover",
+  });
+  return saveUploadFile("professionals", buffer, ".webp");
 };
 
 export const saveServiceImage = async (file) => {
   if (!file) return "";
-  const extension = imageMimeTypes.get(file.mimeType);
-  if (!extension || !["image/jpeg", "image/png", "image/webp"].includes(file.mimeType)) {
-    const error = new Error("INVALID_IMAGE");
-    error.statusCode = 415;
-    throw error;
-  }
-  return saveUploadFile("services", file.buffer, extension);
+  const buffer = await optimizeImageUpload(file, {
+    width: 1200,
+    height: 720,
+    fit: "cover",
+  });
+  return saveUploadFile("services", buffer, ".webp");
 };
+
+const optimizeImageUpload = async (file, options) => {
+  if (!optimizableImageMimeTypes.has(file.mimeType)) {
+    throw invalidImageError();
+  }
+
+  try {
+    return await optimizeImageBuffer(file.buffer, options);
+  } catch {
+    throw invalidImageError();
+  }
+};
+
+export const optimizeImageBuffer = async (buffer, options) =>
+  sharp(buffer, { failOn: "warning" })
+    .rotate()
+    .resize({
+      width: options.width,
+      height: options.height,
+      fit: options.fit,
+      withoutEnlargement: true,
+    })
+    .webp({ quality: 82, effort: 4 })
+    .toBuffer();
 
 const saveAgreementFile = async (buffer, extension) => {
   return saveUploadFile("agreements", buffer, extension);

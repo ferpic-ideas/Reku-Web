@@ -448,6 +448,15 @@ button {
   background: #fff1ef;
 }
 
+.status-warning {
+  margin-bottom: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  color: #7a4d00;
+  background: #fff7df;
+  font-weight: 700;
+}
+
 .success-mark {
   width: 58px;
   height: 58px;

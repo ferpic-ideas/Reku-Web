@@ -620,6 +620,26 @@ const appointmentFromRow = (row) => ({
   status: row.status,
 });
 
+const appointmentSelectionFromRow = (row, link) => ({
+  service: {
+    id: Number(row.service_id),
+    name: row.service_name || "",
+    duration_minutes: Number(row.service_duration_minutes || 0),
+    cost_amount: Number(row.service_cost_amount || 0),
+    image_url: row.service_image_path ? `/uploads/${row.service_image_path}` : "",
+    covered_by_agreement: link.agreement?.type === "Nomina",
+  },
+  professional: {
+    id: Number(row.professional_id),
+    name: row.professional_name || "",
+    photo_url: row.professional_photo_path
+      ? `/uploads/${row.professional_photo_path}`
+      : "",
+  },
+  date: row.appointment_date,
+  start_time: String(row.start_time || "").slice(0, 5),
+});
+
 const refreshPaymentStatus = async (url, response, link) => {
   const appointmentId = Number(url.searchParams.get("appointment_id"));
   const paymentId = String(
@@ -635,16 +655,27 @@ const refreshPaymentStatus = async (url, response, link) => {
   const current = await one(
     `
       SELECT
-        id,
-        to_char(appointment_date, 'YYYY-MM-DD') AS appointment_date,
-        to_char(start_time, 'HH24:MI') AS start_time,
-        to_char(end_time, 'HH24:MI') AS end_time,
-        payment_status,
-        status,
-        payment_id
-      FROM appointments
-      WHERE id = $1
-        AND booking_access_link_id = $2
+        a.id,
+        a.service_id,
+        a.professional_id,
+        to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
+        to_char(a.start_time, 'HH24:MI') AS start_time,
+        to_char(a.end_time, 'HH24:MI') AS end_time,
+        a.payment_status,
+        a.status,
+        a.payment_id,
+        a.payment_init_point,
+        s.name AS service_name,
+        s.duration_minutes AS service_duration_minutes,
+        s.cost_amount AS service_cost_amount,
+        s.image_path AS service_image_path,
+        p.name AS professional_name,
+        p.photo_path AS professional_photo_path
+      FROM appointments a
+      INNER JOIN services s ON s.id = a.service_id
+      INNER JOIN professionals p ON p.id = a.professional_id
+      WHERE a.id = $1
+        AND a.booking_access_link_id = $2
     `,
     [appointmentId, link.id],
   );
@@ -654,30 +685,53 @@ const refreshPaymentStatus = async (url, response, link) => {
   }
 
   let appointment = current;
+  let paymentError = "";
   if (paymentId) {
-    const payment = await fetchMercadoPagoPayment(paymentId);
-    const referencedAppointmentId =
-      appointmentIdFromExternalReference(payment.external_reference) ||
-      Number(payment.metadata?.appointment_id || 0);
-    if (referencedAppointmentId && referencedAppointmentId !== appointmentId) {
-      sendJson(response, 409, { error: "El pago no corresponde a este turno." });
-      return;
-    }
-    appointment = await updateAppointmentFromMercadoPagoPayment(payment);
-    if (appointment.status === "confirmed") {
-      await notifyConfirmedAppointment(appointment.id);
+    try {
+      const payment = await fetchMercadoPagoPayment(paymentId);
+      const referencedAppointmentId =
+        appointmentIdFromExternalReference(payment.external_reference) ||
+        Number(payment.metadata?.appointment_id || 0);
+      if (referencedAppointmentId && referencedAppointmentId !== appointmentId) {
+        sendJson(response, 409, { error: "El pago no corresponde a este turno." });
+        return;
+      }
+      appointment = await updateAppointmentFromMercadoPagoPayment(payment);
+      if (appointment.status === "confirmed") {
+        await notifyConfirmedAppointment(appointment.id);
+      }
+    } catch (error) {
+      if (error.message !== "MERCADO_PAGO_API_ERROR") throw error;
+      paymentError =
+        "No pudimos validar el pago con Mercado Pago. Si no se completó, podés reintentarlo.";
     }
     appointment = {
       ...appointment,
+      service_id: current.service_id,
+      professional_id: current.professional_id,
       appointment_date: current.appointment_date,
       start_time: current.start_time,
       end_time: current.end_time,
+      payment_init_point: current.payment_init_point,
+      service_name: current.service_name,
+      service_duration_minutes: current.service_duration_minutes,
+      service_cost_amount: current.service_cost_amount,
+      service_image_path: current.service_image_path,
+      professional_name: current.professional_name,
+      professional_photo_path: current.professional_photo_path,
     };
   }
 
   sendJson(response, 200, {
     ok: true,
     appointment: appointmentFromRow(appointment),
+    selection: appointmentSelectionFromRow(appointment, link),
+    payment_required: link.agreement?.type !== "Nomina",
+    payment_error: paymentError,
+    payment: {
+      provider: "mercadopago",
+      url: appointment.payment_init_point || current.payment_init_point || "",
+    },
   });
 };
 

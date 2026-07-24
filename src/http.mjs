@@ -171,18 +171,20 @@ export const serveStatic = async (request, response, pathname) => {
 
   try {
     const file = await readFile(filePath);
-    const isPrivateRoute =
-      pathname.startsWith("/admin") || pathname.startsWith("/uploads");
+    const isAdminRoute = pathname.startsWith("/admin");
+    const isUploadRoute = pathname.startsWith("/uploads");
     const allowsSameOriginFrame = pathname.startsWith("/agenda");
     const headers = withSecurityHeaders(
       {
         "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream",
-        "Cache-Control": pathname.startsWith("/admin")
+        "Cache-Control": isAdminRoute
           ? "no-store"
+          : isUploadRoute
+            ? "public, max-age=31536000, immutable"
           : "public, max-age=60",
         ...(allowsSameOriginFrame ? sameOriginFrameHeaders : {}),
       },
-      { privateRoute: isPrivateRoute },
+      { privateRoute: isAdminRoute },
     );
     response.writeHead(200, headers);
     response.end(request.method === "HEAD" ? undefined : file);

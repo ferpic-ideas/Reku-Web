@@ -772,7 +772,7 @@
         <label class="span-two">
           Imagen
           <input class="file-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" />
-          <span class="field-help">Recomendado: 1200 × 720 px, formato JPG/PNG/WebP, hasta 10 MB. Se usa recortada en la selección de la agenda.</span>
+          <span class="field-help">Recomendado: 1200 × 720 px, formato JPG/PNG/WebP, hasta 10 MB. Se optimiza a WebP liviano al guardar.</span>
         </label>
         ${
           item.image_url
@@ -945,7 +945,8 @@
         </label>
         <label>
           Foto
-          <input class="file-input" name="photo" type="file" accept="image/*" />
+          <input class="file-input" name="photo" type="file" accept="image/png,image/jpeg,image/webp" />
+          <span class="field-help">Recomendado: foto cuadrada de 512 × 512 px o más. Se optimiza a WebP liviano al guardar.</span>
         </label>
         <label class="check-row">
           <input type="checkbox" name="active" ${item.active ? 'checked' : ''} />
