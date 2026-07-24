@@ -802,8 +802,7 @@
   function renderServices() {
     return `
       <section class="panel">
-        <div class="panel-header">
-          <h2>Servicios</h2>
+        <div class="panel-header panel-header-actions-only">
           <button type="button" class="primary-button" data-action="new-service">Nuevo</button>
         </div>
         <div class="table-wrap">
@@ -978,8 +977,7 @@
   function renderProfessionals() {
     return `
       <section class="panel">
-        <div class="panel-header">
-          <h2>Profesionales</h2>
+        <div class="panel-header panel-header-actions-only">
           <button type="button" class="primary-button" data-action="new-professional">Nuevo</button>
         </div>
         <div class="table-wrap">
@@ -1044,9 +1042,6 @@
     const items = filteredAppointments();
     return `
       <section class="panel">
-        <div class="panel-header">
-          <h2>Turnos</h2>
-        </div>
         <div class="toolbar appointments-toolbar">
           <div class="toolbar-actions">
             <label>
@@ -1175,16 +1170,18 @@
         <td>${escapeHtml(paymentStatusLabel(item.payment_status))}</td>
         <td>${escapeHtml(formatMoney(item.amount))}</td>
         <td>
-          <button
-            type="button"
-            class="icon-button mini-button"
-            data-action="view-appointment"
-            data-id="${item.id}"
-            aria-label="Ver turno"
-            title="Ver"
-          >
-            ${actionIcon('eye')}
-          </button>
+          <div class="table-actions">
+            <button
+              type="button"
+              class="icon-button mini-button"
+              data-action="view-appointment"
+              data-id="${item.id}"
+              aria-label="Ver turno"
+              title="Ver"
+            >
+              ${actionIcon('eye')}
+            </button>
+          </div>
         </td>
       </tr>
     `;
@@ -1333,7 +1330,9 @@
         <td>${escapeHtml(item.start_time)} - ${escapeHtml(item.end_time)}</td>
         <td>${escapeHtml(item.reason || 'Sin motivo')}</td>
         <td>
-          <button type="button" class="danger-button" data-action="delete-schedule-block" data-id="${item.id}">Eliminar</button>
+          <div class="table-actions">
+            <button type="button" class="danger-button" data-action="delete-schedule-block" data-id="${item.id}">Eliminar</button>
+          </div>
         </td>
       </tr>
     `;
@@ -1342,9 +1341,6 @@
   function renderBookingTest() {
     return `
       <section class="panel">
-        <div class="panel-header">
-          <h2>Probar agenda</h2>
-        </div>
         <div class="toolbar booking-test-toolbar">
           <label>
             Acuerdo
@@ -1879,15 +1875,17 @@
         <td>${escapeHtml(item.rol)}</td>
         <td>${escapeHtml(item.pacientes)}</td>
         <td>
-          <button
-            type="button"
-            class="danger-button"
-            data-action="delete-contact"
-            data-id="${item.id}"
-            ${state.user.can_delete_records ? '' : 'disabled'}
-          >
-            Eliminar
-          </button>
+          <div class="table-actions">
+            <button
+              type="button"
+              class="danger-button"
+              data-action="delete-contact"
+              data-id="${item.id}"
+              ${state.user.can_delete_records ? '' : 'disabled'}
+            >
+              Eliminar
+            </button>
+          </div>
         </td>
       </tr>
     `;
@@ -2018,7 +2016,11 @@
         <td>${escapeHtml(item.apellido)}</td>
         <td><strong>${escapeHtml(item.identificador)}</strong></td>
         <td>${item.form_submitted ? 'Sí' : 'No'}</td>
-        <td><button type="button" class="danger-button" data-action="delete-nomina" data-id="${item.id}">Eliminar</button></td>
+        <td>
+          <div class="table-actions">
+            <button type="button" class="danger-button" data-action="delete-nomina" data-id="${item.id}">Eliminar</button>
+          </div>
+        </td>
       </tr>
     `;
   }

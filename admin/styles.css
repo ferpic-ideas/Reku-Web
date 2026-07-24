@@ -360,6 +360,10 @@ a:focus-visible {
   flex-wrap: wrap;
 }
 
+.panel-header-actions-only {
+  justify-content: flex-end;
+}
+
 .toolbar label {
   min-width: min(260px, 100%);
 }
@@ -665,7 +669,7 @@ td {
   padding: 11px 12px;
   border-bottom: 1px solid var(--border);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
   font-size: 14px;
 }
 
@@ -695,6 +699,7 @@ tr:hover td {
 
 .table-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
   flex-wrap: wrap;
 }
@@ -887,6 +892,7 @@ tr:hover td {
 }
 
 .booking-test-toolbar {
+  align-items: flex-end;
   justify-content: flex-start;
 }
 
