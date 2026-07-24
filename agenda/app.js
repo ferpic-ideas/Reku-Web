@@ -35,6 +35,7 @@
     appointment: null,
     paymentNotice: '',
     retryPaymentUrl: '',
+    paymentSubmitting: false,
   };
 
   const escapeHtml = (value) =>
@@ -312,12 +313,18 @@
   }
 
   async function confirmPayment() {
+    if (state.paymentSubmitting) return;
+    state.paymentSubmitting = true;
+    state.paymentNotice = '';
+    render();
+
+    let redirecting = false;
     if (state.retryPaymentUrl) {
+      redirecting = true;
       redirectToPayment(state.retryPaymentUrl);
       return;
     }
-    state.loading = true;
-    render();
+
     try {
       const payload = await api('/api/booking/appointments', {
         method: 'POST',
@@ -331,6 +338,7 @@
         }),
       });
       if (payload.payment?.url) {
+        redirecting = true;
         redirectToPayment(payload.payment.url);
         return;
       }
@@ -339,8 +347,10 @@
     } catch (error) {
       state.paymentNotice = error.message;
     } finally {
-      state.loading = false;
-      render();
+      if (!redirecting) {
+        state.paymentSubmitting = false;
+        render();
+      }
     }
   }
 
@@ -352,7 +362,7 @@
           <h1>Reserva tu turno</h1>
         </div>
         <div class="stepper">
-          ${[1, 2, 3, 4, 5, 6]
+          ${[1, 2, 3, 4, 5]
             .map(
               (step) => `
                 <div class="step${state.step === step ? ' active' : ''}${state.step > step ? ' done' : ''}">
@@ -589,12 +599,16 @@
         </div>
         <div class="actions">
           ${renderBackButton(4)}
-          <button type="button" class="primary-button" data-action="confirm-payment">${
-            isCoveredByAgreement
-              ? 'Confirmar turno'
-              : state.paymentNotice
-                ? 'Reintentar pago'
-                : 'Pagar con Mercado Pago'
+          <button type="button" class="primary-button" data-action="confirm-payment" ${state.paymentSubmitting ? 'disabled' : ''}>${
+            state.paymentSubmitting
+              ? isCoveredByAgreement
+                ? 'Confirmando turno...'
+                : 'Redirigiendo a Mercado Pago...'
+              : isCoveredByAgreement
+                ? 'Confirmar turno'
+                : state.paymentNotice
+                  ? 'Reintentar pago'
+                  : 'Pagar con Mercado Pago'
           }</button>
         </div>
       </section>
