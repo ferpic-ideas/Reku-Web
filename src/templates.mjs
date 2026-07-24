@@ -92,20 +92,6 @@ export const buildAgreementLinks = (agreement) => {
     links.push({ label: "Cómo funciona", url: pdfUrl });
   }
 
-  if (agreement && agreement.type !== "Nomina" && agreement.payment_evaluation_url) {
-    links.push({
-      label: "Link de pago de consulta/evaluación",
-      url: agreement.payment_evaluation_url,
-    });
-  }
-
-  if (agreement && agreement.type !== "Nomina" && agreement.payment_treatment_url) {
-    links.push({
-      label: "Link de pago de tratamiento",
-      url: agreement.payment_treatment_url,
-    });
-  }
-
   return links;
 };
 
@@ -205,16 +191,18 @@ export const buildPatientBookingEmail = ({ submission, agreement }) => {
   const subject = isNomina
     ? "Ya podés reservar tu turno - Reku"
     : "Continuá tu alta y reservá tu turno - Reku";
+  const pdfUrl = agreementFileUrl(agreement?.pdf_path);
   const intro = isNomina
     ? `Hola ${patientName || ""}, validamos tus datos del acuerdo ${agreement?.name || "Reku"}. Ya podés elegir día y horario para tu turno.`
-    : `Hola ${patientName || ""}, recibimos tus datos. Continuá con la reserva del turno y el pago online desde el siguiente link.`;
+    : `Hola ${patientName || ""}, recibimos tus datos. Continuá con la reserva del turno desde el siguiente link.`;
   const agendaCopy = submission.booking_url
     ? `Reservar turno: ${submission.booking_url}`
     : "El equipo de Reku te va a contactar para continuar.";
+  const pdfCopy = pdfUrl ? `Cómo funciona: ${pdfUrl}` : "";
 
   return {
     subject,
-    text: [intro, "", agendaCopy].join("\n"),
+    text: [intro, "", agendaCopy, pdfCopy].filter(Boolean).join("\n"),
     html: `
       <div style="font-family: Arial, sans-serif; line-height: 1.5;">
         <h1 style="font-size: 20px;">${escapeHtml(subject)}</h1>
@@ -223,6 +211,11 @@ export const buildPatientBookingEmail = ({ submission, agreement }) => {
           submission.booking_url
             ? `<p><a href="${escapeHtml(submission.booking_url)}" style="display:inline-block;padding:12px 18px;background:#18213f;color:#ffffff;text-decoration:none;border-radius:8px;">Reservar turno</a></p>
               <p style="font-size: 13px; color: #667085;">El link vence en 48 horas.</p>`
+            : ""
+        }
+        ${
+          pdfUrl
+            ? `<p><a href="${escapeHtml(pdfUrl)}" style="color:#18213f;">Cómo funciona</a></p>`
             : ""
         }
       </div>

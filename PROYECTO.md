@@ -166,8 +166,6 @@ Variables permitidas:
 El mail agrega automaticamente:
 
 - Link al PDF "Como funciona", si el acuerdo tiene PDF.
-- Link de pago de consulta/evaluacion, si el acuerdo no es `Nomina` y tiene link.
-- Link de pago de tratamiento, si el acuerdo no es `Nomina` y tiene link.
 - Link de agenda de 48h para reservar turno.
 
 ## Agenda y Mercado Pago
