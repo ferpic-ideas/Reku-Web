@@ -385,6 +385,13 @@
   }
 
   function renderHeader() {
+    const progress =
+      state.step === 7
+        ? { activeStep: 0, completedThrough: 1 }
+        : state.step >= 6
+          ? { activeStep: 0, completedThrough: 5 }
+          : { activeStep: state.step, completedThrough: state.step - 1 };
+
     return `
       <header class="booking-header">
         <div class="booking-title">
@@ -395,8 +402,8 @@
           ${[1, 2, 3, 4, 5]
             .map(
               (step) => `
-                <div class="step${state.step === step ? ' active' : ''}${state.step > step ? ' done' : ''}">
-                  <span>${state.step > step ? '✓' : step}</span>
+                <div class="step${progress.activeStep === step ? ' active' : ''}${progress.completedThrough >= step ? ' done' : ''}">
+                  <span>${progress.completedThrough >= step ? '✓' : step}</span>
                 </div>
               `,
             )
@@ -696,9 +703,10 @@
     return `
       <section>
         <div class="payment-card">
-          <div class="success-mark">✓</div>
-          <h2 class="section-title">Revisá tu mail</h2>
-          <p class="section-copy">Te enviamos un enlace para confirmar tu dirección y continuar con la reserva.</p>
+          <div class="success-mark pending">✉</div>
+          <h2 class="section-title">Confirmá tu mail para continuar</h2>
+          <p class="section-copy">Completaste el paso 1. Todavía no reservamos ningún turno.</p>
+          <p class="section-copy">Te enviamos un enlace para confirmar tu dirección. Al abrirlo, vas a poder elegir servicio, profesional, fecha y horario.</p>
           <p class="section-copy">El enlace vence en 24 horas y puede usarse una sola vez.</p>
         </div>
       </section>
