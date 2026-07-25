@@ -2,6 +2,7 @@
 .env
 node_modules/
 uploads/
+private-uploads/
 backups/
 logs/
 ses-key.txt

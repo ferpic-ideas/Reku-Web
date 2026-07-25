@@ -113,17 +113,9 @@ export const buildPatientEmail = ({ submission, agreement }) => {
       ["Teléfono", submission.values.telefono],
       ["Mail", submission.values.email],
     ];
-    const bookingLine = submission.booking_url
-      ? `\nReservar turno: ${submission.booking_url}`
-      : "";
-    const bookingHtml = submission.booking_url
-      ? `<p><strong>Reservar turno:</strong> <a href="${escapeHtml(
-          submission.booking_url,
-        )}">${escapeHtml(submission.booking_url)}</a></p>`
-      : "";
     return {
       subject,
-      text: `${rows.map(([label, value]) => `${label}: ${value || ""}`).join("\n")}${bookingLine}`,
+      text: rows.map(([label, value]) => `${label}: ${value || ""}`).join("\n"),
       html: `
         <div style="font-family: Arial, sans-serif; line-height: 1.5;">
           <h1 style="font-size: 20px;">${escapeHtml(subject)}</h1>
@@ -133,7 +125,6 @@ export const buildPatientEmail = ({ submission, agreement }) => {
                 `<p><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>`,
             )
             .join("")}
-          ${bookingHtml}
         </div>
       `,
     };
@@ -161,9 +152,6 @@ export const buildPatientEmail = ({ submission, agreement }) => {
     context,
   );
   const links = buildAgreementLinks(agreement);
-  if (submission.booking_url) {
-    links.push({ label: "Reservar turno", url: submission.booking_url });
-  }
   const linksText = links.length
     ? `\n\nRecursos:\n${links.map((link) => `${link.label}: ${link.url}`).join("\n")}`
     : "";
@@ -195,36 +183,37 @@ export const buildPatientEmail = ({ submission, agreement }) => {
   };
 };
 
-export const buildPatientBookingEmail = ({ submission, agreement }) => {
-  const isNomina = agreement?.type === "Nomina";
+export const buildPatientVerificationEmail = ({
+  submission,
+  agreement,
+  verificationUrl,
+}) => {
   const patientName = [submission.values.nombre, submission.values.apellido]
     .filter(Boolean)
     .join(" ");
-  const subject = isNomina
-    ? "Ya podés reservar tu turno - Reku"
-    : "Continuá tu alta y reservá tu turno - Reku";
+  const subject = "Confirmá tu mail para reservar tu turno - Reku";
+  const intro = `Hola ${patientName || ""}, recibimos tu solicitud para ${
+    agreement?.name || "Reku"
+  }. Confirmá tu mail para continuar con la reserva.`;
   const pdfUrl = agreementFileUrl(agreement?.pdf_path);
-  const intro = isNomina
-    ? `Hola ${patientName || ""}, validamos tus datos del acuerdo ${agreement?.name || "Reku"}. Ya podés elegir día y horario para tu turno.`
-    : `Hola ${patientName || ""}, recibimos tus datos. Continuá con la reserva del turno desde el siguiente link.`;
-  const agendaCopy = submission.booking_url
-    ? `Reservar turno: ${submission.booking_url}`
-    : "El equipo de Reku te va a contactar para continuar.";
-  const pdfCopy = pdfUrl ? `Cómo funciona: ${pdfUrl}` : "";
 
   return {
     subject,
-    text: [intro, "", agendaCopy, pdfCopy].filter(Boolean).join("\n"),
+    text: [
+      intro,
+      "",
+      `Confirmar mail: ${verificationUrl}`,
+      "El enlace vence en 24 horas y puede usarse una sola vez.",
+      pdfUrl ? `Cómo funciona: ${pdfUrl}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
     html: `
       <div style="font-family: Arial, sans-serif; line-height: 1.5;">
         <h1 style="font-size: 20px;">${escapeHtml(subject)}</h1>
         <p>${escapeHtml(intro)}</p>
-        ${
-          submission.booking_url
-            ? `<p><a href="${escapeHtml(submission.booking_url)}" style="display:inline-block;padding:12px 18px;background:#18213f;color:#ffffff;text-decoration:none;border-radius:8px;">Reservar turno</a></p>
-              <p style="font-size: 13px; color: #667085;">El link vence en 48 horas.</p>`
-            : ""
-        }
+        <p><a href="${escapeHtml(verificationUrl)}" style="display:inline-block;padding:12px 18px;background:#18213f;color:#ffffff;text-decoration:none;border-radius:8px;">Confirmar mail y reservar</a></p>
+        <p style="font-size: 13px; color: #667085;">El enlace vence en 24 horas y puede usarse una sola vez.</p>
         ${
           pdfUrl
             ? `<p><a href="${escapeHtml(pdfUrl)}" style="color:#18213f;">Cómo funciona</a></p>`

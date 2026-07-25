@@ -92,6 +92,7 @@ Mantener ignorados los archivos locales sensibles:
 ses-key.txt
 reku-admin-password.txt
 reku-mp.txt
+private-uploads/
 ```
 
 El check `npm run secrets:check` debe seguir pasando antes de commit.
@@ -122,6 +123,7 @@ rsync -az --delete \
   --exclude '.env' \
   --exclude 'node_modules' \
   --exclude 'uploads' \
+  --exclude 'private-uploads' \
   --exclude 'backups' \
   --exclude 'logs' \
   ./ ferpic-ideas:/docker/reku-web/
@@ -135,7 +137,24 @@ Antes de deploy:
 git status --short --branch
 npm run check
 git diff --check
+POSTGRES_PASSWORD=<valor-temporal> \
+SESSION_SECRET=<valor-temporal-de-32-caracteres> \
+docker compose config --quiet
 ```
+
+Además:
+
+1. Confirmar que el backup de Postgres es recuperable.
+2. Confirmar en el admin, sin imprimir el valor, que el `webhook_secret` del modo
+   activo está cargado.
+3. Configurar el mismo webhook en Mercado Pago para
+   `https://www.reku.io/api/booking/mercado-pago/webhook`.
+4. No desplegar si alguno de los dos lados no está listo: esta versión falla
+   cerrado con `503`.
+5. Conservar el volumen Docker `private_uploads`; nunca copiar su contenido
+   dentro del árbol público.
+6. Revisar que `BOOTSTRAP_ADMIN_EMAIL` y `BOOTSTRAP_ADMIN_PASSWORD` estén vacíos
+   si ya existe un admin activo.
 
 Despues de deploy:
 
@@ -145,7 +164,15 @@ ssh ferpic-ideas 'cd /docker/reku-web && docker compose logs --no-color --tail=8
 curl -fsSI https://www.reku.io/
 curl -fsSI https://www.reku.io/admin/
 curl -fsSI https://www.reku.io/agenda/
+curl -fsS https://www.reku.io/health
 ```
+
+## Healthchecks
+
+- `GET /health`: readiness pública del Admin. Devuelve `200` cuando PostgreSQL,
+  el bundle estático y los volúmenes de almacenamiento están disponibles; ante
+  cualquier fallo devuelve `503`.
+- `GET /healthz`: liveness mínima utilizada por el healthcheck del contenedor.
 
 ## Pruebas con datos temporales
 
@@ -183,8 +210,24 @@ https://www.reku.io/api/booking/mercado-pago/webhook
 ```
 
 - Confirmar turno solo cuando el pago quede `approved`.
-- Si no hay `webhook_secret`, el webhook igual debe consultar el pago por API
-  antes de modificar el turno.
+- Exigir `webhook_secret`, firma válida y timestamp fresco. Sin secreto el webhook
+  responde `503` y no consulta pagos ni modifica turnos.
+
+## Evidencia sobre secretos históricos (24/07/2026)
+
+El relevamiento de sólo lectura dio resultado negativo en:
+
+- URLs públicas actuales de `.env`, `reku-admin-password.txt`, `ses-key.txt` y
+  `reku-mp.txt`.
+- filesystem de la imagen actualmente desplegada.
+- nombres y contenido alcanzable del historial Git local/remoto.
+
+La imagen anterior ya no estaba disponible en el host y el build cache no permite
+reconstruir con certeza su contenido. Por eso la conclusión correcta es: no hay
+evidencia de exposición en los artefactos disponibles, pero no puede demostrarse
+que una imagen histórica ya eliminada nunca los haya contenido. La rotación
+preventiva de credenciales queda como decisión operativa separada y no debe
+imprimir valores durante la verificación.
 
 ## Checklist mental antes de ejecutar
 

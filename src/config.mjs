@@ -3,9 +3,16 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
-export const uploadRoot = resolve(
-  process.env.UPLOAD_ROOT || join(root, "uploads"),
+export const publicUploadRoot = resolve(
+  process.env.PUBLIC_UPLOAD_ROOT ||
+    process.env.UPLOAD_ROOT ||
+    join(root, "uploads"),
 );
+export const privateUploadRoot = resolve(
+  process.env.PRIVATE_UPLOAD_ROOT || join(root, "private-uploads"),
+);
+// Compatibility alias for modules that only write explicitly public media.
+export const uploadRoot = publicUploadRoot;
 
 export const config = {
   appEnv: process.env.APP_ENV || "development",
@@ -24,10 +31,19 @@ export const config = {
   sessionSecure:
     process.env.SESSION_SECURE === "true" ||
     process.env.APP_ENV === "production",
-  bootstrapAdminEmail: (
-    process.env.BOOTSTRAP_ADMIN_EMAIL || "ferpic@gmail.com"
-  ).toLowerCase(),
+  bootstrapAdminEmail: (process.env.BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase(),
   bootstrapAdminPassword: process.env.BOOTSTRAP_ADMIN_PASSWORD || "",
+  bookingAccessCookieName:
+    process.env.BOOKING_ACCESS_COOKIE_NAME || "reku_booking_access",
+  professionalLinkTtlHours: Number(process.env.PROFESSIONAL_LINK_TTL_HOURS || 24),
+  professionalSessionTtlSeconds: Number(
+    process.env.PROFESSIONAL_SESSION_TTL_SECONDS || 43_200,
+  ),
+  professionalSessionCookieName:
+    process.env.PROFESSIONAL_SESSION_COOKIE_NAME || "reku_professional_session",
+  mercadoPagoWebhookMaxAgeSeconds: Number(
+    process.env.MP_WEBHOOK_MAX_AGE_SECONDS || 300,
+  ),
   contactToEmail: process.env.CONTACT_TO_EMAIL || "hola@reku.io",
   patientIntakeToEmail:
     process.env.PATIENT_INTAKE_TO_EMAIL || "altas-pacientes@reku.io",
@@ -70,13 +86,21 @@ export const assertSafeStartup = () => {
   if (config.uploadMaxBytes < 1 || config.csvUploadMaxBytes < 1) {
     throw new Error("Upload limits must be positive");
   }
+  if (
+    config.professionalLinkTtlHours < 1 ||
+    config.professionalSessionTtlSeconds < 300 ||
+    config.mercadoPagoWebhookMaxAgeSeconds < 30
+  ) {
+    throw new Error("Security TTL values must be positive and within safe bounds");
+  }
   if (!["ses", "resend"].includes(config.emailProvider)) {
     throw new Error("EMAIL_PROVIDER must be ses or resend");
   }
 };
 
 export const ensureRuntimeDirectories = async () => {
-  await mkdir(join(uploadRoot, "agreements"), { recursive: true });
-  await mkdir(join(uploadRoot, "professionals"), { recursive: true });
-  await mkdir(join(uploadRoot, "services"), { recursive: true });
+  await mkdir(join(publicUploadRoot, "agreements"), { recursive: true });
+  await mkdir(join(publicUploadRoot, "professionals"), { recursive: true });
+  await mkdir(join(publicUploadRoot, "services"), { recursive: true });
+  await mkdir(privateUploadRoot, { recursive: true });
 };

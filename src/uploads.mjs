@@ -5,14 +5,6 @@ import Busboy from "busboy";
 import sharp from "sharp";
 import { config, uploadRoot } from "./config.mjs";
 
-const imageMimeTypes = new Map([
-  ["image/jpeg", ".jpg"],
-  ["image/png", ".png"],
-  ["image/webp", ".webp"],
-  ["image/gif", ".gif"],
-  ["image/svg+xml", ".svg"],
-]);
-
 const csvMimeTypes = new Set([
   "text/csv",
   "application/csv",
@@ -103,16 +95,23 @@ export const parseMultipartForm = (request, { maxBytes = config.uploadMaxBytes }
 
 export const saveAgreementLogo = async (file) => {
   if (!file) return "";
-  const extension = imageMimeTypes.get(file.mimeType);
-  if (!extension) {
-    throw invalidImageError();
-  }
-  return saveAgreementFile(file.buffer, extension);
+  const buffer = await optimizeImageUpload(file, {
+    width: 1200,
+    height: 600,
+    fit: "inside",
+  });
+  return saveAgreementFile(buffer, ".webp");
 };
 
 export const saveAgreementPdf = async (file) => {
   if (!file) return "";
-  if (file.mimeType !== "application/pdf" && extname(file.filename).toLowerCase() !== ".pdf") {
+  const hasPdfSignature =
+    file.buffer.length >= 5 && file.buffer.subarray(0, 5).toString("ascii") === "%PDF-";
+  if (
+    file.mimeType !== "application/pdf" ||
+    extname(file.filename).toLowerCase() !== ".pdf" ||
+    !hasPdfSignature
+  ) {
     const error = new Error("INVALID_PDF");
     error.statusCode = 415;
     throw error;

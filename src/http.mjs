@@ -1,6 +1,11 @@
 import { readFile, stat } from "node:fs/promises";
-import { extname, join, normalize, resolve } from "node:path";
-import { config, root } from "./config.mjs";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  config,
+  isProduction,
+  publicUploadRoot,
+  root,
+} from "./config.mjs";
 
 export const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -36,6 +41,9 @@ const securityHeaders = {
     "form-action 'self'",
     "frame-ancestors 'none'",
   ].join("; "),
+  ...(isProduction
+    ? { "Strict-Transport-Security": "max-age=31536000" }
+    : {}),
 };
 
 const sameOriginFrameHeaders = {
@@ -127,67 +135,192 @@ export const parseCookies = (request) => {
       .split(";")
       .map((item) => item.trim())
       .filter(Boolean)
-      .map((item) => {
+      .flatMap((item) => {
         const separator = item.indexOf("=");
-        return [
-          decodeURIComponent(item.slice(0, separator)),
-          decodeURIComponent(item.slice(separator + 1)),
-        ];
+        if (separator <= 0) return [];
+        try {
+          return [[
+            decodeURIComponent(item.slice(0, separator)),
+            decodeURIComponent(item.slice(separator + 1)),
+          ]];
+        } catch {
+          return [];
+        }
       }),
   );
 };
 
 export const getClientIp = (request) =>
   String(request.headers["x-forwarded-for"] || "")
-    .split(",")[0]
-    .trim() ||
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .at(-1) ||
   request.socket.remoteAddress ||
   "unknown";
 
-export const resolveStaticPath = async (pathname) => {
-  const decodedPath = decodeURIComponent(pathname);
-  const safePath = normalize(decodedPath).replace(/^(\.\.[/\\])+/, "");
-  let filePath = resolve(join(root, safePath));
+const publicFiles = new Map(
+  [
+    "index.html",
+    "producto.html",
+    "evidencia.html",
+    "404.html",
+    "favicon.ico",
+    "favicon-16x16.png",
+    "favicon-32x32.png",
+    "apple-touch-icon.png",
+    "robots.txt",
+    "sitemap.xml",
+    "google85f04377b6d8f892.html",
+  ].map((name) => [`/${name}`, join(root, name)]),
+);
 
-  if (!filePath.startsWith(root)) {
+const publicMounts = [
+  {
+    prefix: "/images/",
+    directory: join(root, "images"),
+    extensions: new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]),
+  },
+  {
+    prefix: "/admin/",
+    directory: join(root, "admin"),
+    extensions: new Set([".html", ".css", ".js"]),
+  },
+  {
+    prefix: "/agenda/",
+    directory: join(root, "agenda"),
+    extensions: new Set([".html", ".css", ".js"]),
+  },
+  {
+    prefix: "/profesional-turnos/",
+    directory: join(root, "profesional-turnos"),
+    extensions: new Set([".html", ".css", ".js"]),
+  },
+  {
+    prefix: "/alta-pacientes/",
+    directory: join(root, "alta-pacientes"),
+    extensions: new Set([".html", ".css", ".js"]),
+  },
+];
+
+const publicUploadFolders = new Map([
+  ["agreements", new Set([".pdf", ".jpg", ".jpeg", ".png", ".webp"])],
+  ["professionals", new Set([".jpg", ".jpeg", ".png", ".webp"])],
+  ["services", new Set([".jpg", ".jpeg", ".png", ".webp"])],
+]);
+
+const resolveInside = (directory, path) => {
+  const filePath = resolve(directory, path);
+  const relativePath = relative(directory, filePath);
+  if (
+    !relativePath ||
+    relativePath.startsWith("..") ||
+    isAbsolute(relativePath)
+  ) {
     return null;
   }
+  return filePath;
+};
+
+const decodedPathname = (pathname) => {
+  try {
+    const decoded = decodeURIComponent(pathname);
+    return decoded.includes("\0") ? null : decoded;
+  } catch {
+    return null;
+  }
+};
+
+export const resolveStaticPath = async (pathname) => {
+  const decodedPath = decodedPathname(pathname);
+  if (!decodedPath) return null;
+  let filePath = publicFiles.get(decodedPath) || null;
+
+  if (!filePath) {
+    for (const mount of publicMounts) {
+      if (!decodedPath.startsWith(mount.prefix)) continue;
+      const suffix = decodedPath.slice(mount.prefix.length);
+      if (!mount.extensions.has(extname(suffix).toLowerCase())) return null;
+      filePath = resolveInside(mount.directory, suffix);
+      break;
+    }
+  }
+
+  if (!filePath) return null;
 
   const fileStat = await stat(filePath).catch(() => null);
   if (fileStat?.isDirectory()) {
-    filePath = join(filePath, "index.html");
+    return null;
   }
 
   return filePath;
+};
+
+export const resolvePublicUploadPath = async (pathname) => {
+  const decodedPath = decodedPathname(pathname);
+  if (!decodedPath?.startsWith("/uploads/")) return null;
+  const suffix = decodedPath.slice("/uploads/".length);
+  const [folder, ...parts] = suffix.split("/");
+  const extensions = publicUploadFolders.get(folder);
+  if (!extensions || parts.length !== 1 || !parts[0]) return null;
+  if (!extensions.has(extname(parts[0]).toLowerCase())) return null;
+  const filePath = resolveInside(publicUploadRoot, `${folder}/${parts[0]}`);
+  if (!filePath) return null;
+  const fileStat = await stat(filePath).catch(() => null);
+  return fileStat?.isFile() ? filePath : null;
+};
+
+const serveFile = async (
+  request,
+  response,
+  filePath,
+  { cacheControl, privateRoute = false, extraHeaders = {} } = {},
+) => {
+  const file = await readFile(filePath);
+  const headers = withSecurityHeaders(
+    {
+      "Content-Type": mimeTypes[extname(filePath).toLowerCase()] || "application/octet-stream",
+      "Cache-Control": cacheControl || "public, max-age=60",
+      ...extraHeaders,
+    },
+    { privateRoute },
+  );
+  response.writeHead(200, headers);
+  response.end(request.method === "HEAD" ? undefined : file);
+};
+
+export const servePublicUpload = async (request, response, pathname) => {
+  const filePath = await resolvePublicUploadPath(pathname);
+  if (!filePath) {
+    sendText(response, 404, "Not found");
+    return;
+  }
+
+  const isPdf = extname(filePath).toLowerCase() === ".pdf";
+  await serveFile(request, response, filePath, {
+    cacheControl: isPdf
+      ? "private, no-store"
+      : "public, max-age=31536000, immutable",
+    extraHeaders: { "X-Robots-Tag": "noindex, nofollow" },
+  });
 };
 
 export const serveStatic = async (request, response, pathname) => {
   const filePath = await resolveStaticPath(pathname);
 
   if (!filePath) {
-    sendText(response, 403, "Forbidden");
+    sendText(response, 404, "Not found");
     return;
   }
 
   try {
-    const file = await readFile(filePath);
     const isAdminRoute = pathname.startsWith("/admin");
-    const isUploadRoute = pathname.startsWith("/uploads");
     const allowsSameOriginFrame = pathname.startsWith("/agenda");
-    const headers = withSecurityHeaders(
-      {
-        "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream",
-        "Cache-Control": isAdminRoute
-          ? "no-store"
-          : isUploadRoute
-            ? "public, max-age=31536000, immutable"
-          : "public, max-age=60",
-        ...(allowsSameOriginFrame ? sameOriginFrameHeaders : {}),
-      },
-      { privateRoute: isAdminRoute },
-    );
-    response.writeHead(200, headers);
-    response.end(request.method === "HEAD" ? undefined : file);
+    await serveFile(request, response, filePath, {
+      cacheControl: isAdminRoute ? "no-store" : "public, max-age=60",
+      privateRoute: isAdminRoute,
+      extraHeaders: allowsSameOriginFrame ? sameOriginFrameHeaders : {},
+    });
   } catch {
     const notFoundPath = join(root, "404.html");
     const notFound = await readFile(notFoundPath).catch(() => null);

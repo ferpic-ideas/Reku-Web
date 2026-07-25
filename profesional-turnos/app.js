@@ -1,6 +1,8 @@
 (() => {
   const app = document.getElementById('professional-app');
-  const token = new URLSearchParams(window.location.search).get('token') || '';
+  const queryToken = new URLSearchParams(window.location.search).get('token') || '';
+  const hashToken = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token') || '';
+  const token = hashToken || queryToken;
   const state = {
     loading: true,
     error: '',
@@ -40,24 +42,25 @@
       return groups;
     }, new Map());
 
-  async function api(path) {
-    const response = await fetch(path);
+  async function api(path, options = {}) {
+    const response = await fetch(path, options);
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || 'No se pudieron cargar los turnos.');
     return payload;
   }
 
   async function loadAppointments() {
-    if (!token) {
-      state.error = 'El link no es válido.';
-      state.loading = false;
-      render();
-      return;
-    }
-
     try {
+      if (token) {
+        await api('/api/professional/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+        window.history.replaceState({}, '', '/profesional-turnos/');
+      }
       const payload = await api(
-        `/api/professional/appointments?token=${encodeURIComponent(token)}`,
+        '/api/professional/appointments',
       );
       state.professional = payload.professional;
       state.expiresAt = payload.expires_at;

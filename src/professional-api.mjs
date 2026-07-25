@@ -1,8 +1,15 @@
 import { query } from "./db.mjs";
-import { sendJson } from "./http.mjs";
-import { requireProfessionalAccessLink } from "./professional-links.mjs";
+import { readBody, sendJson } from "./http.mjs";
+import {
+  exchangeProfessionalAccessLink,
+  professionalSessionCookie,
+  requireProfessionalSession,
+} from "./professional-links.mjs";
 
-const readToken = (url) => String(url.searchParams.get("token") || "").trim();
+const parseJsonBody = async (request) => {
+  const body = await readBody(request);
+  return body ? JSON.parse(body) : {};
+};
 
 const mapAppointment = (row) => ({
   id: Number(row.id),
@@ -51,8 +58,25 @@ export const handleProfessionalApi = async (request, response, url) => {
   const pathname = url.pathname;
 
   try {
-    const token = readToken(url);
-    const link = await requireProfessionalAccessLink(token);
+    if (pathname === "/api/professional/session" && request.method === "POST") {
+      const payload = await parseJsonBody(request);
+      const session = await exchangeProfessionalAccessLink(
+        String(payload.token || "").trim(),
+      );
+      sendJson(
+        response,
+        200,
+        {
+          ok: true,
+          professional: session.professional,
+          expires_at: session.expires_at,
+        },
+        { "Set-Cookie": professionalSessionCookie(session.token) },
+      );
+      return true;
+    }
+
+    const link = await requireProfessionalSession(request);
 
     if (pathname === "/api/professional/appointments" && request.method === "GET") {
       await listProfessionalAppointments(response, link);
@@ -63,6 +87,12 @@ export const handleProfessionalApi = async (request, response, url) => {
   } catch (error) {
     if (error.message === "PROFESSIONAL_LINK_INVALID") {
       sendJson(response, 401, { error: "El link de turnos expiró o no es válido." });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_SESSION_INVALID") {
+      sendJson(response, 401, {
+        error: "La sesión expiró. Abrí nuevamente el link recibido por mail.",
+      });
       return true;
     }
     throw error;

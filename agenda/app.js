@@ -1,16 +1,17 @@
 (() => {
   const app = document.getElementById('booking-app');
   const urlParams = new URLSearchParams(window.location.search);
-  const initialToken = urlParams.get('token') || '';
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const initialToken = urlParams.get('token') || hashParams.get('token') || '';
+  const verificationToken = hashParams.get('verify') || '';
   const formSlug = urlParams.get('form') || '';
   const returnAppointmentId = urlParams.get('appointment_id') || '';
   const returnPaymentId = urlParams.get('payment_id') || urlParams.get('collection_id') || '';
   const returnResult = urlParams.get('mp_return') || '';
   const state = {
-    step: initialToken ? 2 : 1,
+    step: verificationToken ? 7 : initialToken ? 2 : 1,
     loading: true,
     error: '',
-    token: initialToken,
     formSlug,
     intakeErrors: {},
     intakeValues: {
@@ -45,6 +46,13 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+
+  const removeSensitiveUrlTokens = () => {
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete('token');
+    clean.hash = '';
+    window.history.replaceState({}, '', `${clean.pathname}${clean.search}`);
+  };
 
   const isEmbedded = () => {
     try {
@@ -87,7 +95,8 @@
   };
 
   async function api(path, options = {}) {
-    const response = await fetch(path, options);
+    const headers = { ...(options.headers || {}) };
+    const response = await fetch(path, { ...options, headers });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const error = new Error(payload.error || 'No se pudo completar la acción.');
@@ -98,15 +107,8 @@
   }
 
   async function loadServices() {
-    if (!state.token) {
-      state.error = 'El link de agenda no es válido.';
-      state.loading = false;
-      render();
-      return;
-    }
-
     try {
-      const payload = await api(`/api/booking/services?token=${encodeURIComponent(state.token)}`);
+      const payload = await api('/api/booking/services');
       state.patient = payload.patient;
       state.agreement = payload.agreement || null;
       state.paymentRequired = payload.payment_required !== false;
@@ -120,10 +122,9 @@
   }
 
   async function loadPaymentReturn() {
-    if (!state.token || !returnAppointmentId) return false;
+    if (!returnAppointmentId) return false;
     try {
       const query = new URLSearchParams({
-        token: state.token,
         appointment_id: returnAppointmentId,
       });
       if (returnPaymentId) query.set('payment_id', returnPaymentId);
@@ -160,19 +161,56 @@
   }
 
   async function loadInitial() {
-    if (await loadPaymentReturn()) return;
-    if (state.token) {
+    if (verificationToken) {
+      await verifyIntake();
+      return;
+    }
+    if (initialToken) {
+      try {
+        await api('/api/booking/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: initialToken }),
+        });
+        removeSensitiveUrlTokens();
+      } catch (error) {
+        state.error = error.message;
+        state.loading = false;
+        render();
+        return;
+      }
+      if (await loadPaymentReturn()) return;
       state.step = 2;
       await loadServices();
       return;
     }
+    if (await loadPaymentReturn()) return;
     if (state.formSlug) {
       await loadAgreement();
       return;
     }
-    state.error = 'El link de agenda no es válido.';
-    state.loading = false;
-    render();
+    state.step = 2;
+    await loadServices();
+  }
+
+  async function verifyIntake() {
+    try {
+      const payload = await api('/api/booking/intake/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verification_token: verificationToken }),
+      });
+      state.patient = payload.patient || null;
+      state.agreement = payload.agreement || null;
+      state.paymentRequired = state.agreement?.type !== 'Nomina';
+      state.step = 2;
+      removeSensitiveUrlTokens();
+      await loadServices();
+    } catch (error) {
+      state.error = error.message;
+      state.loading = false;
+      render();
+    }
   }
 
   async function loadAgreement() {
@@ -204,7 +242,7 @@
     render();
 
     try {
-      const payload = await api('/api/booking/intake', {
+      await api('/api/booking/intake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -212,16 +250,9 @@
           ...state.intakeValues,
         }),
       });
-      if (!payload.booking_token) {
-        throw new Error('No se pudo generar el link de agenda.');
-      }
-      state.token = payload.booking_token;
-      state.patient = payload.patient || null;
-      state.agreement = payload.agreement || state.agreement;
-      state.paymentRequired = state.agreement?.type !== 'Nomina';
-      state.step = 2;
-      window.history.replaceState({}, '', `/agenda/?token=${encodeURIComponent(state.token)}`);
-      await loadServices();
+      state.loading = false;
+      state.step = 7;
+      render();
     } catch (error) {
       state.loading = false;
       state.intakeErrors = error.payload?.errors || {};
@@ -245,7 +276,7 @@
     render();
     try {
       const payload = await api(
-        `/api/booking/professionals?token=${encodeURIComponent(state.token)}&service_id=${serviceId}`,
+        `/api/booking/professionals?service_id=${serviceId}`,
       );
       state.professionals = payload.professionals || [];
     } catch (error) {
@@ -281,7 +312,7 @@
     render();
     try {
       const payload = await api(
-        `/api/booking/days?token=${encodeURIComponent(state.token)}&service_id=${state.service.id}&professional_id=${state.professional.id}&month=${monthKey(state.month)}`,
+        `/api/booking/days?service_id=${state.service.id}&professional_id=${state.professional.id}&month=${monthKey(state.month)}`,
       );
       state.availableDays = payload.days || [];
     } catch (error) {
@@ -301,7 +332,7 @@
     render();
     try {
       const payload = await api(
-        `/api/booking/slots?token=${encodeURIComponent(state.token)}&service_id=${state.service.id}&professional_id=${state.professional.id}&date=${date}`,
+        `/api/booking/slots?service_id=${state.service.id}&professional_id=${state.professional.id}&date=${date}`,
       );
       state.slots = payload.slots || [];
     } catch (error) {
@@ -330,7 +361,6 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          token: state.token,
           service_id: state.service.id,
           professional_id: state.professional.id,
           date: state.selectedDate,
@@ -662,6 +692,19 @@
     `;
   }
 
+  function renderVerificationPending() {
+    return `
+      <section>
+        <div class="payment-card">
+          <div class="success-mark">✓</div>
+          <h2 class="section-title">Revisá tu mail</h2>
+          <p class="section-copy">Te enviamos un enlace para confirmar tu dirección y continuar con la reserva.</p>
+          <p class="section-copy">El enlace vence en 24 horas y puede usarse una sola vez.</p>
+        </div>
+      </section>
+    `;
+  }
+
   function renderBackButton(step) {
     return `<button type="button" class="back-button" data-action="go-step" data-step="${step}">← Atrás</button>`;
   }
@@ -686,6 +729,7 @@
       4: renderCalendar,
       5: renderPayment,
       6: renderSuccess,
+      7: renderVerificationPending,
     }[state.step]();
     app.innerHTML = `${renderHeader()}${content}`;
     bindEvents();
@@ -717,7 +761,7 @@
         }
         if (action === 'confirm-payment') await confirmPayment();
         if (action === 'restart-booking') {
-          window.history.replaceState({}, '', `/agenda/?token=${encodeURIComponent(state.token)}`);
+          window.history.replaceState({}, '', '/agenda/');
           state.step = 2;
           state.appointment = null;
           state.error = '';

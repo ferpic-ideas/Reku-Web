@@ -78,6 +78,22 @@
     Object.entries(moduleRoutes).map(([moduleId, path]) => [path, moduleId]),
   );
 
+  const modulePermissions = {
+    dashboard: 'dashboard.read',
+    agreements: 'agreements.read',
+    nomina: 'nomina.read',
+    services: 'services.read',
+    professionals: 'professionals.read',
+    blocks: 'schedule_blocks.read',
+    'booking-test': 'booking_links.create',
+    appointments: 'appointments.read',
+    'patient-intakes': 'patient_intakes.read',
+    contacts: 'contacts.read',
+    users: 'users.read',
+    config: 'settings.read',
+    audit: 'audit.read',
+  };
+
   const navIcons = {
     dashboard: `
       <rect width="7" height="9" x="3" y="3" rx="1" />
@@ -170,7 +186,14 @@
     return routeModules[normalized] || 'dashboard';
   };
 
-  const isAdminOnlyModule = (moduleId) => ['config', 'audit'].includes(moduleId);
+  const can = (permission) =>
+    Boolean(
+      state.user?.permissions?.includes('*') ||
+        state.user?.permissions?.includes(permission),
+    );
+
+  const canAccessModule = (moduleId) =>
+    !modulePermissions[moduleId] || can(modulePermissions[moduleId]);
 
   const applyModuleFiltersFromSearch = (moduleId, search = window.location.search) => {
     if (moduleId !== 'appointments') return;
@@ -201,7 +224,7 @@
 
   const navigateToModule = async (moduleId, { replace = false, search = '' } = {}) => {
     let nextModule = moduleRoutes[moduleId] ? moduleId : 'dashboard';
-    if (state.user && isAdminOnlyModule(nextModule) && !state.user.can_manage_system) {
+    if (state.user && !canAccessModule(nextModule)) {
       nextModule = 'dashboard';
       search = '';
       replace = true;
@@ -397,7 +420,7 @@
       const payload = await api('/api/admin/auth/me');
       csrfToken = payload.csrf_token;
       state.user = payload.user;
-      if (isAdminOnlyModule(state.active) && !state.user.can_manage_system) {
+      if (!canAccessModule(state.active)) {
         state.active = 'dashboard';
         window.history.replaceState({ module: 'dashboard' }, '', modulePath('dashboard'));
       }
@@ -429,16 +452,28 @@
       blockData,
       userData,
     ] = await Promise.all([
-      api('/api/admin/dashboard'),
-      api('/api/admin/agreements'),
-      api(`/api/admin/patient-intakes${state.patientAgreementFilter ? `?agreement_id=${state.patientAgreementFilter}` : ''}`),
-      api('/api/admin/contacts'),
-      api(`/api/admin/nomina${state.nominaAgreementFilter ? `?agreement_id=${state.nominaAgreementFilter}` : ''}`),
-      api('/api/admin/services'),
-      api('/api/admin/professionals'),
-      api('/api/admin/appointments'),
-      api('/api/admin/schedule-blocks'),
-      api('/api/admin/users'),
+      can('dashboard.read') ? api('/api/admin/dashboard') : Promise.resolve({}),
+      can('agreements.read') ? api('/api/admin/agreements') : Promise.resolve({ agreements: [] }),
+      can('patient_intakes.read')
+        ? api(`/api/admin/patient-intakes${state.patientAgreementFilter ? `?agreement_id=${state.patientAgreementFilter}` : ''}`)
+        : Promise.resolve({ patient_intakes: [] }),
+      can('contacts.read') ? api('/api/admin/contacts') : Promise.resolve({ contacts: [] }),
+      can('nomina.read')
+        ? api(`/api/admin/nomina${state.nominaAgreementFilter ? `?agreement_id=${state.nominaAgreementFilter}` : ''}`)
+        : Promise.resolve({ nomina_entries: [] }),
+      can('services.read') ? api('/api/admin/services') : Promise.resolve({ services: [] }),
+      can('professionals.read')
+        ? api('/api/admin/professionals')
+        : Promise.resolve({ professionals: [] }),
+      can('appointments.read')
+        ? api('/api/admin/appointments')
+        : Promise.resolve({ appointments: [] }),
+      can('schedule_blocks.read')
+        ? api('/api/admin/schedule-blocks')
+        : Promise.resolve({ schedule_blocks: [] }),
+      can('users.read')
+        ? api('/api/admin/users')
+        : Promise.resolve({ users: [] }),
     ]);
     state.dashboard = dashboardData.dashboard || null;
     state.agreements = agreementData.agreements || [];
@@ -472,10 +507,12 @@
         </div>
         <nav class="side-nav">
           ${modules
-            .map((module) =>
-              module.type === 'divider'
-                ? '<span class="nav-divider" aria-hidden="true"></span>'
-                : `
+            .map((module) => {
+              if (module.type === 'divider') {
+                return '<span class="nav-divider" aria-hidden="true"></span>';
+              }
+              if (!canAccessModule(module.id)) return '';
+              return `
                 <a
                   href="${modulePath(module.id)}"
                   class="nav-button${state.active === module.id ? ' active' : ''}"
@@ -484,8 +521,8 @@
                   ${navIcon(module.icon)}
                   <span>${escapeHtml(module.label)}</span>
                 </a>
-              `,
-            )
+              `;
+            })
             .join('')}
         </nav>
         <a class="sidebar-foot" href="https://ferpic-ideas.tech" target="_blank" rel="noreferrer">Hecho x Ferpic</a>
@@ -511,15 +548,9 @@
                 ${escapeHtml(state.user.email)} ▾
               </button>
               <div class="user-menu-popover" ${state.userMenuOpen ? '' : 'hidden'}>
-                <button type="button" class="dropdown-button" data-action="open-users">Usuarios</button>
-                ${
-                  state.user.can_manage_system
-                    ? `
-                      <button type="button" class="dropdown-button" data-action="open-config">Configurar</button>
-                      <button type="button" class="dropdown-button" data-action="open-audit">Auditoría</button>
-                    `
-                    : ''
-                }
+                ${can('users.read') ? '<button type="button" class="dropdown-button" data-action="open-users">Usuarios</button>' : ''}
+                ${can('settings.read') ? '<button type="button" class="dropdown-button" data-action="open-config">Configurar</button>' : ''}
+                ${can('audit.read') ? '<button type="button" class="dropdown-button" data-action="open-audit">Auditoría</button>' : ''}
                 <button type="button" class="dropdown-button" data-action="change-password">Cambiar clave</button>
                 <button type="button" class="dropdown-button" data-action="logout">Salir</button>
               </div>
@@ -693,7 +724,7 @@
             <p class="muted">${escapeHtml(state.dialog.message)}</p>
             <div class="modal-actions">
               <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
-              <button type="button" class="danger-button" data-action="confirm-delete">Eliminar</button>
+              <button type="button" class="danger-button" data-action="confirm-delete">${escapeHtml(state.dialog.confirmLabel || 'Eliminar')}</button>
             </div>
           </div>
         </div>
@@ -952,7 +983,7 @@
     return `
       <section class="panel">
         <div class="panel-header panel-header-actions-only">
-          <button type="button" class="primary-button" data-action="new-service">Nuevo</button>
+          ${can('services.write') ? '<button type="button" class="primary-button" data-action="new-service">Nuevo</button>' : ''}
         </div>
         <div class="table-wrap">
           <table>
@@ -1001,8 +1032,23 @@
         <td>${service.active ? 'Activo' : 'Inactivo'}</td>
         <td>
           <div class="table-actions">
-            <button type="button" class="secondary-button" data-action="edit-service" data-id="${service.id}">Editar</button>
-            <button type="button" class="danger-button" data-action="delete-service" data-id="${service.id}">Eliminar</button>
+            ${
+              can('services.write')
+                ? `
+                  <button type="button" class="secondary-button" data-action="edit-service" data-id="${service.id}">Editar</button>
+                `
+                : ''
+            }
+            ${
+              can('services.delete')
+                ? `<button type="button" class="danger-button" data-action="delete-service" data-id="${service.id}">Eliminar</button>`
+                : ''
+            }
+            ${
+              !can('services.write') && !can('services.delete')
+                ? '<span class="muted">Solo lectura</span>'
+                : ''
+            }
           </div>
         </td>
       </tr>
@@ -1128,7 +1174,7 @@
     return `
       <section class="panel">
         <div class="panel-header panel-header-actions-only">
-          <button type="button" class="primary-button" data-action="new-professional">Nuevo</button>
+          ${can('professionals.write') ? '<button type="button" class="primary-button" data-action="new-professional">Nuevo</button>' : ''}
         </div>
         <div class="table-wrap">
           <table>
@@ -1170,8 +1216,28 @@
         <td>${professional.active ? 'Activo' : 'Inactivo'}</td>
         <td>
           <div class="table-actions">
-            <button type="button" class="secondary-button" data-action="edit-professional" data-id="${professional.id}">Editar</button>
-            <button type="button" class="danger-button" data-action="delete-professional" data-id="${professional.id}">Eliminar</button>
+            ${
+              can('professionals.write')
+                ? `<button type="button" class="secondary-button" data-action="edit-professional" data-id="${professional.id}">Editar</button>`
+                : ''
+            }
+            ${
+              can('professionals.revoke_access')
+                ? `<button type="button" class="secondary-button" data-action="revoke-professional-access" data-id="${professional.id}">Revocar accesos</button>`
+                : ''
+            }
+            ${
+              can('professionals.delete')
+                ? `<button type="button" class="danger-button" data-action="delete-professional" data-id="${professional.id}">Eliminar</button>`
+                : ''
+            }
+            ${
+              !can('professionals.write') &&
+              !can('professionals.delete') &&
+              !can('professionals.revoke_access')
+                ? '<span class="muted">Solo lectura</span>'
+                : ''
+            }
           </div>
         </td>
       </tr>
@@ -1409,7 +1475,7 @@
             </label>
           </div>
           <div class="toolbar-actions toolbar-end-actions">
-            <button type="button" class="primary-button" data-action="new-schedule-block">Nuevo bloqueo</button>
+            ${can('schedule_blocks.write') ? '<button type="button" class="primary-button" data-action="new-schedule-block">Nuevo bloqueo</button>' : ''}
           </div>
         </div>
         <div class="table-wrap">
@@ -1491,7 +1557,13 @@
         <td>${escapeHtml(item.reason || 'Sin motivo')}</td>
         <td>
           <div class="table-actions">
-            <button type="button" class="danger-button" data-action="delete-schedule-block" data-id="${item.id}">Eliminar</button>
+            ${
+              can('schedule_blocks.delete')
+                ? `<button type="button" class="danger-button" data-action="delete-schedule-block" data-id="${item.id}">Eliminar</button>`
+                : can('schedule_blocks.write')
+                  ? ''
+                  : '<span class="muted">Solo lectura</span>'
+            }
           </div>
         </td>
       </tr>
@@ -1535,7 +1607,7 @@
     return `
       <section class="panel">
         <div class="panel-header panel-header-actions-only">
-          <button type="button" class="primary-button" data-action="new-user">Nuevo usuario</button>
+          ${can('users.write') ? '<button type="button" class="primary-button" data-action="new-user">Nuevo usuario</button>' : ''}
         </div>
         <div class="table-wrap">
           <table>
@@ -1564,7 +1636,7 @@
 
   function renderUserRow(item) {
     const isSelf = Number(item.id) === Number(state.user.id);
-    const canDelete = !isSelf && (state.user.can_manage_system || item.role !== 'admin');
+    const canDelete = can('users.write') && !isSelf;
     return `
       <tr>
         <td><strong>${escapeHtml(item.name || 'Sin nombre')}</strong></td>
@@ -1590,7 +1662,7 @@
   }
 
   function renderConfig() {
-    if (!state.user.can_manage_system) return '<section class="panel">Sin permisos.</section>';
+    if (!can('settings.read')) return '<section class="panel">Sin permisos.</section>';
     const settings = {
       mode: 'production',
       development: {},
@@ -1600,7 +1672,7 @@
     const environmentFields = (key, label) => {
       const env = settings[key] || {};
       return `
-        <fieldset class="settings-fieldset">
+        <fieldset class="settings-fieldset" ${can('settings.write') ? '' : 'disabled'}>
           <legend>${escapeHtml(label)}</legend>
           <label class="span-two">
             Public Key
@@ -1620,7 +1692,7 @@
           </label>
           <label class="span-two">
             Webhook Secret
-            <input name="${key}_webhook_secret" type="password" placeholder="${env.webhook_secret_set ? 'Guardado' : 'Opcional, para validar notificaciones'}" autocomplete="off" />
+            <input name="${key}_webhook_secret" type="password" placeholder="${env.webhook_secret_set ? 'Guardado' : 'Obligatorio para recibir notificaciones'}" autocomplete="off" />
           </label>
         </fieldset>
       `;
@@ -1634,7 +1706,7 @@
           </div>
           <label class="span-two">
             Entorno activo
-            <select name="mode">
+            <select name="mode" ${can('settings.write') ? '' : 'disabled'}>
               <option value="development" ${settings.mode === 'development' ? 'selected' : ''}>Desarrollo</option>
               <option value="production" ${settings.mode === 'production' ? 'selected' : ''}>Producción</option>
             </select>
@@ -1642,7 +1714,7 @@
           ${environmentFields('development', 'Desarrollo')}
           ${environmentFields('production', 'Producción')}
           <div class="form-actions span-two">
-            <button type="submit" class="primary-button">Guardar configuración</button>
+            ${can('settings.write') ? '<button type="submit" class="primary-button">Guardar configuración</button>' : '<span class="muted">Solo lectura</span>'}
           </div>
         </form>
       </section>
@@ -1650,7 +1722,7 @@
   }
 
   function renderAudit() {
-    if (!state.user.can_manage_system) return '<section class="panel">Sin permisos.</section>';
+    if (!can('audit.read')) return '<section class="panel">Sin permisos.</section>';
     return `
       <section class="panel">
         <div class="table-wrap">
@@ -1828,7 +1900,7 @@
             </label>
           </div>
           <div class="toolbar-actions toolbar-end-actions">
-            <button type="button" class="primary-button" data-action="new-agreement">Nuevo</button>
+            ${can('agreements.write') ? '<button type="button" class="primary-button" data-action="new-agreement">Nuevo</button>' : ''}
           </div>
         </div>
         <div class="table-wrap">
@@ -1876,8 +1948,18 @@
             >
               Get QR
             </a>
-            <button type="button" class="secondary-button" data-action="edit-agreement" data-id="${agreement.id}">Editar</button>
-            <button type="button" class="danger-button" data-action="delete-agreement" data-id="${agreement.id}">Eliminar</button>
+            ${
+              can('agreements.write')
+                ? `
+                  <button type="button" class="secondary-button" data-action="edit-agreement" data-id="${agreement.id}">Editar</button>
+                `
+                : ''
+            }
+            ${
+              can('agreements.delete')
+                ? `<button type="button" class="danger-button" data-action="delete-agreement" data-id="${agreement.id}">Eliminar</button>`
+                : ''
+            }
           </div>
         </td>
       </tr>
@@ -2015,9 +2097,26 @@
         <td>${escapeHtml(item.agreement_name || 'Genérico')}</td>
         <td><strong>${escapeHtml(item.nombre)} ${escapeHtml(item.apellido)}</strong></td>
         <td>${escapeHtml(item.telefono)}</td>
-        <td>${escapeHtml(item.email)}</td>
+        <td>
+          ${escapeHtml(item.email)}
+          ${
+            item.email_duplicate_count > 1
+              ? `<span class="muted">Posible duplicado (${item.email_duplicate_count})</span>`
+              : ''
+          }
+        </td>
         <td>${escapeHtml(item.identificador)}</td>
-        <td>${item.email_error ? `<span class="muted">${escapeHtml(item.email_error)}</span>` : 'Enviado'}</td>
+        <td>
+          ${
+            item.verification_email_error
+              ? `<span class="muted">Error al verificar: ${escapeHtml(item.verification_email_error)}</span>`
+              : item.verification_email_message_id
+                ? 'Verificación enviada'
+                : item.email_error
+                  ? `<span class="muted">${escapeHtml(item.email_error)}</span>`
+                  : 'Pendiente'
+          }
+        </td>
         <td>
           <div class="table-actions">
             <button
@@ -2201,8 +2300,14 @@
             </label>
           </div>
           <div class="toolbar-actions toolbar-end-actions">
-            <button type="button" class="secondary-button" data-action="open-nomina-csv">Subir CSV</button>
-            <button type="button" class="primary-button" data-action="new-nomina">Agregar</button>
+            ${
+              can('nomina.write')
+                ? `
+                  <button type="button" class="secondary-button" data-action="open-nomina-csv">Subir CSV</button>
+                  <button type="button" class="primary-button" data-action="new-nomina">Agregar</button>
+                `
+                : ''
+            }
           </div>
         </div>
         <div class="table-wrap">
@@ -2238,7 +2343,11 @@
         <td>${item.form_submitted ? 'Sí' : 'No'}</td>
         <td>
           <div class="table-actions">
-            <button type="button" class="danger-button" data-action="delete-nomina" data-id="${item.id}">Eliminar</button>
+            ${
+              can('nomina.delete')
+                ? `<button type="button" class="danger-button" data-action="delete-nomina" data-id="${item.id}">Eliminar</button>`
+                : '<span class="muted">Solo lectura</span>'
+            }
           </div>
         </td>
       </tr>
@@ -2683,6 +2792,19 @@
         render();
         return;
       }
+      if (action === 'revoke-professional-access') {
+        state.dialog = {
+          type: 'confirm-delete',
+          target: 'professional-access',
+          id,
+          title: 'Revocar accesos',
+          message:
+            'Todos los links y sesiones vigentes de este profesional dejarán de funcionar.',
+          confirmLabel: 'Revocar',
+        };
+        render();
+        return;
+      }
       if (action === 'delete-schedule-block') {
         state.dialog = {
           type: 'confirm-delete',
@@ -2743,13 +2865,13 @@
   }
 
   async function loadMercadoPagoSettings() {
-    if (!state.user.can_manage_system) return;
+    if (!can('settings.read')) return;
     const payload = await api('/api/admin/settings/mercado-pago');
     state.mercadoPagoSettings = payload.settings || {};
   }
 
   async function loadAuditEvents() {
-    if (!state.user.can_manage_system) return;
+    if (!can('audit.read')) return;
     const payload = await api('/api/admin/audit');
     state.auditEvents = payload.audit_events || [];
   }
@@ -3088,6 +3210,7 @@
       nomina: `/api/admin/nomina/${id}`,
       service: `/api/admin/services/${id}`,
       professional: `/api/admin/professionals/${id}`,
+      'professional-access': `/api/admin/professionals/${id}/revoke-access`,
       'schedule-block': `/api/admin/schedule-blocks/${id}`,
       user: `/api/admin/users/${id}`,
     };
@@ -3098,12 +3221,15 @@
       nomina: 'Registro eliminado.',
       service: 'Servicio eliminado.',
       professional: 'Profesional eliminado.',
+      'professional-access': 'Accesos del profesional revocados.',
       'schedule-block': 'Bloqueo eliminado.',
       user: 'Usuario eliminado.',
     };
 
     try {
-      await api(paths[target], { method: 'DELETE' });
+      await api(paths[target], {
+        method: target === 'professional-access' ? 'POST' : 'DELETE',
+      });
       state.dialog = null;
       await loadData();
       setStatus(labels[target], 'ok');

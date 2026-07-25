@@ -160,16 +160,16 @@ export const createMercadoPagoPreference = async ({
   service,
   professional,
   patient,
-  token,
 }) => {
   const credentials = await getActiveMercadoPagoCredentials();
   const externalReference = appointmentReference(appointment.id);
-  const returnParams = (result) =>
-    new URLSearchParams({
-      token,
+  const returnUrl = (result) => {
+    const params = new URLSearchParams({
       appointment_id: String(appointment.id),
       mp_return: result,
-    }).toString();
+    });
+    return `${config.appPublicUrl}/agenda/?${params.toString()}`;
+  };
   const patientName = splitPatientName(patient.name);
   const unitPrice = Number(service.cost_amount || 0);
   const preference = await mercadoPagoRequest("/checkout/preferences", {
@@ -194,9 +194,9 @@ export const createMercadoPagoPreference = async ({
         phone: patient.phone ? { number: patient.phone } : undefined,
       }),
       back_urls: {
-        success: `${config.appPublicUrl}/agenda/?${returnParams("success")}`,
-        failure: `${config.appPublicUrl}/agenda/?${returnParams("failure")}`,
-        pending: `${config.appPublicUrl}/agenda/?${returnParams("pending")}`,
+        success: returnUrl("success"),
+        failure: returnUrl("failure"),
+        pending: returnUrl("pending"),
       },
       auto_return: "approved",
       external_reference: externalReference,
@@ -322,13 +322,23 @@ const parseSignatureHeader = (value) =>
   );
 
 export const verifyMercadoPagoWebhookSignature = ({ headers, dataId, secret }) => {
-  if (!secret) return { configured: false, valid: true };
+  if (!secret) return { configured: false, valid: false, fresh: false };
 
   const signature = parseSignatureHeader(headers["x-signature"]);
   const requestId = String(headers["x-request-id"] || "");
   const ts = signature.ts || "";
   const expectedHash = signature.v1 || "";
-  if (!ts || !expectedHash) return { configured: true, valid: false };
+  if (!ts || !expectedHash) {
+    return { configured: true, valid: false, fresh: false };
+  }
+
+  const timestampSeconds = Number(ts);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const fresh =
+    Number.isFinite(timestampSeconds) &&
+    Math.abs(nowSeconds - timestampSeconds) <=
+      config.mercadoPagoWebhookMaxAgeSeconds;
+  if (!fresh) return { configured: true, valid: false, fresh: false };
 
   const manifest = [
     dataId ? `id:${dataId};` : "",
@@ -341,5 +351,6 @@ export const verifyMercadoPagoWebhookSignature = ({ headers, dataId, secret }) =
   return {
     configured: true,
     valid: expected.length === computed.length && timingSafeEqual(expected, computed),
+    fresh,
   };
 };

@@ -49,11 +49,16 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       SESSION_SECURE: ${SESSION_SECURE:-true}
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-259200}
-      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-ferpic@gmail.com}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
-      UPLOAD_ROOT: /app/uploads
+      BOOKING_ACCESS_COOKIE_NAME: ${BOOKING_ACCESS_COOKIE_NAME:-reku_booking_access}
+      PUBLIC_UPLOAD_ROOT: /app/storage/public
+      PRIVATE_UPLOAD_ROOT: /app/storage/private
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
       CSV_UPLOAD_MAX_BYTES: ${CSV_UPLOAD_MAX_BYTES:-2097152}
+      PROFESSIONAL_LINK_TTL_HOURS: ${PROFESSIONAL_LINK_TTL_HOURS:-24}
+      PROFESSIONAL_SESSION_TTL_SECONDS: ${PROFESSIONAL_SESSION_TTL_SECONDS:-43200}
+      MP_WEBHOOK_MAX_AGE_SECONDS: ${MP_WEBHOOK_MAX_AGE_SECONDS:-300}
       CONTACT_TO_EMAIL: ${CONTACT_TO_EMAIL:-hola@reku.io}
       PATIENT_INTAKE_TO_EMAIL: ${PATIENT_INTAKE_TO_EMAIL:-altas-pacientes@reku.io}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-ses}
@@ -67,7 +72,8 @@ services:
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Reku <hola@reku.io>}
       EMAIL_DRY_RUN: ${EMAIL_DRY_RUN:-false}
     volumes:
-      - ./uploads:/app/uploads
+      - ./uploads:/app/storage/public
+      - private_uploads:/app/storage/private
     depends_on:
       db:
         condition: service_healthy
@@ -79,21 +85,26 @@ services:
       - traefik.http.routers.reku-web.rule=Host(`reku-web.srv1699600.hstgr.cloud`)
       - traefik.http.routers.reku-web.entrypoints=websecure
       - traefik.http.routers.reku-web.tls.certresolver=letsencrypt
-      - traefik.http.routers.reku-web.middlewares=reku-web-upload-limit
+      - traefik.http.routers.reku-web.middlewares=reku-technical-to-www,reku-security-headers,reku-web-upload-limit
       - traefik.http.routers.reku-web.service=reku-web
       - traefik.http.routers.reku-web-www.rule=Host(`www.reku.io`)
       - traefik.http.routers.reku-web-www.entrypoints=websecure
       - traefik.http.routers.reku-web-www.tls.certresolver=letsencrypt
-      - traefik.http.routers.reku-web-www.middlewares=reku-web-upload-limit
+      - traefik.http.routers.reku-web-www.middlewares=reku-security-headers,reku-web-upload-limit
       - traefik.http.routers.reku-web-www.service=reku-web
       - traefik.http.routers.reku-web-apex.rule=Host(`reku.io`)
       - traefik.http.routers.reku-web-apex.entrypoints=websecure
       - traefik.http.routers.reku-web-apex.tls.certresolver=letsencrypt
-      - traefik.http.routers.reku-web-apex.middlewares=reku-apex-to-www
+      - traefik.http.routers.reku-web-apex.middlewares=reku-security-headers,reku-apex-to-www
       - traefik.http.routers.reku-web-apex.service=reku-web
       - traefik.http.middlewares.reku-apex-to-www.redirectregex.regex=^https?://reku\.io/(.*)
       - traefik.http.middlewares.reku-apex-to-www.redirectregex.replacement=https://www.reku.io/$${1}
       - traefik.http.middlewares.reku-apex-to-www.redirectregex.permanent=true
+      - traefik.http.middlewares.reku-technical-to-www.redirectregex.regex=^https?://reku-web\.srv1699600\.hstgr\.cloud/(.*)
+      - traefik.http.middlewares.reku-technical-to-www.redirectregex.replacement=https://www.reku.io/$${1}
+      - traefik.http.middlewares.reku-technical-to-www.redirectregex.permanent=true
+      - traefik.http.middlewares.reku-security-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.reku-security-headers.headers.forceSTSHeader=true
       - traefik.http.middlewares.reku-web-upload-limit.buffering.maxRequestBodyBytes=${UPLOAD_MAX_BYTES:-10485760}
       - traefik.http.services.reku-web.loadbalancer.server.port=3000
     networks:
@@ -108,3 +119,4 @@ networks:
 
 volumes:
   postgres_data:
+  private_uploads:

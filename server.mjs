@@ -10,10 +10,18 @@ import {
   assertSafeStartup,
   config,
   ensureRuntimeDirectories,
+  isProduction,
 } from "./src/config.mjs";
 import { initDb } from "./src/db.mjs";
 import { handleFormSubmission } from "./src/forms.mjs";
-import { sendJson, sendRedirect, serveStatic, sendText } from "./src/http.mjs";
+import { handleHealth } from "./src/health.mjs";
+import {
+  sendJson,
+  sendRedirect,
+  servePublicUpload,
+  serveStatic,
+  sendText,
+} from "./src/http.mjs";
 
 assertSafeStartup();
 await ensureRuntimeDirectories();
@@ -24,6 +32,34 @@ const server = createServer(async (request, response) => {
   const { pathname } = requestUrl;
 
   try {
+    if (
+      pathname === "/healthz" &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (
+      pathname === "/health" &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      await handleHealth(response);
+      return;
+    }
+
+    if (isProduction) {
+      const canonicalUrl = new URL(config.appPublicUrl);
+      if (requestUrl.host.toLowerCase() !== canonicalUrl.host.toLowerCase()) {
+        sendRedirect(
+          response,
+          `${config.appPublicUrl}${pathname}${requestUrl.search}`,
+          308,
+        );
+        return;
+      }
+    }
+
     if (pathname === "/admin" && (request.method === "GET" || request.method === "HEAD")) {
       sendRedirect(response, "/admin/", 308);
       return;
@@ -61,7 +97,16 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    if (request.method === "POST") {
+    if (pathname.startsWith("/uploads/")) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        sendText(response, 405, "Method not allowed");
+        return;
+      }
+      await servePublicUpload(request, response, pathname);
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/") {
       await handleFormSubmission(request, response);
       return;
     }

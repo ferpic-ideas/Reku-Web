@@ -11,7 +11,7 @@ un admin basico para acuerdos, nominas y registros recibidos.
 - Path en VPS: `/docker/reku-web`
 - Dominio principal: `https://www.reku.io`
 - Redirect apex: `https://reku.io` redirige a `https://www.reku.io`
-- Dominio tecnico del contenedor: `https://reku-web.srv1699600.hstgr.cloud`
+- Dominio tecnico del contenedor: redirige de forma permanente al dominio principal.
 
 ## Arquitectura
 
@@ -20,9 +20,12 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 
 - `web`: Node.js, sirve la web estatica, formularios, admin y API.
 - `db`: Postgres 16, solo red interna de Docker.
-- `uploads`: volumen bind en `/docker/reku-web/uploads`, usado para logos, PDFs e imagenes cargadas desde el admin.
+- `uploads`: volumen bind público usado solo para logos, PDFs informativos e imágenes
+  declaradas en la allowlist.
+- `private_uploads`: volumen Docker privado sin ninguna ruta HTTP.
 - `backups`: carpeta bind en `/docker/reku-web/backups`, usada para dumps manuales.
-- Traefik: enruta `www.reku.io`, `reku.io` y el dominio tecnico hacia el servicio `web`.
+- Traefik: enruta `www.reku.io`; el apex y el hostname técnico redirigen al hostname
+  canónico. Traefik y Node envían HSTS en producción.
 - Email: el backend envia mails con proveedor configurable (`EMAIL_PROVIDER=ses|resend`).
 
 ## Rutas principales
@@ -31,17 +34,20 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/producto.html`: pagina de producto.
 - `/evidencia.html`: pagina de evidencia.
 - `/agenda/?form=<slug>`: inicio de alta de paciente y reserva para un acuerdo.
-- `/agenda/?token=<token>`: agenda mobile para reservar turno con link firmado.
+- `/agenda/#token=<token>`: link de agenda; el token se canjea por cookie `HttpOnly`
+  y se elimina de la URL.
 - `/alta-pacientes/?form=<slug>`: redirige a `/agenda/?form=<slug>`.
-- `/profesional-turnos/?token=<token>`: vista simple para que un profesional vea sus turnos próximos.
+- `/profesional-turnos/#token=<token>`: link de un solo uso; se canjea por una sesión
+  `HttpOnly` corta y se elimina de la URL.
 - `/admin/`: admin interno.
 - `/admin/<modulo>`: deep links del admin para cada módulo, por ejemplo `/admin/turnos`.
 - `/api/public/agreements/<slug>`: datos publicos de un acuerdo.
 - `/api/admin/*`: API autenticada del admin.
 - `/api/booking/*`: API publica de agenda con token firmado.
 - `/api/booking/mercado-pago/webhook`: webhook de Mercado Pago.
-- `/api/professional/appointments`: API publica de turnos del profesional con token firmado.
-- `/uploads/*`: logos y PDFs cargados desde el admin.
+- `/api/professional/appointments`: API de turnos del profesional autenticada por cookie.
+- `/uploads/*`: handler público limitado a carpetas y extensiones explícitas. No sirve
+  el storage privado ni SVG subidos.
 
 Si `/agenda/?form=<slug>` recibe un slug que no existe o esta borrado,
 devuelve 404.
@@ -69,21 +75,26 @@ devuelve 404.
 |-- src/
 |   |-- admin-api.mjs           # Auth y endpoints del admin
 |   |-- appointment-notifications.mjs # Mails al profesional por turnos confirmados
+|   |-- authorization.mjs       # Matriz default-deny de rutas, roles y permisos
 |   |-- booking-api.mjs         # Servicios, profesionales, slots, turnos y pagos
 |   |-- booking-links.mjs       # Links firmados por 48h para agenda
 |   |-- config.mjs              # Configuracion y validaciones de arranque
 |   |-- csv.mjs                 # Parser CSV para nominas
-|   |-- db.mjs                  # Pool Postgres, migracion inicial y helpers
+|   |-- db.mjs                  # Pool Postgres, esquema legado y helpers
 |   |-- email.mjs               # Envio por SES/Resend y dry-run
 |   |-- forms.mjs               # Procesamiento de formularios publicos
 |   |-- http.mjs                # Helpers HTTP, headers y static serving
 |   |-- mercado-pago.mjs        # Checkout Pro, consulta de pagos y webhook signature
+|   |-- migrations.mjs          # Ejecutor transaccional de migraciones versionadas
 |   |-- professional-api.mjs    # API publica de turnos para profesionales
 |   |-- professional-links.mjs  # Links firmados para profesionales
+|   |-- rate-limit.mjs          # Rate limit distribuido/persistente en Postgres
 |   |-- security.mjs            # Sesiones, CSRF, password hashing y rate limit
 |   |-- templates.mjs           # Templates configurables de mails
 |   `-- uploads.mjs             # Multipart, logos, PDFs y CSV uploads
 |-- server.mjs                  # Router principal y arranque
+|-- migrations/                 # Evoluciones SQL versionadas
+|-- test/                       # Pruebas de controles de seguridad
 |-- docker-compose.yml          # Produccion VPS
 |-- Dockerfile                  # Imagen Node
 |-- scripts/secrets_check.sh    # Check basico anti-secretos
@@ -95,11 +106,10 @@ devuelve 404.
 
 El admin vive en `/admin/` y requiere login.
 
-Usuario inicial:
-
-- Email: `ferpic@gmail.com`
-- La clave temporal esta fuera del repo, en el archivo local:
-  `/Users/ferpic/Desktop/reku-admin-password.txt`
+No existe un usuario hardcodeado. El bootstrap sólo se usa como recuperación de
+primer arranque si no hay ningún admin activo y ambas variables
+`BOOTSTRAP_ADMIN_EMAIL` y `BOOTSTRAP_ADMIN_PASSWORD` están definidas. Una vez que
+existe un admin activo, reiniciar nunca reactiva, promueve ni cambia claves.
 
 Funciones actuales:
 
@@ -108,7 +118,7 @@ Funciones actuales:
 - Opcion "Get URL" para copiar la URL del formulario por acuerdo.
 - Registro de altas recibidas, con filtro por acuerdo.
 - Registro de contactos recibidos.
-- Delete de altas/contactos solo para `ferpic@gmail.com`.
+- Borrado de altas/contactos sólo con permiso `records.delete`.
 - CRUD manual de nominas.
 - Import CSV de nominas.
 - Filtro de nominas por acuerdo.
@@ -117,14 +127,17 @@ Funciones actuales:
 - CRUD de servicios y profesionales.
 - Bloqueo de horarios por profesional.
 - Probar agenda con link firmado de 48h.
-- Configuracion de Mercado Pago Checkout Pro solo para `ferpic@gmail.com`.
-- Auditoria solo para `ferpic@gmail.com`.
+- Configuración de Mercado Pago y auditoría sólo para usuarios autorizados.
+- Permisos de API declarados en una matriz default-deny. El rol `user` es de sólo
+  lectura sobre dashboard, acuerdos, servicios, profesionales, bloqueos y turnos.
+- Permisos adicionales opcionales almacenados en `users.permissions`.
+- Revocación desde el admin de todos los links y sesiones de un profesional.
 
 ## Modelo de datos
 
 Tablas principales:
 
-- `users`: usuarios admin, password hash, rol, estado y version de sesion.
+- `users`: usuarios admin, password hash, rol, permisos explícitos, estado y versión de sesión.
 - `agreements`: acuerdos, co-branding, PDF, links de pago y templates.
 - `nomina_entries`: registros de nomina asociados a acuerdos tipo `Nomina`.
 - `patient_intakes`: altas iniciadas desde `/agenda/?form=<slug>`.
@@ -136,6 +149,10 @@ Tablas principales:
 - `schedule_blocks`: bloqueos puntuales de agenda.
 - `booking_access_links`: tokens firmados/hasheados para abrir agenda por 48h.
 - `professional_access_links`: tokens firmados/hasheados para vista de turnos del profesional.
+- `professional_sessions`: sesiones cortas, revocables y separadas del link de email.
+- `patient_intake_verifications`: verificaciones de email de un solo uso.
+- `public_rate_limits`: buckets persistentes de rate limit, sin IPs/emails en claro.
+- `schema_migrations`: migraciones SQL ya aplicadas.
 - `appointments`: turnos, estado de pago y referencias Mercado Pago.
 - `app_settings`: configuraciones internas como credenciales Mercado Pago.
 - `audit_events`: eventos relevantes del admin.
@@ -144,7 +161,9 @@ Notas:
 
 - Los acuerdos se borran con `deleted_at`, no con delete fisico desde el admin.
 - `nomina_entries.identificador_normalized` evita duplicados case-insensitive.
-- Los uploads guardan rutas relativas en DB y archivos reales en `uploads/`.
+- Los uploads públicos guardan rutas relativas en DB y archivos reales en
+  `uploads/`. El volumen `private_uploads` está montado por separado y nunca se resuelve
+  desde una URL.
 
 ## Templates de mail
 
@@ -163,24 +182,28 @@ Variables permitidas:
 {{agreement.type}}
 ```
 
-El mail agrega automaticamente:
+El mail agrega automáticamente:
 
 - Link al PDF "Como funciona", si el acuerdo tiene PDF.
-- Link de agenda de 48h para reservar turno.
+- Link de verificación de email. Al canjearlo se crea el acceso de agenda por 48h
+  y se guarda únicamente en una cookie `HttpOnly`.
 
 ## Agenda y Mercado Pago
 
-La agenda vive en `/agenda/?token=<token>`. El token nunca se guarda plano: se
-guarda su hash en `booking_access_links` y vence a las 48h.
+Los links de agenda usan un token en el fragmento URL sólo durante el primer
+canje. El servidor valida su hash, entrega una cookie `HttpOnly` con scope
+`/api/booking` y el browser limpia el fragmento. El retorno de Mercado Pago no
+incluye credenciales.
 
 Flujo de reserva:
 
-1. El paciente elige servicio.
-2. Elige profesional.
-3. Elige fecha y horario disponible.
-4. El backend crea un turno `pending_payment` y una preferencia de Checkout Pro.
-5. Mercado Pago redirige de vuelta a `/agenda/`.
-6. El backend consulta el pago y confirma el turno solo si el estado es `approved`.
+1. El alta siempre inserta una fila nueva y devuelve `202` sin IDs ni tokens.
+2. El paciente verifica la casilla desde el link recibido por email.
+3. El link de un solo uso crea la cookie de agenda.
+4. El paciente elige servicio, profesional, fecha y horario.
+5. El backend crea un turno `pending_payment` y una preferencia de Checkout Pro.
+6. Mercado Pago redirige de vuelta a `/agenda/`.
+7. El backend consulta el pago y confirma el turno sólo si el estado es `approved`.
 
 Estados relevantes:
 
@@ -196,8 +219,8 @@ Cuando un turno pasa a `confirmed`, el backend envia un mail al profesional con:
 
 - Fecha, horario y servicio.
 - Datos de contacto del paciente.
-- Link firmado a `/profesional-turnos/?token=<token>` para ver todos sus turnos
-  confirmados desde la fecha actual hacia adelante.
+- Link de un solo uso a `/profesional-turnos/#token=<token>`. Vence a las 24h,
+  crea una sesión de 12h y puede revocarse desde el admin.
 
 El mail no se envia cuando el turno esta `pending_payment`; se dispara al confirmar
 un pago `approved` por webhook/retorno de Mercado Pago o al crear un turno sin
@@ -219,9 +242,10 @@ https://www.reku.io/api/booking/mercado-pago/webhook
 
 Evento a activar: `Payments`.
 
-Si Mercado Pago provee `Webhook Secret`, cargarlo en el admin para validar
-`x-signature`. Si no esta cargado, el webhook igual consulta el pago por API
-antes de tocar un turno.
+El `Webhook Secret` es obligatorio para recibir notificaciones. Sin secreto el
+endpoint responde `503`; una firma inválida o con timestamp fuera de la ventana
+de cinco minutos se rechaza. No desplegar esta versión hasta configurarlo en
+Mercado Pago y en el admin.
 
 ## Variables de entorno
 
@@ -238,9 +262,15 @@ Variables clave:
 - `SESSION_SECURE`
 - `BOOTSTRAP_ADMIN_EMAIL`
 - `BOOTSTRAP_ADMIN_PASSWORD`
-- `UPLOAD_ROOT`
+- `PUBLIC_UPLOAD_ROOT`
+- `PRIVATE_UPLOAD_ROOT`
 - `UPLOAD_MAX_BYTES`
 - `CSV_UPLOAD_MAX_BYTES`
+- `BOOKING_ACCESS_COOKIE_NAME`
+- `PROFESSIONAL_LINK_TTL_HOURS`
+- `PROFESSIONAL_SESSION_TTL_SECONDS`
+- `PROFESSIONAL_SESSION_COOKIE_NAME`
+- `MP_WEBHOOK_MAX_AGE_SECONDS`
 - `CONTACT_TO_EMAIL`
 - `PATIENT_INTAKE_TO_EMAIL`
 - `EMAIL_PROVIDER`
@@ -298,7 +328,8 @@ npm run check
 
 - syntax check de `server.mjs`.
 - syntax check de `src/*.mjs`.
-- syntax check de `admin/app.js`.
+- syntax check de los clientes JS.
+- pruebas con `node --test`.
 - `scripts/secrets_check.sh`.
 
 ## Operacion segura
@@ -326,6 +357,7 @@ rsync -az --delete \
   --exclude '.env' \
   --exclude 'node_modules' \
   --exclude 'uploads' \
+  --exclude 'private-uploads' \
   --exclude 'backups' \
   --exclude 'logs' \
   ./ ferpic-ideas:/docker/reku-web/

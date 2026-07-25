@@ -42,9 +42,15 @@ import {
   mergeMercadoPagoSettingsPayload,
   publicMercadoPagoSettings,
 } from "./mercado-pago.mjs";
+import {
+  hasPermission,
+  permissionsForUser,
+  requireAdminApiPermission,
+} from "./authorization.mjs";
+import { revokeProfessionalAccess } from "./professional-links.mjs";
 
-const canDeleteRecords = (user) => user?.email?.toLowerCase() === "ferpic@gmail.com";
-const canManageSystem = (user) => user?.role === "admin";
+const canDeleteRecords = (user) => hasPermission(user, "records.delete");
+const canManageSystem = (user) => hasPermission(user, "users.write");
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
@@ -187,7 +193,7 @@ const requireCurrentUser = async (request) => {
 
   const user = await one(
     `
-      SELECT id, email, name, role, is_active, session_version
+      SELECT id, email, name, role, permissions, is_active, session_version
       FROM users
       WHERE id = $1
     `,
@@ -208,6 +214,7 @@ const requireCurrentUser = async (request) => {
     user: {
       ...user,
       id: Number(user.id),
+      permissions: permissionsForUser(user),
       can_delete_records: canDeleteRecords(user),
       can_manage_system: canManageSystem(user),
     },
@@ -226,6 +233,7 @@ const publicUser = (user) => ({
   email: user.email,
   name: user.name,
   role: user.role,
+  permissions: permissionsForUser(user),
   can_delete_records: Boolean(user.can_delete_records),
   can_manage_system: Boolean(user.can_manage_system),
 });
@@ -249,7 +257,7 @@ const handleLogin = async (request, response) => {
 
   const user = await one(
     `
-      SELECT id, email, name, role, is_active, password_hash, session_version
+      SELECT id, email, name, role, permissions, is_active, password_hash, session_version
       FROM users
       WHERE lower(email) = lower($1)
     `,
@@ -277,6 +285,7 @@ const handleLogin = async (request, response) => {
     {
       user: publicUser({
         ...user,
+        permissions: permissionsForUser(user),
         can_delete_records: canDeleteRecords(user),
         can_manage_system: canManageSystem(user),
       }),
@@ -690,7 +699,8 @@ const listPatientIntakes = async (url, response) => {
       SELECT
         p.*,
         COALESCE(a.name, p.agreement_name_snapshot, '') AS agreement_name,
-        COALESCE(a.slug, p.agreement_slug_snapshot, '') AS agreement_slug
+        COALESCE(a.slug, p.agreement_slug_snapshot, '') AS agreement_slug,
+        COUNT(*) OVER (PARTITION BY lower(p.email))::int AS email_duplicate_count
       FROM patient_intakes p
       LEFT JOIN agreements a ON a.id = p.agreement_id
       WHERE ($1::bigint IS NULL OR p.agreement_id = $1::bigint)
@@ -714,6 +724,9 @@ const mapPatientIntake = (row) => ({
   identificador: row.identificador || "",
   email_message_id: row.email_message_id || "",
   email_error: row.email_error || "",
+  verification_email_message_id: row.booking_email_message_id || "",
+  verification_email_error: row.booking_email_error || "",
+  email_duplicate_count: Number(row.email_duplicate_count || 1),
   created_at: row.created_at,
 });
 
@@ -752,6 +765,33 @@ const deleteRecord = async (response, user, table, id) => {
     detail: { id },
   });
   sendJson(response, 200, { ok: true });
+};
+
+const revokeProfessionalLinksAndSessions = async (response, user, id) => {
+  const professional = await one(
+    `
+      SELECT id, name, email
+      FROM professionals
+      WHERE id = $1
+        AND deleted_at IS NULL
+    `,
+    [id],
+  );
+  if (!professional) {
+    sendJson(response, 404, { error: "Profesional no encontrado." });
+    return;
+  }
+
+  const revoked = await revokeProfessionalAccess(id);
+  await recordAudit("professional.access_revoked", {
+    actorUserId: user.id,
+    detail: {
+      professional_id: Number(professional.id),
+      professional_email: professional.email,
+      ...revoked,
+    },
+  });
+  sendJson(response, 200, { ok: true, revoked });
 };
 
 const listNomina = async (url, response) => {
@@ -1429,13 +1469,11 @@ const dashboard = async (response) => {
 };
 
 const getMercadoPagoSettings = async (response, user) => {
-  requireSystemAdmin(user);
   const row = await one("SELECT value FROM app_settings WHERE key = 'mercado_pago'");
   sendJson(response, 200, { settings: publicMercadoPagoSettings(row?.value || {}) });
 };
 
 const updateMercadoPagoSettings = async (request, response, user) => {
-  requireSystemAdmin(user);
   const payload = await parseJsonBody(request);
   const current = await one("SELECT value FROM app_settings WHERE key = 'mercado_pago'");
   const value = mergeMercadoPagoSettingsPayload(current?.value || {}, payload);
@@ -1456,7 +1494,6 @@ const updateMercadoPagoSettings = async (request, response, user) => {
 };
 
 const listAuditEvents = async (response, user) => {
-  requireSystemAdmin(user);
   const result = await query(`
     SELECT
       e.id,
@@ -1620,6 +1657,7 @@ export const handleAdminApi = async (request, response, url) => {
 
     const { user, session } = await requireCurrentUser(request);
     requireCsrfForMutation(request, session);
+    requireAdminApiPermission(user, request.method, pathname);
 
     if (pathname === "/api/admin/auth/me" && request.method === "GET") {
       await handleMe(request, response);
@@ -1714,6 +1752,17 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (professionalMatch && request.method === "DELETE") {
       await deleteProfessional(response, user, Number(professionalMatch[1]));
+      return true;
+    }
+    const professionalRevokeMatch = pathname.match(
+      /^\/api\/admin\/professionals\/(\d+)\/revoke-access$/,
+    );
+    if (professionalRevokeMatch && request.method === "POST") {
+      await revokeProfessionalLinksAndSessions(
+        response,
+        user,
+        Number(professionalRevokeMatch[1]),
+      );
       return true;
     }
 
@@ -1854,6 +1903,10 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (error.message === "SYSTEM_ADMIN_REQUIRED") {
       sendJson(response, 403, { error: "No tenés permisos para esta configuración." });
+      return true;
+    }
+    if (error.message === "PERMISSION_DENIED") {
+      sendJson(response, 403, { error: "No tenés permisos para realizar esta acción." });
       return true;
     }
     if (error.message === "SLUG_REQUIRED") {

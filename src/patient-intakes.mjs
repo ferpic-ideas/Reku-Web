@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { config } from "./config.mjs";
 import {
   findNominaEntry,
@@ -9,10 +10,11 @@ import {
 } from "./db.mjs";
 import { sendEmail } from "./email.mjs";
 import {
-  buildPatientBookingEmail,
   buildPatientEmail,
+  buildPatientVerificationEmail,
 } from "./templates.mjs";
 import { createBookingAccessLink } from "./booking-links.mjs";
+import { hashToken } from "./security.mjs";
 
 const namePattern = /^[\p{L}]+(?:[ '-][\p{L}]+)*$/u;
 const phonePattern = /^[+()\d\s.-]+$/;
@@ -133,135 +135,65 @@ const updatePatientBookingEmailResult = async (id, { messageId = null, error = n
   );
 };
 
-export const upsertPatientIntake = async (submission, agreement, sourcePath) => {
+export const insertPatientIntake = async (submission, agreement, sourcePath) => {
   if (!pool) return { id: null, created: false };
 
-  if (!agreement?.id) {
-    const result = await query(
-      `
-        INSERT INTO patient_intakes
-          (
-            agreement_id,
-            agreement_slug_snapshot,
-            agreement_name_snapshot,
-            agreement_type_snapshot,
-            nombre,
-            apellido,
-            telefono,
-            email,
-            identificador,
-            source_path
-          )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id
-      `,
-      [
-        null,
-        submission.agreementSlug || "",
-        "",
-        "",
-        submission.values.nombre,
-        submission.values.apellido,
-        submission.values.telefono,
-        submission.values.email,
-        submission.values.identificador || null,
-        sourcePath,
-      ],
-    );
-    return { id: Number(result.rows[0].id), created: true };
-  }
-
-  return tx(async (client) => {
-    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      `patient_intake:${submission.values.email}`,
-    ]);
-    const existing = await client.query(
-      `
-        SELECT id
-        FROM patient_intakes
-        WHERE lower(email) = lower($1)
-        ORDER BY updated_at DESC NULLS LAST, created_at DESC, id DESC
-        LIMIT 1
-        FOR UPDATE
-      `,
-      [submission.values.email],
-    );
-
-    if (existing.rows[0]) {
-      const id = Number(existing.rows[0].id);
-      await client.query(
-        `
-          UPDATE patient_intakes
-          SET agreement_id = $1,
-              agreement_slug_snapshot = $2,
-              agreement_name_snapshot = $3,
-              agreement_type_snapshot = $4,
-              nombre = $5,
-              apellido = $6,
-              telefono = $7,
-              email = $8,
-              identificador = $9,
-              source_path = $10,
-              email_message_id = NULL,
-              email_error = NULL,
-              booking_email_message_id = NULL,
-              booking_email_error = NULL,
-              updated_at = NOW()
-          WHERE id = $11
-        `,
-        [
-          agreement.id,
-          agreement.slug || submission.agreementSlug || "",
-          agreement.name || "",
-          agreement.type || "",
-          submission.values.nombre,
-          submission.values.apellido,
-          submission.values.telefono,
-          submission.values.email,
-          submission.values.identificador || null,
-          sourcePath,
-          id,
-        ],
-      );
-      return { id, created: false };
-    }
-
-    const result = await client.query(
-      `
-        INSERT INTO patient_intakes
-          (
-            agreement_id,
-            agreement_slug_snapshot,
-            agreement_name_snapshot,
-            agreement_type_snapshot,
-            nombre,
-            apellido,
-            telefono,
-            email,
-            identificador,
-            source_path
-          )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id
-      `,
-      [
-        agreement.id,
-        agreement.slug || submission.agreementSlug || "",
-        agreement.name || "",
-        agreement.type || "",
-        submission.values.nombre,
-        submission.values.apellido,
-        submission.values.telefono,
-        submission.values.email,
-        submission.values.identificador || null,
-        sourcePath,
-      ],
-    );
-    return { id: Number(result.rows[0].id), created: true };
-  });
+  const result = await query(
+    `
+      INSERT INTO patient_intakes
+        (
+          agreement_id,
+          agreement_slug_snapshot,
+          agreement_name_snapshot,
+          agreement_type_snapshot,
+          nombre,
+          apellido,
+          telefono,
+          email,
+          identificador,
+          source_path
+        )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id
+    `,
+    [
+      agreement?.id || null,
+      agreement?.slug || submission.agreementSlug || "",
+      agreement?.name || "",
+      agreement?.type || "",
+      submission.values.nombre,
+      submission.values.apellido,
+      submission.values.telefono,
+      submission.values.email,
+      submission.values.identificador || null,
+      sourcePath,
+    ],
+  );
+  return { id: Number(result.rows[0].id), created: true };
 };
 
-export const createPatientBookingLink = async ({ recordId, submission, agreement }) => {
+const createPatientIntakeVerification = async ({ recordId }) => {
+  const token = randomBytes(32).toString("base64url");
+  await query(
+    `
+      INSERT INTO patient_intake_verifications
+        (token_hash, patient_intake_id, expires_at)
+      VALUES ($1, $2, NOW() + INTERVAL '24 hours')
+    `,
+    [hashToken(token), recordId],
+  );
+  return {
+    token,
+    url: `${config.appPublicUrl}/agenda/#verify=${encodeURIComponent(token)}`,
+  };
+};
+
+export const createPatientBookingLink = async ({
+  recordId,
+  submission,
+  agreement,
+  client = null,
+}) => {
   if (!pool || !recordId) return null;
   return createBookingAccessLink({
     patientIntakeId: recordId,
@@ -274,6 +206,7 @@ export const createPatientBookingLink = async ({ recordId, submission, agreement
     agreementSlug: agreement?.slug || submission.agreementSlug || "",
     agreementType: agreement?.type || "",
     ttlHours: 48,
+    client,
   });
 };
 
@@ -281,12 +214,11 @@ export const sendPatientIntakeNotifications = async ({
   submission,
   agreement,
   recordId,
-  bookingLink,
+  verification,
 }) => {
-  submission.booking_url = bookingLink?.url || "";
   const results = {
     intake: { ok: false, id: "" },
-    booking: { ok: false, id: "" },
+    verification: { ok: false, id: "" },
   };
   const intakeEmail = buildPatientEmail({ submission, agreement });
 
@@ -307,24 +239,28 @@ export const sendPatientIntakeNotifications = async ({
     });
   }
 
-  if (bookingLink?.url) {
-    const bookingEmail = buildPatientBookingEmail({ submission, agreement });
+  if (verification?.url) {
+    const verificationEmail = buildPatientVerificationEmail({
+      submission,
+      agreement,
+      verificationUrl: verification.url,
+    });
     try {
       const result = await sendEmail({
-        formName: "alta-pacientes-agenda",
+        formName: "alta-pacientes-verificacion",
         to: submission.values.email,
         replyTo: config.patientIntakeToEmail,
-        ...bookingEmail,
+        ...verificationEmail,
       });
-      results.booking = { ok: true, id: result?.id || "" };
+      results.verification = { ok: true, id: result?.id || "" };
       await updatePatientBookingEmailResult(recordId, { messageId: result?.id });
-      await recordAudit("patient_intake.booking_email_sent", {
+      await recordAudit("patient_intake.verification_email_sent", {
         detail: { patient_intake_id: recordId, email: submission.values.email },
       });
     } catch (error) {
-      results.booking = { ok: false, error: error.message };
+      results.verification = { ok: false, error: error.message };
       await updatePatientBookingEmailResult(recordId, { error: error.message });
-      await recordAudit("patient_intake.booking_email_failed", {
+      await recordAudit("patient_intake.verification_email_failed", {
         detail: {
           patient_intake_id: recordId,
           email: submission.values.email,
@@ -338,23 +274,96 @@ export const sendPatientIntakeNotifications = async ({
 };
 
 export const savePatientIntakeAndNotify = async ({ submission, agreement, sourcePath }) => {
-  const saved = await upsertPatientIntake(submission, agreement, sourcePath);
-  const bookingLink = await createPatientBookingLink({
-    recordId: saved.id,
-    submission,
-    agreement,
-  });
+  const saved = await insertPatientIntake(submission, agreement, sourcePath);
+  const verification = await createPatientIntakeVerification({ recordId: saved.id });
   const notifications = await sendPatientIntakeNotifications({
     submission,
     agreement,
     recordId: saved.id,
-    bookingLink,
+    verification,
   });
 
   return {
     recordId: saved.id,
     created: saved.created,
-    bookingLink,
+    verification,
     notifications,
   };
+};
+
+export const redeemPatientIntakeVerification = async (token) => {
+  const tokenHash = hashToken(token);
+  return tx(async (client) => {
+    const result = await client.query(
+      `
+        SELECT
+          v.id AS verification_id,
+          p.*,
+          a.name AS current_agreement_name,
+          a.slug AS current_agreement_slug,
+          a.type AS current_agreement_type,
+          a.cobranded,
+          a.logo_path,
+          a.pdf_path
+        FROM patient_intake_verifications v
+        INNER JOIN patient_intakes p ON p.id = v.patient_intake_id
+        LEFT JOIN agreements a
+          ON a.id = p.agreement_id
+         AND a.deleted_at IS NULL
+        WHERE v.token_hash = $1
+          AND v.used_at IS NULL
+          AND v.expires_at > NOW()
+        FOR UPDATE OF v
+      `,
+      [tokenHash],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      const error = new Error("INTAKE_VERIFICATION_INVALID");
+      error.statusCode = 401;
+      throw error;
+    }
+
+    const submission = buildPatientIntakeSubmission({
+      agreementSlug: row.current_agreement_slug || row.agreement_slug_snapshot || "",
+      values: {
+        nombre: row.nombre,
+        apellido: row.apellido,
+        telefono: row.telefono,
+        email: row.email,
+        identificador: row.identificador || "",
+      },
+    });
+    const agreement = {
+      id: row.agreement_id ? Number(row.agreement_id) : null,
+      name: row.current_agreement_name || row.agreement_name_snapshot || "",
+      slug: row.current_agreement_slug || row.agreement_slug_snapshot || "",
+      type: row.current_agreement_type || row.agreement_type_snapshot || "",
+      cobranded: Boolean(row.cobranded),
+      logo_path: row.logo_path || "",
+      pdf_path: row.pdf_path || "",
+      logo_url: row.logo_path ? `/uploads/${row.logo_path}` : "",
+      pdf_url: row.pdf_path ? `/uploads/${row.pdf_path}` : "",
+    };
+    const bookingLink = await createPatientBookingLink({
+      recordId: Number(row.id),
+      submission,
+      agreement,
+      client,
+    });
+    await client.query(
+      "UPDATE patient_intake_verifications SET used_at = NOW() WHERE id = $1",
+      [row.verification_id],
+    );
+    return {
+      patientIntakeId: Number(row.id),
+      bookingLink,
+      patient: {
+        name: patientFullName(submission),
+        email: submission.values.email,
+        phone: submission.values.telefono,
+      },
+      agreement,
+    };
+  });
 };

@@ -2,6 +2,7 @@ import pg from "pg";
 import { config } from "./config.mjs";
 import { hashPassword } from "./security.mjs";
 import { defaultPatientBody, defaultPatientSubject } from "./templates.mjs";
+import { runMigrations } from "./migrations.mjs";
 
 const { Pool } = pg;
 
@@ -441,34 +442,54 @@ export const initDb = async () => {
       ON audit_events (actor_user_id);
   `);
 
-  if (config.bootstrapAdminEmail) {
-    await query(
-      "UPDATE users SET role = 'admin', is_active = TRUE WHERE lower(email) = lower($1)",
-      [config.bootstrapAdminEmail],
-    );
-  }
+  await runMigrations(pool);
 
   await bootstrapAdmin();
 };
 
 export const bootstrapAdmin = async () => {
-  if (!config.bootstrapAdminEmail || !config.bootstrapAdminPassword) return;
+  const activeAdmin = await one(
+    "SELECT id FROM users WHERE role = 'admin' AND is_active = TRUE LIMIT 1",
+  );
+  if (activeAdmin) return;
+
+  if (!config.bootstrapAdminEmail || !config.bootstrapAdminPassword) {
+    console.warn(
+      "No active admin exists. Set one-time BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD values to recover access.",
+    );
+    return;
+  }
 
   const existing = await one("SELECT id FROM users WHERE lower(email) = lower($1)", [
     config.bootstrapAdminEmail,
   ]);
+  const passwordHash = await hashPassword(config.bootstrapAdminPassword);
   if (existing) {
-    await query("UPDATE users SET role = 'admin', is_active = TRUE WHERE id = $1", [existing.id]);
+    await query(
+      `
+        UPDATE users
+        SET role = 'admin',
+            is_active = TRUE,
+            password_hash = $1,
+            session_version = session_version + 1,
+            updated_at = NOW()
+        WHERE id = $2
+      `,
+      [passwordHash, existing.id],
+    );
     return;
   }
 
-  const passwordHash = await hashPassword(config.bootstrapAdminPassword);
   await query(
     `
       INSERT INTO users (email, name, password_hash, role)
       VALUES ($1, $2, $3, 'admin')
     `,
-    [config.bootstrapAdminEmail, "Fernando Piccolo", passwordHash],
+    [
+      config.bootstrapAdminEmail,
+      config.bootstrapAdminEmail.split("@")[0] || "Administrador",
+      passwordHash,
+    ],
   );
 };
 

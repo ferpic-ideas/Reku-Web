@@ -1,8 +1,15 @@
 .DS_Store
 .env
+.env.*
 .git
 node_modules
+test
 npm-debug.log
 uploads
+private-uploads
 backups
 logs
+*.txt
+!robots.txt
+docker-compose.yml
+*.md

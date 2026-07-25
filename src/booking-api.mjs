@@ -1,5 +1,5 @@
 import { one, query, recordAudit, tx } from "./db.mjs";
-import { readBody, sendJson } from "./http.mjs";
+import { getClientIp, parseCookies, readBody, sendJson } from "./http.mjs";
 import { hashToken } from "./security.mjs";
 import {
   appointmentIdFromExternalReference,
@@ -11,11 +11,18 @@ import {
 } from "./mercado-pago.mjs";
 import { notifyConfirmedAppointment } from "./appointment-notifications.mjs";
 import {
+  enforceIntakeRateLimits,
+  enforceWebhookRateLimits,
+} from "./rate-limit.mjs";
+import {
   buildPatientIntakeSubmission,
   loadPatientIntakeAgreement,
+  redeemPatientIntakeVerification,
   savePatientIntakeAndNotify,
   validatePatientIntakeSubmission,
 } from "./patient-intakes.mjs";
+import { bookingAccessCookie } from "./booking-links.mjs";
+import { config } from "./config.mjs";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
@@ -47,8 +54,14 @@ const rangesOverlap = (startA, endA, startB, endB) =>
   timeToMinutes(startA) < timeToMinutes(endB) &&
   timeToMinutes(startB) < timeToMinutes(endA);
 
-const readToken = (url, payload = {}) =>
-  String(payload.token || url.searchParams.get("token") || "").trim();
+const readToken = (request, url, payload = {}) =>
+  String(
+    request.headers["x-booking-token"] ||
+      payload.token ||
+      url.searchParams.get("token") ||
+      parseCookies(request)[config.bookingAccessCookieName] ||
+      "",
+  ).trim();
 
 const requireAccessLink = async (token) => {
   const tokenHash = hashToken(token);
@@ -169,12 +182,17 @@ const getAgreementForIntake = async (url, response) => {
   sendJson(response, 200, { agreement: mapAgreement(agreement) });
 };
 
-const createIntakeAccess = async (payload, response) => {
+const createIntakeAccess = async (request, payload, response) => {
   const submission = buildPatientIntakeSubmission({
     agreementSlug: payload.agreement_slug || payload.form || "",
     values: payload,
   });
   const agreement = await loadPatientIntakeAgreement(submission);
+  await enforceIntakeRateLimits({
+    clientIp: getClientIp(request),
+    email: submission.values.email,
+    agreementSlug: submission.agreementSlug,
+  });
   const errors = await validatePatientIntakeSubmission(submission, agreement);
 
   if (Object.keys(errors).length > 0) {
@@ -192,7 +210,7 @@ const createIntakeAccess = async (payload, response) => {
     sourcePath,
   });
 
-  await recordAudit(result.created ? "patient_intake.created" : "patient_intake.updated", {
+  await recordAudit("patient_intake.created_pending_verification", {
     detail: {
       patient_intake_id: result.recordId,
       email: submission.values.email,
@@ -201,21 +219,49 @@ const createIntakeAccess = async (payload, response) => {
     },
   });
 
-  sendJson(response, result.created ? 201 : 200, {
+  sendJson(response, 202, {
     ok: true,
-    patient_intake_id: result.recordId,
-    created: result.created,
-    booking_token: result.bookingLink?.token || "",
-    booking_url: result.bookingLink?.url || "",
-    booking_expires_at: result.bookingLink?.expires_at || "",
-    patient: {
-      name: [submission.values.nombre, submission.values.apellido].filter(Boolean).join(" "),
-      email: submission.values.email,
-      phone: submission.values.telefono,
-    },
-    agreement: mapAgreement(agreement),
-    notifications: result.notifications,
+    message: "Revisá tu mail para confirmar la dirección y continuar con la reserva.",
   });
+};
+
+const verifyIntakeAccess = async (payload, response) => {
+  const token = String(payload.verification_token || payload.token || "").trim();
+  if (!token) {
+    sendJson(response, 401, { error: "El enlace de verificación no es válido." });
+    return;
+  }
+  const result = await redeemPatientIntakeVerification(token);
+  await recordAudit("patient_intake.verified", {
+    detail: { patient_intake_id: result.patientIntakeId },
+  });
+  sendJson(response, 200, {
+    ok: true,
+    booking_expires_at: result.bookingLink.expires_at,
+    patient: result.patient,
+    agreement: mapAgreement(result.agreement),
+  }, {
+    "Set-Cookie": bookingAccessCookie(
+      result.bookingLink.token,
+      result.bookingLink.expires_at,
+    ),
+  });
+};
+
+const exchangeBookingAccess = async (request, payload, response, url) => {
+  const token = readToken(request, url, payload);
+  const link = await requireAccessLink(token);
+  sendJson(
+    response,
+    200,
+    {
+      ok: true,
+      expires_at: link.expires_at,
+      patient: link.patient,
+      agreement: link.agreement,
+    },
+    { "Set-Cookie": bookingAccessCookie(token, link.expires_at) },
+  );
 };
 
 const listProfessionals = async (url, response) => {
@@ -519,7 +565,6 @@ const createAppointment = async (payload, response, url, link) => {
           email: patientEmail,
           phone: patientPhone,
         },
-        token: readToken(url, payload),
       });
     } catch (error) {
       await query(
@@ -758,6 +803,10 @@ const handleMercadoPagoWebhook = async (request, response, url) => {
       url.searchParams.get("topic") ||
       "",
   );
+  await enforceWebhookRateLimits({
+    clientIp: getClientIp(request),
+    dataId,
+  });
   const settings = await getMercadoPagoSettings();
   const active = settings[settings.mode] || {};
   const signature = verifyMercadoPagoWebhookSignature({
@@ -765,7 +814,16 @@ const handleMercadoPagoWebhook = async (request, response, url) => {
     dataId,
     secret: active.webhook_secret,
   });
-  if (signature.configured && !signature.valid) {
+  if (!signature.configured) {
+    await recordAudit("mercado_pago.webhook_rejected_unconfigured", {
+      detail: { topic, data_id_set: Boolean(dataId) },
+    });
+    sendJson(response, 503, {
+      error: "La validación del webhook no está configurada.",
+    });
+    return;
+  }
+  if (!signature.valid) {
     sendJson(response, 401, { error: "Firma inválida." });
     return;
   }
@@ -810,11 +868,19 @@ export const handleBookingApi = async (request, response, url) => {
       return true;
     }
     if (pathname === "/api/booking/intake" && request.method === "POST") {
-      await createIntakeAccess(payload, response);
+      await createIntakeAccess(request, payload, response);
+      return true;
+    }
+    if (pathname === "/api/booking/intake/verify" && request.method === "POST") {
+      await verifyIntakeAccess(payload, response);
+      return true;
+    }
+    if (pathname === "/api/booking/session" && request.method === "POST") {
+      await exchangeBookingAccess(request, payload, response, url);
       return true;
     }
 
-    const token = readToken(url, payload);
+    const token = readToken(request, url, payload);
     const link = await requireAccessLink(token);
 
     if (pathname === "/api/booking/services" && request.method === "GET") {
@@ -846,6 +912,12 @@ export const handleBookingApi = async (request, response, url) => {
   } catch (error) {
     if (error.message === "BOOKING_TOKEN_INVALID") {
       sendJson(response, 401, { error: "El link de agenda expiró o no es válido." });
+      return true;
+    }
+    if (error.message === "INTAKE_VERIFICATION_INVALID") {
+      sendJson(response, 401, {
+        error: "El enlace de verificación expiró o ya fue utilizado.",
+      });
       return true;
     }
     if (error.message === "BOOKING_SELECTION_INVALID") {
@@ -882,6 +954,15 @@ export const handleBookingApi = async (request, response, url) => {
     }
     if (error.message === "DB_UNAVAILABLE") {
       sendJson(response, 503, { error: "La agenda no está disponible." });
+      return true;
+    }
+    if (error.message === "RATE_LIMITED") {
+      sendJson(
+        response,
+        429,
+        { error: "Demasiadas solicitudes. Probá nuevamente más tarde." },
+        { "Retry-After": String(error.retryAfter || 60) },
+      );
       return true;
     }
     throw error;

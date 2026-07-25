@@ -1,7 +1,12 @@
 import { config } from "./config.mjs";
 import { pool, query, recordAudit } from "./db.mjs";
 import { sendEmail } from "./email.mjs";
-import { getTrimmed, parseRequestBody, sendJson } from "./http.mjs";
+import {
+  getClientIp,
+  getTrimmed,
+  parseRequestBody,
+  sendJson,
+} from "./http.mjs";
 import { buildContactEmail } from "./templates.mjs";
 import {
   buildPatientIntakeSubmission,
@@ -9,6 +14,10 @@ import {
   savePatientIntakeAndNotify,
   validatePatientIntakeSubmission,
 } from "./patient-intakes.mjs";
+import {
+  enforceContactRateLimits,
+  enforceIntakeRateLimits,
+} from "./rate-limit.mjs";
 
 const genericDomains = new Set([
   "gmail.com",
@@ -198,17 +207,14 @@ const handleContact = async (submission, request, response) => {
 };
 
 const handlePatientIntake = async (submission, agreement, request, response) => {
-  const result = await savePatientIntakeAndNotify({
+  await savePatientIntakeAndNotify({
     submission,
     agreement,
     sourcePath: request.url,
   });
-  sendJson(response, 200, {
+  sendJson(response, 202, {
     ok: true,
-    id: result.notifications.intake.id || "",
-    patient_intake_id: result.recordId,
-    booking_url: result.bookingLink?.url || "",
-    booking_expires_at: result.bookingLink?.expires_at || "",
+    message: "Revisá tu mail para confirmar la dirección y continuar.",
   });
 };
 
@@ -236,6 +242,20 @@ export const handleFormSubmission = async (request, response) => {
   try {
     const agreement = await loadSubmissionAgreement(submission);
     const baseErrors = validateBaseSubmission(submission);
+
+    if (submission.formName === "contact") {
+      await enforceContactRateLimits({
+        clientIp: getClientIp(request),
+        email: submission.values.email,
+      });
+    } else {
+      await enforceIntakeRateLimits({
+        clientIp: getClientIp(request),
+        email: submission.values.email,
+        agreementSlug: submission.agreementSlug,
+      });
+    }
+
     const errors = await validateAgreementSubmission(
       submission,
       agreement,
@@ -264,6 +284,15 @@ export const handleFormSubmission = async (request, response) => {
       },
     });
   } catch (error) {
+    if (error.message === "RATE_LIMITED") {
+      sendJson(
+        response,
+        429,
+        { error: "Demasiadas solicitudes. Probá nuevamente más tarde." },
+        { "Retry-After": String(error.retryAfter || 60) },
+      );
+      return;
+    }
     const statusCode =
       error.statusCode ||
       (error.message === "SES_CONFIGURATION_MISSING" ||
