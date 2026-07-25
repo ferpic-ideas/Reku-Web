@@ -209,6 +209,31 @@ const publicUploadFolders = new Map([
   ["services", new Set([".jpg", ".jpeg", ".png", ".webp"])],
 ]);
 
+export const resolveStaticRequestPath = (pathname) => {
+  if (pathname === "/") return "/index.html";
+
+  const isAgendaPage =
+    pathname === "/agenda" ||
+    (pathname.startsWith("/agenda/") &&
+      !pathname.slice("/agenda/".length).includes("."));
+  if (isAgendaPage) return "/agenda/index.html";
+
+  const isAdminPage =
+    pathname === "/admin/" ||
+    (pathname.startsWith("/admin/") &&
+      !pathname.slice("/admin/".length).includes("."));
+  if (isAdminPage) return "/admin/index.html";
+
+  if (
+    pathname === "/profesional-turnos" ||
+    pathname === "/profesional-turnos/"
+  ) {
+    return "/profesional-turnos/index.html";
+  }
+
+  return pathname;
+};
+
 const resolveInside = (directory, path) => {
   const filePath = resolve(directory, path);
   const relativePath = relative(directory, filePath);
@@ -314,11 +339,13 @@ export const serveStatic = async (request, response, pathname) => {
   }
 
   try {
-    const isAdminRoute = pathname.startsWith("/admin");
+    const isPrivateRoute =
+      pathname.startsWith("/admin") ||
+      pathname.startsWith("/profesional-turnos");
     const allowsSameOriginFrame = pathname.startsWith("/agenda");
     await serveFile(request, response, filePath, {
-      cacheControl: isAdminRoute ? "no-store" : "public, max-age=60",
-      privateRoute: isAdminRoute,
+      cacheControl: isPrivateRoute ? "no-store" : "public, max-age=60",
+      privateRoute: isPrivateRoute,
       extraHeaders: allowsSameOriginFrame ? sameOriginFrameHeaders : {},
     });
   } catch {

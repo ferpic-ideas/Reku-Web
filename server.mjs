@@ -21,6 +21,7 @@ import {
   servePublicUpload,
   serveStatic,
   sendText,
+  resolveStaticRequestPath,
 } from "./src/http.mjs";
 
 assertSafeStartup();
@@ -134,20 +135,7 @@ const server = createServer(async (request, response) => {
         return;
       }
 
-      const isAgendaPage =
-        pathname === "/agenda" ||
-        (pathname.startsWith("/agenda/") && !pathname.slice("/agenda/".length).includes("."));
-      const isAdminPage =
-        pathname === "/admin/" ||
-        (pathname.startsWith("/admin/") && !pathname.slice("/admin/".length).includes("."));
-      const staticPath =
-        pathname === "/"
-          ? "/index.html"
-          : isAgendaPage
-            ? "/agenda/index.html"
-            : isAdminPage
-              ? "/admin/index.html"
-              : pathname;
+      const staticPath = resolveStaticRequestPath(pathname);
       await serveStatic(request, response, staticPath);
       return;
     }

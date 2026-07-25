@@ -2,8 +2,30 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   resolvePublicUploadPath,
+  resolveStaticRequestPath,
   resolveStaticPath,
 } from "../src/http.mjs";
+
+test("static request routing exposes only declared application entrypoints", () => {
+  assert.equal(resolveStaticRequestPath("/"), "/index.html");
+  assert.equal(resolveStaticRequestPath("/agenda/"), "/agenda/index.html");
+  assert.equal(
+    resolveStaticRequestPath("/admin/turnos"),
+    "/admin/index.html",
+  );
+  assert.equal(
+    resolveStaticRequestPath("/profesional-turnos/"),
+    "/profesional-turnos/index.html",
+  );
+  assert.equal(
+    resolveStaticRequestPath("/profesional-turnos"),
+    "/profesional-turnos/index.html",
+  );
+  assert.equal(
+    resolveStaticRequestPath("/profesional-turnos/private"),
+    "/profesional-turnos/private",
+  );
+});
 
 test("static resolver serves only declared public files and mounts", async () => {
   assert.match(await resolveStaticPath("/index.html"), /index\.html$/);

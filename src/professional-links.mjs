@@ -43,7 +43,6 @@ export const exchangeProfessionalAccessLink = async (token) => {
         WHERE l.token_hash = $1
           AND l.expires_at > NOW()
           AND l.revoked_at IS NULL
-          AND l.exchanged_at IS NULL
           AND p.active = TRUE
           AND p.deleted_at IS NULL
         FOR UPDATE OF l
@@ -75,7 +74,7 @@ export const exchangeProfessionalAccessLink = async (token) => {
     await client.query(
       `
         UPDATE professional_access_links
-        SET exchanged_at = NOW(),
+        SET exchanged_at = COALESCE(exchanged_at, NOW()),
             last_accessed_at = NOW()
         WHERE id = $1
       `,
