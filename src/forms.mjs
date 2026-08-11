@@ -77,7 +77,7 @@ const validateEmail = (value, { corporate = false } = {}) => {
   return "";
 };
 
-const normalizeSubmission = (params) => {
+export const normalizeSubmission = (params) => {
   const formName = getTrimmed(params, "reku-form");
 
   if (formName === "contact") {
@@ -107,6 +107,29 @@ const normalizeSubmission = (params) => {
     };
   }
 
+  if (formName === "congreso-cokiba") {
+    return {
+      formName,
+      to: config.contactToEmail,
+      subject: "Contacto Reku",
+      replyTo: getTrimmed(params, "email").toLowerCase(),
+      values: {
+        nombre: getTrimmed(params, "nombre"),
+        apellido: getTrimmed(params, "apellido"),
+        profesion: getTrimmed(params, "profesion"),
+        telefono: getTrimmed(params, "telefono"),
+        email: getTrimmed(params, "email").toLowerCase(),
+      },
+      labels: {
+        nombre: "Nombre",
+        apellido: "Apellido",
+        profesion: "Profesión",
+        telefono: "Celular",
+        email: "Mail",
+      },
+    };
+  }
+
   if (formName === "alta-pacientes") {
     return buildPatientIntakeSubmission({
       agreementSlug: getTrimmed(params, "agreement_slug"),
@@ -123,7 +146,7 @@ const normalizeSubmission = (params) => {
   return null;
 };
 
-const validateBaseSubmission = (submission) => {
+export const validateBaseSubmission = (submission) => {
   const errors = {};
   const { formName, values } = submission;
 
@@ -137,6 +160,14 @@ const validateBaseSubmission = (submission) => {
     if (!values.rol) errors.rol = "Seleccioná tu rol en la organización.";
     if (!values.pacientes) {
       errors.pacientes = "Seleccioná cuántos pacientes atienden al mes.";
+    }
+  }
+
+  if (formName === "congreso-cokiba") {
+    if (!values.profesion) {
+      errors.profesion = "Ingresá tu profesión.";
+    } else if (values.profesion.length < 2 || values.profesion.length > 100) {
+      errors.profesion = "Ingresá una profesión válida.";
     }
   }
 
@@ -179,6 +210,27 @@ const insertContact = async (submission, requestUrl) => {
   return Number(result.rows[0].id);
 };
 
+const insertCongressRegistration = async (submission, requestUrl) => {
+  if (!pool) return null;
+  const result = await query(
+    `
+      INSERT INTO congreso_cokiba_registrations
+        (nombre, apellido, profesion, telefono, email, source_path)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id
+    `,
+    [
+      submission.values.nombre,
+      submission.values.apellido,
+      submission.values.profesion,
+      submission.values.telefono,
+      submission.values.email,
+      requestUrl,
+    ],
+  );
+  return Number(result.rows[0].id);
+};
+
 const updateEmailResult = async (table, id, { messageId = null, error = null }) => {
   if (!pool || !id) return;
   await query(
@@ -202,6 +254,29 @@ const handleContact = async (submission, request, response) => {
     sendJson(response, 200, { ok: true, id: result?.id });
   } catch (error) {
     await updateEmailResult("contacts", recordId, { error: error.message });
+    throw error;
+  }
+};
+
+const handleCongressRegistration = async (submission, request, response) => {
+  const recordId = await insertCongressRegistration(submission, request.url);
+  const email = buildContactEmail(submission);
+
+  try {
+    const result = await sendEmail({
+      formName: submission.formName,
+      to: submission.to,
+      replyTo: submission.replyTo,
+      ...email,
+    });
+    await updateEmailResult("congreso_cokiba_registrations", recordId, {
+      messageId: result?.id,
+    });
+    sendJson(response, 200, { ok: true, id: result?.id });
+  } catch (error) {
+    await updateEmailResult("congreso_cokiba_registrations", recordId, {
+      error: error.message,
+    });
     throw error;
   }
 };
@@ -243,7 +318,7 @@ export const handleFormSubmission = async (request, response) => {
     const agreement = await loadSubmissionAgreement(submission);
     const baseErrors = validateBaseSubmission(submission);
 
-    if (submission.formName === "contact") {
+    if (["contact", "congreso-cokiba"].includes(submission.formName)) {
       await enforceContactRateLimits({
         clientIp: getClientIp(request),
         email: submission.values.email,
@@ -273,6 +348,14 @@ export const handleFormSubmission = async (request, response) => {
     if (submission.formName === "contact") {
       await handleContact(submission, request, response);
       await recordAudit("contact.created", { detail: { email: submission.values.email } });
+      return;
+    }
+
+    if (submission.formName === "congreso-cokiba") {
+      await handleCongressRegistration(submission, request, response);
+      await recordAudit("congreso_cokiba.registration_created", {
+        detail: { email: submission.values.email },
+      });
       return;
     }
 

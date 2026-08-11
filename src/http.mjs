@@ -201,6 +201,11 @@ const publicMounts = [
     directory: join(root, "alta-pacientes"),
     extensions: new Set([".html", ".css", ".js"]),
   },
+  {
+    prefix: "/congreso-cokiba/",
+    directory: join(root, "congreso-cokiba"),
+    extensions: new Set([".html", ".css", ".js"]),
+  },
 ];
 
 const publicUploadFolders = new Map([
@@ -211,6 +216,10 @@ const publicUploadFolders = new Map([
 
 export const resolveStaticRequestPath = (pathname) => {
   if (pathname === "/") return "/index.html";
+
+  if (pathname === "/congreso-cokiba" || pathname === "/congreso-cokiba/") {
+    return "/congreso-cokiba/index.html";
+  }
 
   const isAgendaPage =
     pathname === "/agenda" ||

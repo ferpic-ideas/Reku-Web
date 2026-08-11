@@ -61,6 +61,14 @@ const server = createServer(async (request, response) => {
       }
     }
 
+    if (
+      (request.method === "GET" || request.method === "HEAD") &&
+      ["/congreso-coquiba", "/congreso-coquiba/"].includes(pathname)
+    ) {
+      sendRedirect(response, `/congreso-cokiba${requestUrl.search}`, 308);
+      return;
+    }
+
     if (pathname === "/admin" && (request.method === "GET" || request.method === "HEAD")) {
       sendRedirect(response, "/admin/", 308);
       return;
@@ -107,7 +115,10 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    if (request.method === "POST" && pathname === "/") {
+    if (
+      request.method === "POST" &&
+      ["/", "/congreso-cokiba", "/congreso-cokiba/"].includes(pathname)
+    ) {
       await handleFormSubmission(request, response);
       return;
     }

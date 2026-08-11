@@ -10,6 +10,14 @@ test("static request routing exposes only declared application entrypoints", () 
   assert.equal(resolveStaticRequestPath("/"), "/index.html");
   assert.equal(resolveStaticRequestPath("/agenda/"), "/agenda/index.html");
   assert.equal(
+    resolveStaticRequestPath("/congreso-cokiba"),
+    "/congreso-cokiba/index.html",
+  );
+  assert.equal(
+    resolveStaticRequestPath("/congreso-cokiba/"),
+    "/congreso-cokiba/index.html",
+  );
+  assert.equal(
     resolveStaticRequestPath("/admin/turnos"),
     "/admin/index.html",
   );
@@ -33,6 +41,10 @@ test("static resolver serves only declared public files and mounts", async () =>
   assert.match(
     await resolveStaticPath("/images/logo-reku.svg"),
     /images\/logo-reku\.svg$/,
+  );
+  assert.match(
+    await resolveStaticPath("/congreso-cokiba/index.html"),
+    /congreso-cokiba\/index\.html$/,
   );
 });
 

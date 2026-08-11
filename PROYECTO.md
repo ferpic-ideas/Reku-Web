@@ -39,6 +39,7 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/alta-pacientes/?form=<slug>`: redirige a `/agenda/?form=<slug>`.
 - `/profesional-turnos/#token=<token>`: link de un solo uso; se canjea por una sesión
   `HttpOnly` corta y se elimina de la URL.
+- `/congreso-cokiba`: formulario público de registro del Congreso COKIBA.
 - `/admin/`: admin interno.
 - `/admin/<modulo>`: deep links del admin para cada módulo, por ejemplo `/admin/turnos`.
 - `/api/public/agreements/<slug>`: datos publicos de un acuerdo.
@@ -142,6 +143,7 @@ Tablas principales:
 - `nomina_entries`: registros de nomina asociados a acuerdos tipo `Nomina`.
 - `patient_intakes`: altas iniciadas desde `/agenda/?form=<slug>`.
 - `contacts`: contactos enviados desde la web principal.
+- `congreso_cokiba_registrations`: registros del formulario del Congreso COKIBA.
 - `services`: servicios reservables con duracion, costo y link fallback.
 - `professionals`: profesionales, foto, mail, estado.
 - `professional_services`: servicios que atiende cada profesional.
