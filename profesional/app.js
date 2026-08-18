@@ -14,7 +14,6 @@
     ['appointments', 'Turnos'],
     ['patients', 'Pacientes'],
     ['availability', 'Horarios'],
-    ['blocks', 'Bloqueos'],
     ['profile', 'Mi perfil'],
   ];
   const state = {
@@ -28,6 +27,9 @@
     patients: [],
     availability: [],
     blocks: [],
+    blocksModalOpen: false,
+    blocksMessage: '',
+    blocksMessageType: '',
     google: { available: false, connected: false, status: 'not_configured' },
     patientSearch: '',
     selectedPatientId: null,
@@ -508,6 +510,13 @@
     return `
       ${pageHeader('Horarios', 'Definí tus franjas habituales de atención.')}
       <form id="availability-form" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Disponibilidad habitual</h2>
+            <p class="muted">Configurá los días y franjas en los que atendés normalmente.</p>
+          </div>
+          <button class="secondary-button" data-action="open-blocks-modal" type="button">Bloqueos y excepciones</button>
+        </div>
         <div class="availability-list">
           ${dayLabels
             .map(([day, label]) => {
@@ -524,46 +533,60 @@
         </div>
         <div class="form-actions"><button class="primary-button" type="submit">Guardar horarios</button></div>
       </form>
+      ${renderBlocksModal()}
     `;
   }
 
-  function renderBlocks() {
+  function renderBlocksModal() {
+    if (!state.blocksModalOpen) return '';
     return `
-      ${pageHeader('Bloqueos', 'Cargá excepciones puntuales sobre tu horario habitual.')}
-      <section class="two-columns">
-        <form id="block-form" class="panel form-stack">
-          <h2>Nuevo bloqueo</h2>
-          <label>Fecha<input name="block_date" type="date" min="${today()}" required /></label>
-          <div class="form-grid">
-            <label>Desde<input name="start_time" type="time" required /></label>
-            <label>Hasta<input name="end_time" type="time" required /></label>
+      <div class="modal-backdrop" role="presentation">
+        <section class="modal-panel modal-panel-wide blocks-modal" role="dialog" aria-modal="true" aria-labelledby="blocks-modal-title">
+          <div class="modal-header">
+            <div>
+              <span class="eyebrow">Horarios</span>
+              <h2 id="blocks-modal-title">Bloqueos y excepciones</h2>
+              <p class="muted">Reservá franjas puntuales en las que no vas a estar disponible.</p>
+            </div>
+            <button class="icon-button" data-action="close-blocks-modal" type="button" aria-label="Cerrar bloqueos" title="Cerrar">×</button>
           </div>
-          <label>Motivo<textarea name="reason" rows="3" maxlength="300"></textarea></label>
-          <button class="primary-button" type="submit">Crear bloqueo</button>
-        </form>
-        <section class="panel">
-          <div class="panel-header"><h2>Próximos bloqueos</h2></div>
-          <div class="block-list">
-            ${
-              state.blocks.length
-                ? state.blocks
-                    .map(
-                      (block) => `
-                        <article class="block-row">
-                          <div>
-                            <strong>${escapeHtml(formatDate(block.block_date))} · ${escapeHtml(block.start_time)}–${escapeHtml(block.end_time)}</strong>
-                            <span class="muted">${escapeHtml(block.reason || 'Sin motivo')}</span>
-                          </div>
-                          <button class="danger-button" data-action="delete-block" data-id="${block.id}" type="button">Quitar</button>
-                        </article>
-                      `,
-                    )
-                    .join('')
-                : '<div class="empty-state">No hay bloqueos próximos.</div>'
-            }
+          ${state.blocksMessage ? `<div class="status-message ${escapeHtml(state.blocksMessageType)}">${escapeHtml(state.blocksMessage)}</div>` : ''}
+          <div class="blocks-modal-layout">
+            <form id="block-form" class="modal-section form-stack">
+              <h3>Nuevo bloqueo</h3>
+              <label>Fecha<input name="block_date" type="date" min="${today()}" required /></label>
+              <div class="form-grid">
+                <label>Desde<input name="start_time" type="time" required /></label>
+                <label>Hasta<input name="end_time" type="time" required /></label>
+              </div>
+              <label>Motivo<textarea name="reason" rows="3" maxlength="300" placeholder="Ej.: capacitación, trámite o licencia"></textarea></label>
+              <button class="primary-button" type="submit">Crear bloqueo</button>
+            </form>
+            <section class="modal-section">
+              <div class="panel-header"><h3>Próximos bloqueos</h3></div>
+              <div class="block-list">
+                ${
+                  state.blocks.length
+                    ? state.blocks
+                        .map(
+                          (block) => `
+                            <article class="block-row">
+                              <div>
+                                <strong>${escapeHtml(formatDate(block.block_date))} · ${escapeHtml(block.start_time)}–${escapeHtml(block.end_time)}</strong>
+                                <span class="muted">${escapeHtml(block.reason || 'Sin motivo')}</span>
+                              </div>
+                              <button class="danger-button compact-button" data-action="delete-block" data-id="${block.id}" type="button">Quitar</button>
+                            </article>
+                          `,
+                        )
+                        .join('')
+                    : '<div class="empty-state">No hay bloqueos próximos.</div>'
+                }
+              </div>
+            </section>
           </div>
         </section>
-      </section>
+      </div>
     `;
   }
 
@@ -615,7 +638,6 @@
     if (state.active === 'appointments') return renderAppointments();
     if (state.active === 'patients') return renderPatients();
     if (state.active === 'availability') return renderAvailability();
-    if (state.active === 'blocks') return renderBlocks();
     if (state.active === 'profile') return renderProfile();
     return renderOverview();
   }
@@ -677,6 +699,22 @@
     });
     app.querySelectorAll('[data-action="delete-block"]').forEach((button) => {
       button.addEventListener('click', () => handleDeleteBlock(button.dataset.id));
+    });
+    app.querySelectorAll('[data-action="open-blocks-modal"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.blocksModalOpen = true;
+        state.blocksMessage = '';
+        state.blocksMessageType = '';
+        render();
+      });
+    });
+    app.querySelectorAll('[data-action="close-blocks-modal"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.blocksModalOpen = false;
+        state.blocksMessage = '';
+        state.blocksMessageType = '';
+        render();
+      });
     });
     app.querySelectorAll('[data-action="cancel-appointment"]').forEach((button) => {
       button.addEventListener('click', () => handleCancelAppointment(button.dataset.id));
@@ -855,9 +893,13 @@
         },
       });
       state.blocks = (await api('/api/professional/blocks')).schedule_blocks;
-      setStatus('Bloqueo creado.', 'ok');
+      state.blocksMessage = 'Bloqueo creado.';
+      state.blocksMessageType = 'ok';
+      render();
     } catch (error) {
-      setStatus(error.message, 'error');
+      state.blocksMessage = error.message;
+      state.blocksMessageType = 'error';
+      render();
     }
   }
 
@@ -866,9 +908,13 @@
     try {
       await api(`/api/professional/blocks/${id}`, { method: 'DELETE' });
       state.blocks = (await api('/api/professional/blocks')).schedule_blocks;
-      setStatus('Bloqueo eliminado.', 'ok');
+      state.blocksMessage = 'Bloqueo eliminado.';
+      state.blocksMessageType = 'ok';
+      render();
     } catch (error) {
-      setStatus(error.message, 'error');
+      state.blocksMessage = error.message;
+      state.blocksMessageType = 'error';
+      render();
     }
   }
 
