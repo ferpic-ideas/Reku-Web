@@ -8,7 +8,7 @@ import {
 } from "./db.mjs";
 import QRCode from "qrcode";
 import { getClientIp, readBody, sendJson, withSecurityHeaders } from "./http.mjs";
-import { parseNominaCsv } from "./csv.mjs";
+import { parseNominaCsv, serializeCsv } from "./csv.mjs";
 import { sendEmail } from "./email.mjs";
 import {
   clearSessionCookie,
@@ -839,6 +839,105 @@ const mapContact = (row) => ({
   created_at: row.created_at,
 });
 
+const congressRegistrationSelect = `
+  SELECT
+    id,
+    nombre,
+    apellido,
+    profesion,
+    telefono,
+    email,
+    ambitos,
+    interes_telerehabilitacion,
+    interes_tecnologia,
+    comentario,
+    source_path,
+    email_message_id,
+    email_error,
+    created_at
+  FROM congreso_cokiba_registrations
+  ORDER BY created_at DESC, id DESC
+`;
+
+const mapCongressRegistration = (row) => ({
+  id: Number(row.id),
+  nombre_apellido: [row.nombre, row.apellido].filter(Boolean).join(" ").trim(),
+  profesion: row.profesion || "",
+  telefono: row.telefono || "",
+  email: row.email || "",
+  ambitos: Array.isArray(row.ambitos) ? row.ambitos : [],
+  interes_telerehabilitacion: row.interes_telerehabilitacion || "",
+  interes_tecnologia: row.interes_tecnologia || "",
+  comentario: row.comentario || "",
+  source_path: row.source_path || "",
+  email_message_id: row.email_message_id || "",
+  email_error: row.email_error || "",
+  created_at: row.created_at,
+});
+
+const listCongressRegistrations = async (response) => {
+  const result = await query(`${congressRegistrationSelect} LIMIT 1000`);
+  sendJson(response, 200, {
+    congress_registrations: result.rows.map(mapCongressRegistration),
+  });
+};
+
+const downloadCongressRegistrationsCsv = async (response) => {
+  const result = await query(congressRegistrationSelect);
+  const registrations = result.rows.map(mapCongressRegistration);
+  const csv = serializeCsv(
+    [
+      "ID",
+      "Fecha",
+      "Nombre y apellido",
+      "Correo electrónico",
+      "Teléfono / WhatsApp",
+      "Profesión / especialidad",
+      "Ámbitos de trabajo",
+      "Interés en telerehabilitación",
+      "Interés en tecnología",
+      "Comentario",
+      "Origen",
+      "Estado del email",
+    ],
+    registrations.map((registration) => [
+      registration.id,
+      registration.created_at
+        ? new Date(registration.created_at).toISOString()
+        : "",
+      registration.nombre_apellido,
+      registration.email,
+      registration.telefono,
+      registration.profesion,
+      registration.ambitos,
+      registration.interes_telerehabilitacion,
+      registration.interes_tecnologia,
+      registration.comentario,
+      registration.source_path,
+      registration.email_error
+        ? `Error: ${registration.email_error}`
+        : registration.email_message_id
+          ? "Enviado"
+          : "Pendiente",
+    ]),
+  );
+
+  response.writeHead(
+    200,
+    withSecurityHeaders(
+      {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Length": String(Buffer.byteLength(csv)),
+        "Content-Disposition":
+          'attachment; filename="reku-contactos-congreso-cokiba.csv"',
+        "Cache-Control": "no-store",
+      },
+      { privateRoute: true },
+    ),
+  );
+  response.end(csv);
+};
+
 const deleteRecord = async (response, user, table, id) => {
   if (!canDeleteRecords(user)) {
     sendJson(response, 403, { error: "No tenés permisos para eliminar registros." });
@@ -1604,7 +1703,10 @@ const listAppointments = async (response) => {
 const dashboard = async (response) => {
   const result = await query(`
     SELECT
-      (SELECT COUNT(*)::int FROM contacts) AS contacts,
+      (
+        (SELECT COUNT(*)::int FROM contacts)
+        + (SELECT COUNT(*)::int FROM congreso_cokiba_registrations)
+      ) AS contacts,
       (SELECT COUNT(*)::int FROM patient_intakes) AS patient_intakes,
       (SELECT COUNT(*)::int FROM appointments WHERE payment_status IN ('approved', 'nomina')) AS appointments_confirmed,
       (SELECT COUNT(*)::int FROM appointments WHERE payment_status = 'pending') AS appointments_pending,
@@ -1983,6 +2085,21 @@ export const handleAdminApi = async (request, response, url) => {
     const contactMatch = pathname.match(/^\/api\/admin\/contacts\/(\d+)$/);
     if (contactMatch && request.method === "DELETE") {
       await deleteRecord(response, user, "contacts", Number(contactMatch[1]));
+      return true;
+    }
+
+    if (
+      pathname === "/api/admin/congress-registrations" &&
+      request.method === "GET"
+    ) {
+      await listCongressRegistrations(response);
+      return true;
+    }
+    if (
+      pathname === "/api/admin/congress-registrations.csv" &&
+      request.method === "GET"
+    ) {
+      await downloadCongressRegistrationsCsv(response);
       return true;
     }
 

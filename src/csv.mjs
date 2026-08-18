@@ -73,3 +73,18 @@ export const parseNominaCsv = (csvText) => {
 
   return rows;
 };
+
+const escapeCsvCell = (value) => {
+  let text = Array.isArray(value)
+    ? value.join(" | ")
+    : String(value ?? "");
+  if (/^\s*[=+@-]/.test(text)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
+};
+
+export const serializeCsv = (headers, rows) => {
+  const lines = [headers, ...rows].map((row) =>
+    row.map(escapeCsvCell).join(","),
+  );
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
+};

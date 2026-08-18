@@ -126,8 +126,24 @@ test("congreso COKIBA page exposes the requested fields and closing message", as
   assert.match(html, /Sumate a la evolución digital en salud/);
   assert.match(html, /¡Gracias por registrarte!/);
   assert.match(html, /Nos pondremos en contacto contigo a la brevedad\./);
+  assert.match(html, /href="\/favicon-32x32\.png\?v=2"/);
+  assert.match(html, /href="\/favicon-16x16\.png\?v=2"/);
+  assert.match(html, /href="\/favicon\.ico\?v=2"/);
   assert.doesNotMatch(
     html,
     /name="(?:ambito|interes_telerehabilitacion|interes_tecnologia|comentario)"[^>]*required/,
   );
+});
+
+test("admin exposes a searchable COKIBA tab and CSV download", async () => {
+  const adminApp = await readFile(
+    new URL("../admin/app.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(adminApp, /Congreso COKIBA/);
+  assert.match(adminApp, /id="congress-text-filter"/);
+  assert.match(adminApp, /\/api\/admin\/congress-registrations/);
+  assert.match(adminApp, /\/api\/admin\/congress-registrations\.csv/);
+  assert.match(adminApp, /Descargar CSV/);
 });

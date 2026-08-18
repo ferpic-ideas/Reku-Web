@@ -352,6 +352,51 @@ a:focus-visible {
   box-shadow: 0 10px 24px rgb(22 32 42 / 6%);
 }
 
+.record-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.record-tab {
+  min-height: 42px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-bottom: 3px solid transparent;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.record-tab:hover,
+.record-tab.active {
+  color: #18213f;
+  border-bottom-color: var(--accent);
+}
+
+.record-tab span {
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: #1f4750;
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+
+.record-tab-panel {
+  display: grid;
+  gap: 16px;
+}
+
 .panel-header,
 .toolbar,
 .form-actions {
@@ -721,6 +766,33 @@ tr:hover td {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.congress-contacts-table {
+  min-width: 1720px;
+}
+
+.congress-contacts-table td {
+  max-width: 260px;
+  vertical-align: top;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.contact-details-cell,
+.answer-cell {
+  min-width: 180px;
+}
+
+.contact-details-cell > a,
+.contact-details-cell > span,
+.answer-line {
+  display: block;
+}
+
+.contact-details-cell > span,
+.answer-line + .answer-line {
+  margin-top: 5px;
 }
 
 .person-cell {

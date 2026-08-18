@@ -13,6 +13,7 @@
     agreements: [],
     patientIntakes: [],
     contacts: [],
+    congressRegistrations: [],
     nominaEntries: [],
     dashboard: null,
     users: [],
@@ -31,6 +32,8 @@
     patientTextFilter: '',
     contactTextFilter: '',
     contactOrganizationFilter: '',
+    contactTab: 'website',
+    congressTextFilter: '',
     nominaAgreementFilter: '',
     nominaFormFilter: '',
     appointmentStatusFilter: 'future',
@@ -196,6 +199,12 @@
     !modulePermissions[moduleId] || can(modulePermissions[moduleId]);
 
   const applyModuleFiltersFromSearch = (moduleId, search = window.location.search) => {
+    if (moduleId === 'contacts') {
+      state.contactTab = new URLSearchParams(search).get('tab') === 'cokiba'
+        ? 'congress'
+        : 'website';
+      return;
+    }
     if (moduleId !== 'appointments') return;
     const paymentFilter = new URLSearchParams(search).get('pago') || '';
     if (['pending', 'confirmed'].includes(paymentFilter)) {
@@ -219,6 +228,22 @@
       { module: 'appointments' },
       '',
       `${modulePath('appointments')}${nextSearch ? `?${nextSearch}` : ''}`,
+    );
+  };
+
+  const syncContactTabSearch = () => {
+    if (state.active !== 'contacts') return;
+    const params = new URLSearchParams(window.location.search);
+    if (state.contactTab === 'congress') {
+      params.set('tab', 'cokiba');
+    } else {
+      params.delete('tab');
+    }
+    const nextSearch = params.toString();
+    window.history.replaceState(
+      { module: 'contacts' },
+      '',
+      `${modulePath('contacts')}${nextSearch ? `?${nextSearch}` : ''}`,
     );
   };
 
@@ -449,6 +474,7 @@
       agreementData,
       patientData,
       contactData,
+      congressData,
       nominaData,
       serviceData,
       professionalData,
@@ -462,6 +488,9 @@
         ? api(`/api/admin/patient-intakes${state.patientAgreementFilter ? `?agreement_id=${state.patientAgreementFilter}` : ''}`)
         : Promise.resolve({ patient_intakes: [] }),
       can('contacts.read') ? api('/api/admin/contacts') : Promise.resolve({ contacts: [] }),
+      can('contacts.read')
+        ? api('/api/admin/congress-registrations')
+        : Promise.resolve({ congress_registrations: [] }),
       can('nomina.read')
         ? api(`/api/admin/nomina${state.nominaAgreementFilter ? `?agreement_id=${state.nominaAgreementFilter}` : ''}`)
         : Promise.resolve({ nomina_entries: [] }),
@@ -483,6 +512,7 @@
     state.agreements = agreementData.agreements || [];
     state.patientIntakes = patientData.patient_intakes || [];
     state.contacts = contactData.contacts || [];
+    state.congressRegistrations = congressData.congress_registrations || [];
     state.nominaEntries = nominaData.nomina_entries || [];
     state.services = serviceData.services || [];
     state.professionals = professionalData.professionals || [];
@@ -2092,6 +2122,26 @@
     });
   }
 
+  function filteredCongressRegistrations() {
+    const term = state.congressTextFilter.trim().toLowerCase();
+    if (!term) return state.congressRegistrations;
+    return state.congressRegistrations.filter((item) =>
+      [
+        item.nombre_apellido,
+        item.email,
+        item.telefono,
+        item.profesion,
+        ...(item.ambitos || []),
+        item.interes_telerehabilitacion,
+        item.interes_tecnologia,
+        item.comentario,
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(term),
+    );
+  }
+
   function renderPatientIntakes() {
     const items = filteredPatientIntakes();
     return `
@@ -2184,9 +2234,42 @@
   }
 
   function renderContacts() {
-    const items = filteredContacts();
+    const websiteActive = state.contactTab === 'website';
     return `
       <section class="panel">
+        <div class="record-tabs" role="tablist" aria-label="Origen de los contactos">
+          <button
+            type="button"
+            class="record-tab${websiteActive ? ' active' : ''}"
+            role="tab"
+            aria-selected="${websiteActive}"
+            aria-controls="website-contacts-panel"
+            data-action="set-contact-tab"
+            data-tab="website"
+          >
+            Sitio web <span>${state.contacts.length}</span>
+          </button>
+          <button
+            type="button"
+            class="record-tab${websiteActive ? '' : ' active'}"
+            role="tab"
+            aria-selected="${!websiteActive}"
+            aria-controls="congress-contacts-panel"
+            data-action="set-contact-tab"
+            data-tab="congress"
+          >
+            Congreso COKIBA <span>${state.congressRegistrations.length}</span>
+          </button>
+        </div>
+        ${websiteActive ? renderWebsiteContacts() : renderCongressContacts()}
+      </section>
+    `;
+  }
+
+  function renderWebsiteContacts() {
+    const items = filteredContacts();
+    return `
+      <div class="record-tab-panel" id="website-contacts-panel" role="tabpanel">
         <div class="toolbar compact-filter-toolbar total-right-toolbar">
           <div class="toolbar-actions compact-filter-actions">
             <label class="wide-filter">
@@ -2227,7 +2310,7 @@
             </tbody>
           </table>
         </div>
-      </section>
+      </div>
     `;
   }
 
@@ -2253,6 +2336,96 @@
               Eliminar
             </button>
           </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  function renderCongressAnswer(value) {
+    const answers = Array.isArray(value)
+      ? value.filter(Boolean)
+      : String(value || '').trim()
+        ? [String(value).trim()]
+        : [];
+    if (!answers.length) return '<span class="muted">Sin respuesta</span>';
+    return answers
+      .map((answer) => `<span class="answer-line">${escapeHtml(answer)}</span>`)
+      .join('');
+  }
+
+  function renderCongressContacts() {
+    const items = filteredCongressRegistrations();
+    return `
+      <div class="record-tab-panel" id="congress-contacts-panel" role="tabpanel">
+        <div class="toolbar compact-filter-toolbar total-right-toolbar">
+          <div class="toolbar-actions compact-filter-actions">
+            <label class="wide-filter">
+              Buscar
+              <input
+                id="congress-text-filter"
+                type="search"
+                value="${escapeHtml(state.congressTextFilter)}"
+                placeholder="Nombre, contacto, profesión o respuesta"
+              />
+            </label>
+          </div>
+          <div class="toolbar-actions toolbar-end-actions">
+            <a
+              class="secondary-button"
+              href="/api/admin/congress-registrations.csv"
+              download="reku-contactos-congreso-cokiba.csv"
+            >
+              Descargar CSV
+            </a>
+            <span class="toolbar-count">Total: ${items.length}</span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="congress-contacts-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Nombre y apellido</th>
+                <th>Contacto</th>
+                <th>Profesión</th>
+                <th>Ámbitos</th>
+                <th>Red de telerehabilitación</th>
+                <th>Tecnología</th>
+                <th>Comentario</th>
+                <th>Estado envío</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${items.length ? items.map(renderCongressContactRow).join('') : '<tr><td colspan="9">No hay registros del Congreso COKIBA.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCongressContactRow(item) {
+    return `
+      <tr>
+        <td>${escapeHtml(formatDate(item.created_at))}</td>
+        <td><strong>${escapeHtml(item.nombre_apellido)}</strong></td>
+        <td class="contact-details-cell">
+          <a href="mailto:${escapeHtml(item.email)}">${escapeHtml(item.email)}</a>
+          <span>${escapeHtml(item.telefono)}</span>
+        </td>
+        <td>${escapeHtml(item.profesion)}</td>
+        <td class="answer-cell">${renderCongressAnswer(item.ambitos)}</td>
+        <td class="answer-cell">${renderCongressAnswer(item.interes_telerehabilitacion)}</td>
+        <td class="answer-cell">${renderCongressAnswer(item.interes_tecnologia)}</td>
+        <td class="answer-cell">${renderCongressAnswer(item.comentario)}</td>
+        <td>
+          ${
+            item.email_error
+              ? `<span class="muted">Error: ${escapeHtml(item.email_error)}</span>`
+              : item.email_message_id
+                ? '<span class="pill">Enviado</span>'
+                : '<span class="muted">Pendiente</span>'
+          }
         </td>
       </tr>
     `;
@@ -2542,6 +2715,21 @@
       });
     }
 
+    const congressTextFilter = document.getElementById('congress-text-filter');
+    if (congressTextFilter) {
+      congressTextFilter.value = state.congressTextFilter;
+      congressTextFilter.addEventListener('input', () => {
+        state.congressTextFilter = congressTextFilter.value;
+        render();
+        const nextInput = document.getElementById('congress-text-filter');
+        nextInput?.focus();
+        nextInput?.setSelectionRange(
+          state.congressTextFilter.length,
+          state.congressTextFilter.length,
+        );
+      });
+    }
+
     const nominaFilter = document.getElementById('nomina-agreement-filter');
     if (nominaFilter) {
       nominaFilter.value = state.nominaAgreementFilter;
@@ -2641,6 +2829,7 @@
     const action = event.currentTarget.dataset.action;
     const id = Number(event.currentTarget.dataset.id || 0);
     const slug = event.currentTarget.dataset.slug || '';
+    const tab = event.currentTarget.dataset.tab || '';
 
     try {
       if (action === 'toggle-user-menu') {
@@ -2677,6 +2866,12 @@
       }
       if (action === 'open-audit') {
         await navigateToModule('audit');
+        return;
+      }
+      if (action === 'set-contact-tab') {
+        state.contactTab = tab === 'congress' ? 'congress' : 'website';
+        syncContactTabSearch();
+        render();
         return;
       }
       if (action === 'close-dialog') {

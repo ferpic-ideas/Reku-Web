@@ -127,7 +127,9 @@ Funciones actuales:
 - Acuerdos con `name`, `slug`, `logo`, `pdf`, `cobranded`, `type`, links de pago y template de mail.
 - Opcion "Get URL" para copiar la URL del formulario por acuerdo.
 - Registro de altas recibidas, con filtro por acuerdo.
-- Registro de contactos recibidos.
+- Registro de contactos recibidos, separado en pestañas para el sitio web y el
+  Congreso COKIBA. La pestaña del congreso incluye búsqueda sobre todas las
+  respuestas y exportación CSV completa.
 - Borrado de altas/contactos sólo con permiso `records.delete`.
 - CRUD manual de nominas.
 - Import CSV de nominas.
