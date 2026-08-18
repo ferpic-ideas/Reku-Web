@@ -1286,6 +1286,8 @@ const mapProfessional = (row) => ({
   user_id: row.user_id ? Number(row.user_id) : null,
   user_email: row.user_email || "",
   user_is_active: Boolean(row.user_is_active),
+  calendar_connected: row.google_calendar_status === "active",
+  calendar_status: row.google_calendar_status || "not_connected",
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -1297,6 +1299,7 @@ const professionalSelect = `
     pu.email AS user_email,
     pu.role AS user_role,
     pu.is_active AS user_is_active,
+    pgc.status AS google_calendar_status,
     COALESCE(
       (
         SELECT json_agg(json_build_object('id', s.id, 'name', s.name) ORDER BY s.name)
@@ -1324,6 +1327,7 @@ const professionalSelect = `
     ) AS availability
   FROM professionals p
   LEFT JOIN users pu ON pu.professional_id = p.id
+  LEFT JOIN professional_google_connections pgc ON pgc.professional_id = p.id
 `;
 
 const listProfessionals = async (response) => {

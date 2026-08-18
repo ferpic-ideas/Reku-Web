@@ -809,6 +809,52 @@ tr:hover td {
   background: var(--danger-soft);
 }
 
+.account-status.pending {
+  color: #805b12;
+  background: #fff3d6;
+}
+
+.access-statuses {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.table-icon-button {
+  width: 38px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 38px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: #18213f;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.table-icon-button:hover {
+  border-color: #b9dce2;
+  background: #eef9fb;
+}
+
+.table-icon-button.danger {
+  color: var(--danger);
+  border-color: #f0b8b2;
+  background: var(--danger-soft);
+}
+
+.table-icon-button.danger:hover {
+  background: #ffe4df;
+}
+
+.table-icon-button .action-icon {
+  width: 18px;
+  height: 18px;
+}
+
 .table-actions {
   display: flex;
   align-items: center;

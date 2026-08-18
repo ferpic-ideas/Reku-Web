@@ -296,6 +296,22 @@
         <rect width="14" height="14" x="8" y="8" rx="2" />
         <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
       `,
+      edit: `
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      `,
+      revoke: `
+        <path d="M10 17l5-5-5-5" />
+        <path d="M15 12H3" />
+        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+      `,
+      trash: `
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M19 6l-1 14H6L5 6" />
+        <path d="M10 11v5" />
+        <path d="M14 11v5" />
+      `,
     };
     return `
       <svg class="action-icon" aria-hidden="true" viewBox="0 0 24 24">
@@ -1275,7 +1291,7 @@
               <tr>
                 <th>Profesional</th>
                 <th>Mail</th>
-                <th>Cuenta</th>
+                <th>Accesos</th>
                 <th>Servicios</th>
                 <th>Horarios</th>
                 <th>Estado</th>
@@ -1306,9 +1322,14 @@
         </td>
         <td>${escapeHtml(professional.email)}</td>
         <td>
-          <span class="account-status ${professional.has_user ? 'active' : 'missing'}">
-            ${professional.has_user ? 'Activa' : 'Pendiente'}
-          </span>
+          <div class="access-statuses">
+            <span class="account-status ${professional.has_user ? 'active' : 'missing'}">
+              Cuenta ${professional.has_user ? 'activa' : 'pendiente'}
+            </span>
+            <span class="account-status ${professional.calendar_connected ? 'active' : 'pending'}">
+              Calendar ${professional.calendar_connected ? 'conectado' : 'pendiente'}
+            </span>
+          </div>
         </td>
         <td>${(professional.services || []).map((service) => escapeHtml(service.name)).join(', ') || 'Sin servicios'}</td>
         <td>${renderAvailabilitySummary(professional.availability)}</td>
@@ -1317,17 +1338,17 @@
           <div class="table-actions">
             ${
               can('professionals.write')
-                ? `<button type="button" class="secondary-button" data-action="edit-professional" data-id="${professional.id}">Editar</button>`
+                ? `<button type="button" class="table-icon-button" data-action="edit-professional" data-id="${professional.id}" aria-label="Editar profesional" title="Editar profesional">${actionIcon('edit')}</button>`
                 : ''
             }
             ${
               can('professionals.revoke_access')
-                ? `<button type="button" class="secondary-button" data-action="revoke-professional-access" data-id="${professional.id}">Revocar accesos</button>`
+                ? `<button type="button" class="table-icon-button" data-action="revoke-professional-access" data-id="${professional.id}" aria-label="Revocar accesos" title="Revocar accesos">${actionIcon('revoke')}</button>`
                 : ''
             }
             ${
               can('professionals.delete')
-                ? `<button type="button" class="danger-button" data-action="delete-professional" data-id="${professional.id}">Eliminar</button>`
+                ? `<button type="button" class="table-icon-button danger" data-action="delete-professional" data-id="${professional.id}" aria-label="Eliminar profesional" title="Eliminar profesional">${actionIcon('trash')}</button>`
                 : ''
             }
             ${
