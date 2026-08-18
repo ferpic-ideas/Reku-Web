@@ -399,6 +399,7 @@
 
   function renderPatientDetails(patient) {
     if (!patient) return '';
+    const documents = patient.next_appointment?.documents || [];
     const canRemindTriage =
       patient.triage_status === 'assigned' && Boolean(patient.next_appointment?.id);
     const reminderSentAt = patient.next_appointment?.triage_reminder_sent_at;
@@ -422,6 +423,18 @@
             <div><dt>Importe</dt><dd>${patient.payment?.amount ? escapeHtml(new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(patient.payment.amount)) : '—'}</dd></div>
             <div><dt>Último turno registrado</dt><dd>${patient.latest_appointment_date ? escapeHtml(formatDate(patient.latest_appointment_date)) : '—'}</dd></div>
           </dl>
+          <div class="patient-documents">
+            <strong>Documentación del próximo turno</strong>
+            ${
+              documents.length
+                ? `<ul>${documents
+                    .map(
+                      (document) => `<li><a href="${escapeHtml(document.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(document.name)}</a><span>${document.kind === 'link' ? 'Enlace externo' : 'Archivo adjunto'}</span></li>`,
+                    )
+                    .join('')}</ul>`
+                : '<span>El paciente todavía no compartió documentación.</span>'
+            }
+          </div>
           <div class="details-note">
             <strong>Seguimiento del triaje</strong>
             <span>Reku sabe que el enlace fue asignado, pero ReHub todavía no informa automáticamente si el paciente lo completó.</span>

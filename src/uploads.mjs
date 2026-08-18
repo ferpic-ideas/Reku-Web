@@ -23,13 +23,20 @@ const invalidImageError = () => {
   return error;
 };
 
-export const parseMultipartForm = (request, { maxBytes = config.uploadMaxBytes } = {}) =>
+export const parseMultipartForm = (
+  request,
+  {
+    maxBytes = config.uploadMaxBytes,
+    maxFiles = 4,
+    collectFiles = false,
+  } = {},
+) =>
   new Promise((resolve, reject) => {
     const busboy = Busboy({
       headers: request.headers,
       limits: {
         fileSize: maxBytes,
-        files: 4,
+        files: maxFiles,
         fields: 80,
       },
     });
@@ -39,6 +46,7 @@ export const parseMultipartForm = (request, { maxBytes = config.uploadMaxBytes }
     let failed = false;
 
     const fail = (error) => {
+      if (failed) return;
       failed = true;
       reject(error);
     };
@@ -58,12 +66,12 @@ export const parseMultipartForm = (request, { maxBytes = config.uploadMaxBytes }
       }
 
       file.on("data", (chunk) => {
+        if (failed) return;
         totalBytes += chunk.length;
-        if (totalBytes > maxBytes && !failed) {
+        if (totalBytes > maxBytes) {
           const error = new Error("PAYLOAD_TOO_LARGE");
           error.statusCode = 413;
           fail(error);
-          file.resume();
           return;
         }
         chunks.push(chunk);
@@ -77,15 +85,27 @@ export const parseMultipartForm = (request, { maxBytes = config.uploadMaxBytes }
 
       file.on("end", () => {
         if (!failed && chunks.length > 0) {
-          files[name] = {
+          const upload = {
             filename,
             mimeType,
             buffer: Buffer.concat(chunks),
           };
+          if (collectFiles) {
+            files[name] ||= [];
+            files[name].push(upload);
+          } else {
+            files[name] = upload;
+          }
         }
       });
     });
 
+    busboy.on("filesLimit", () => {
+      if (failed) return;
+      const error = new Error("TOO_MANY_FILES");
+      error.statusCode = 422;
+      fail(error);
+    });
     busboy.on("error", reject);
     busboy.on("finish", () => {
       if (!failed) resolve({ fields, files });

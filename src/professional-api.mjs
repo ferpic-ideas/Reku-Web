@@ -30,6 +30,10 @@ import {
 } from "./google-calendar.mjs";
 import { acceptProfessionalInvitation } from "./professional-invitations.mjs";
 import { PROFESSIONAL_PASSWORD_MIN_LENGTH } from "./professional-users.mjs";
+import {
+  mapAppointmentDocument,
+  streamProfessionalAppointmentDocument,
+} from "./appointment-documents.mjs";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -653,6 +657,7 @@ const listPatients = async (url, response, account) => {
         next_appointment.triage_assignment_error AS next_triage_error,
         next_appointment.triage_reminder_sent_at AS next_triage_reminder_sent_at,
         next_appointment.triage_reminder_count AS next_triage_reminder_count,
+        next_appointment.documents AS next_documents,
         COALESCE(next_appointment.agreement_name, latest_appointment.agreement_name, '') AS source_name,
         COALESCE(next_appointment.agreement_type, latest_appointment.agreement_type, '') AS source_type,
         COALESCE(next_appointment.payment_status, latest_appointment.payment_status, '') AS payment_status,
@@ -670,6 +675,25 @@ const listPatients = async (url, response, account) => {
           appointment.triage_assignment_error,
           appointment.triage_reminder_sent_at,
           appointment.triage_reminder_count,
+          (
+            SELECT COALESCE(
+              jsonb_agg(
+                jsonb_build_object(
+                  'id', document.id,
+                  'kind', document.kind,
+                  'original_name', document.original_name,
+                  'mime_type', document.mime_type,
+                  'size_bytes', document.size_bytes,
+                  'external_url', document.external_url,
+                  'created_at', document.created_at
+                )
+                ORDER BY document.created_at, document.id
+              ),
+              '[]'::jsonb
+            )
+            FROM appointment_documents document
+            WHERE document.appointment_id = appointment.id
+          ) AS documents,
           appointment.agreement_name_snapshot AS agreement_name,
           appointment.agreement_type_snapshot AS agreement_type,
           appointment.payment_status,
@@ -746,6 +770,7 @@ const listPatients = async (url, response, account) => {
             service_name: row.next_service_name || "",
             triage_reminder_sent_at: row.next_triage_reminder_sent_at || null,
             triage_reminder_count: Number(row.next_triage_reminder_count || 0),
+            documents: (row.next_documents || []).map(mapAppointmentDocument),
           }
         : null,
       practice: row.next_service_name || row.latest_service_name || "",
@@ -1156,6 +1181,21 @@ export const handleProfessionalApi = async (request, response, url) => {
     }
     if (pathname === "/api/professional/appointments" && request.method === "GET") {
       await listProfessionalAppointments(response, account.user.professional_id);
+      return true;
+    }
+    const appointmentDocumentMatch = pathname.match(
+      /^\/api\/professional\/appointment-documents\/(\d+)$/,
+    );
+    if (
+      appointmentDocumentMatch &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      await streamProfessionalAppointmentDocument(
+        request,
+        response,
+        Number(appointmentDocumentMatch[1]),
+        account,
+      );
       return true;
     }
     const appointmentCancelMatch = pathname.match(

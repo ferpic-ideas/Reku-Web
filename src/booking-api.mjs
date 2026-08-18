@@ -32,9 +32,19 @@ import {
   holdAppointmentOnGoogleCalendar,
 } from "./google-calendar.mjs";
 import { ensureAppointmentTriage } from "./appointment-triage.mjs";
+import { parseMultipartForm } from "./uploads.mjs";
+import {
+  mapAppointmentDocument,
+  normalizeDocumentLinks,
+  removeClinicalDocuments,
+  saveClinicalDocument,
+} from "./appointment-documents.mjs";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
+const firstAvailableProfessionalId = "first_available";
+const isGoogleAvailabilityError = (error) =>
+  ["GOOGLE_REAUTH_REQUIRED", "GOOGLE_API_ERROR"].includes(error?.message);
 
 const parseJsonBody = async (request) => {
   const body = await readBody(request);
@@ -178,6 +188,7 @@ const mapProfessional = (row) => ({
   id: Number(row.id),
   name: row.name,
   photo_url: row.photo_path ? `/uploads/${row.photo_path}` : "",
+  specialty: row.specialty || "",
 });
 
 const listServices = async (response, link) => {
@@ -320,6 +331,38 @@ const listProfessionals = async (url, response) => {
   sendJson(response, 200, { professionals: result.rows.map(mapProfessional) });
 };
 
+const loadEligibleProfessionals = async (serviceId) => {
+  const result = await query(
+    `
+      SELECT
+        p.*,
+        COUNT(upcoming.id) AS upcoming_appointments
+      FROM professionals p
+      INNER JOIN professional_services ps ON ps.professional_id = p.id
+      LEFT JOIN appointments upcoming
+        ON upcoming.professional_id = p.id
+       AND upcoming.status = 'confirmed'
+       AND upcoming.appointment_date >= CURRENT_DATE
+      WHERE ps.service_id = $1
+        AND p.deleted_at IS NULL
+        AND p.active = TRUE
+        AND (
+          $2::boolean = FALSE
+          OR EXISTS (
+            SELECT 1
+            FROM professional_google_connections pgc
+            WHERE pgc.professional_id = p.id
+              AND pgc.status = 'active'
+          )
+        )
+      GROUP BY p.id
+      ORDER BY COUNT(upcoming.id), p.name, p.id
+    `,
+    [serviceId, config.googleCalendarRequired],
+  );
+  return result.rows;
+};
+
 const loadService = async (serviceId) =>
   one(
     `
@@ -372,6 +415,8 @@ const computeSlots = async ({
   professionalId,
   date,
   externalBusyRanges,
+  preloadedService = null,
+  selectionValidated = false,
 }) => {
   const parsedDate = new Date(`${date}T00:00:00Z`);
   if (
@@ -384,8 +429,11 @@ const computeSlots = async ({
     throw error;
   }
 
-  const service = await loadService(serviceId);
-  if (!service || !(await professionalSupportsService(professionalId, serviceId))) {
+  const service = preloadedService || (await loadService(serviceId));
+  if (
+    !service ||
+    (!selectionValidated && !(await professionalSupportsService(professionalId, serviceId)))
+  ) {
     const error = new Error("BOOKING_SELECTION_INVALID");
     error.statusCode = 422;
     throw error;
@@ -468,17 +516,67 @@ const computeSlots = async ({
   return { service, slots };
 };
 
+const computeFirstAvailableSlots = async ({ serviceId, date }) => {
+  const [service, professionals] = await Promise.all([
+    loadService(serviceId),
+    loadEligibleProfessionals(serviceId),
+  ]);
+  if (!service) {
+    const error = new Error("BOOKING_SELECTION_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+  const availability = (
+    await Promise.all(
+      professionals.map(async (professional) => {
+        try {
+          return {
+            professional,
+            slots: (
+              await computeSlots({
+                serviceId,
+                professionalId: Number(professional.id),
+                date,
+                preloadedService: service,
+                selectionValidated: true,
+              })
+            ).slots,
+          };
+        } catch (error) {
+          if (isGoogleAvailabilityError(error)) return null;
+          throw error;
+        }
+      }),
+    )
+  ).filter(Boolean);
+  return {
+    service,
+    professionals,
+    availability,
+    slots: [...new Set(availability.flatMap((item) => item.slots))].sort(),
+  };
+};
+
 const listSlots = async (url, response) => {
   const serviceId = Number(url.searchParams.get("service_id"));
-  const professionalId = Number(url.searchParams.get("professional_id"));
+  const requestedProfessionalId = String(url.searchParams.get("professional_id") || "");
   const date = String(url.searchParams.get("date") || "");
-  const { slots } = await computeSlots({ serviceId, professionalId, date });
+  const { slots } =
+    requestedProfessionalId === firstAvailableProfessionalId
+      ? await computeFirstAvailableSlots({ serviceId, date })
+      : await computeSlots({
+          serviceId,
+          professionalId: Number(requestedProfessionalId),
+          date,
+        });
   sendJson(response, 200, { slots });
 };
 
 const listDays = async (url, response) => {
   const serviceId = Number(url.searchParams.get("service_id"));
-  const professionalId = Number(url.searchParams.get("professional_id"));
+  const requestedProfessionalId = String(url.searchParams.get("professional_id") || "");
+  const firstAvailable = requestedProfessionalId === firstAvailableProfessionalId;
+  const professionalId = Number(requestedProfessionalId);
   const month = String(url.searchParams.get("month") || "");
   if (!/^\d{4}-\d{2}$/.test(month)) {
     sendJson(response, 422, { error: "Ingresá un mes válido." });
@@ -492,20 +590,57 @@ const listDays = async (url, response) => {
     monthNumber === 12
       ? `${year + 1}-01-01`
       : `${year}-${String(monthNumber + 1).padStart(2, "0")}-01`;
-  const googleBusyByDate = await getGoogleBusyRanges({
-    professionalId,
-    startDate,
-    endDateExclusive,
-  });
+  const service = await loadService(serviceId);
+  let professionals = firstAvailable
+    ? await loadEligibleProfessionals(serviceId)
+    : [{ id: professionalId }];
+  if (!service || !professionals.length) {
+    sendJson(response, 200, { days: [] });
+    return;
+  }
+  const googleBusyEntries = (
+    await Promise.all(
+      professionals.map(async (professional) => {
+        try {
+          return [
+            Number(professional.id),
+            await getGoogleBusyRanges({
+              professionalId: Number(professional.id),
+              startDate,
+              endDateExclusive,
+            }),
+          ];
+        } catch (error) {
+          if (firstAvailable && isGoogleAvailabilityError(error)) return null;
+          throw error;
+        }
+      }),
+    )
+  ).filter(Boolean);
+  const googleBusyByProfessional = new Map(googleBusyEntries);
+  if (firstAvailable) {
+    const availableProfessionalIds = new Set(googleBusyEntries.map(([id]) => id));
+    professionals = professionals.filter((professional) =>
+      availableProfessionalIds.has(Number(professional.id)),
+    );
+  }
   const days = [];
   for (let day = 1; day <= daysInMonth; day += 1) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
-    const { slots } = await computeSlots({
-      serviceId,
-      professionalId,
-      date,
-      externalBusyRanges: googleBusyByDate[date] || [],
-    });
+    const availability = await Promise.all(
+      professionals.map((professional) => {
+        const id = Number(professional.id);
+        return computeSlots({
+          serviceId,
+          professionalId: id,
+          date,
+          externalBusyRanges: googleBusyByProfessional.get(id)?.[date] || [],
+          preloadedService: service,
+          selectionValidated: firstAvailable,
+        });
+      }),
+    );
+    const slots = [...new Set(availability.flatMap((item) => item.slots))];
     if (slots.length) days.push({ date, slots_count: slots.length });
   }
   sendJson(response, 200, { days });
@@ -513,7 +648,9 @@ const listDays = async (url, response) => {
 
 const createAppointment = async (payload, response, url, link) => {
   const serviceId = Number(payload.service_id);
-  const professionalId = Number(payload.professional_id);
+  const automaticProfessional =
+    payload.first_available === true ||
+    String(payload.professional_id || "") === firstAvailableProfessionalId;
   const date = String(payload.date || "");
   const startTime = String(payload.start_time || "");
   const [startHours, startMinutes] = startTime.split(":").map(Number);
@@ -528,14 +665,25 @@ const createAppointment = async (payload, response, url, link) => {
     return;
   }
 
-  const { service, slots } = await computeSlots({ serviceId, professionalId, date });
-  if (!slots.includes(startTime)) {
-    sendJson(response, 409, { error: "Ese horario ya no está disponible." });
-    return;
+  let service;
+  let candidates;
+  if (automaticProfessional) {
+    const availability = await computeFirstAvailableSlots({ serviceId, date });
+    service = availability.service;
+    candidates = availability.availability
+      .filter((item) => item.slots.includes(startTime))
+      .map((item) => item.professional);
+  } else {
+    const professionalId = Number(payload.professional_id);
+    const availability = await computeSlots({ serviceId, professionalId, date });
+    service = availability.service;
+    const professional = availability.slots.includes(startTime)
+      ? await loadProfessional(professionalId)
+      : null;
+    candidates = professional ? [professional] : [];
   }
-  const professional = await loadProfessional(professionalId);
-  if (!professional) {
-    sendJson(response, 422, { error: "El profesional no está disponible." });
+  if (!candidates.length) {
+    sendJson(response, 409, { error: "Ese horario ya no está disponible." });
     return;
   }
 
@@ -552,123 +700,146 @@ const createAppointment = async (payload, response, url, link) => {
       ? "nomina"
       : "free";
 
-  const appointment = await tx(async (client) => {
-    await client.query(
-      `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
-      [professionalId, date],
-    );
-    const conflict = await client.query(
-      `
-        SELECT id
-        FROM appointments
-        WHERE professional_id = $1
-          AND appointment_date = $2::date
-          AND (
-            status = 'confirmed'
-            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '40 minutes')
-          )
-          AND start_time < $4::time
-          AND end_time > $3::time
-        FOR UPDATE
-      `,
-      [professionalId, date, startTime, endTime],
-    );
-    if (conflict.rows.length) {
-      const error = new Error("BOOKING_SLOT_TAKEN");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    let patientId = link.patient_id;
-    if (patientEmail) {
-      const canonicalPatient = await client.query(
-        `
-          INSERT INTO patients
-            (full_name, email, email_normalized, phone)
-          VALUES ($1, $2, lower(trim($2)), $3)
-          ON CONFLICT (email_normalized) DO UPDATE SET
-            full_name = CASE
-              WHEN EXCLUDED.full_name <> '' THEN EXCLUDED.full_name
-              ELSE patients.full_name
-            END,
-            email = EXCLUDED.email,
-            phone = CASE
-              WHEN EXCLUDED.phone <> '' THEN EXCLUDED.phone
-              ELSE patients.phone
-            END,
-            active = TRUE,
-            updated_at = NOW()
-          RETURNING id
-        `,
-        [patientName, patientEmail, patientPhone],
+  const reserveWithProfessional = (candidate) =>
+    tx(async (client) => {
+      const professionalId = Number(candidate.id);
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
+        [professionalId, date],
       );
-      patientId = Number(canonicalPatient.rows[0].id);
-    }
+      const conflict = await client.query(
+        `
+          SELECT id
+          FROM appointments
+          WHERE professional_id = $1
+            AND appointment_date = $2::date
+            AND (
+              status = 'confirmed'
+              OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '40 minutes')
+            )
+            AND start_time < $4::time
+            AND end_time > $3::time
+          FOR UPDATE
+        `,
+        [professionalId, date, startTime, endTime],
+      );
+      if (conflict.rows.length) {
+        const error = new Error("BOOKING_SLOT_TAKEN");
+        error.statusCode = 409;
+        throw error;
+      }
 
-    const result = await client.query(
-      `
-        INSERT INTO appointments
-          (
-            booking_access_link_id,
-            patient_intake_id,
-            patient_id,
-            service_id,
-            professional_id,
-            appointment_date,
-            start_time,
-            end_time,
-            patient_name,
-            patient_email,
-            patient_phone,
-            agreement_id,
-            agreement_name_snapshot,
-            agreement_slug_snapshot,
-            agreement_type_snapshot,
-            amount,
-            payment_status,
-            payment_provider,
-            status
-        )
-        VALUES (
-          $1, $2, $3, $4, $5, $6::date, $7::time, $8::time, $9, $10, $11,
-          $12, $13, $14, $15, $16, $17, $18, $19
-        )
-        RETURNING *
-      `,
-      [
+      let patientId = link.patient_id;
+      if (patientEmail) {
+        const canonicalPatient = await client.query(
+          `
+            INSERT INTO patients
+              (full_name, email, email_normalized, phone)
+            VALUES ($1, $2, lower(trim($2)), $3)
+            ON CONFLICT (email_normalized) DO UPDATE SET
+              full_name = CASE
+                WHEN EXCLUDED.full_name <> '' THEN EXCLUDED.full_name
+                ELSE patients.full_name
+              END,
+              email = EXCLUDED.email,
+              phone = CASE
+                WHEN EXCLUDED.phone <> '' THEN EXCLUDED.phone
+                ELSE patients.phone
+              END,
+              active = TRUE,
+              updated_at = NOW()
+            RETURNING id
+          `,
+          [patientName, patientEmail, patientPhone],
+        );
+        patientId = Number(canonicalPatient.rows[0].id);
+      }
+
+      const result = await client.query(
+        `
+          INSERT INTO appointments
+            (
+              booking_access_link_id,
+              patient_intake_id,
+              patient_id,
+              service_id,
+              professional_id,
+              appointment_date,
+              start_time,
+              end_time,
+              patient_name,
+              patient_email,
+              patient_phone,
+              agreement_id,
+              agreement_name_snapshot,
+              agreement_slug_snapshot,
+              agreement_type_snapshot,
+              amount,
+              payment_status,
+              payment_provider,
+              status
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6::date, $7::time, $8::time, $9, $10, $11,
+            $12, $13, $14, $15, $16, $17, $18, $19
+          )
+          RETURNING *
+        `,
+        [
+          link.id,
+          link.patient_intake_id,
+          patientId,
+          serviceId,
+          professionalId,
+          date,
+          startTime,
+          endTime,
+          patientName,
+          patientEmail,
+          patientPhone,
+          link.agreement?.id || null,
+          link.agreement?.name || "",
+          link.agreement?.slug || "",
+          link.agreement?.type || "",
+          amount,
+          paymentStatus,
+          requiresPayment
+            ? "mercadopago"
+            : link.agreement?.type === "Nomina"
+              ? "nomina"
+              : "manual",
+          requiresPayment ? "pending_payment" : "confirmed",
+        ],
+      );
+      await client.query("UPDATE booking_access_links SET used_at = NOW() WHERE id = $1", [
         link.id,
-        link.patient_intake_id,
-        patientId,
-        serviceId,
-        professionalId,
-        date,
-        startTime,
-        endTime,
-        patientName,
-        patientEmail,
-        patientPhone,
-        link.agreement?.id || null,
-        link.agreement?.name || "",
-        link.agreement?.slug || "",
-        link.agreement?.type || "",
-        amount,
-        paymentStatus,
-        requiresPayment ? "mercadopago" : link.agreement?.type === "Nomina" ? "nomina" : "manual",
-        requiresPayment ? "pending_payment" : "confirmed",
-      ],
-    );
-    await client.query("UPDATE booking_access_links SET used_at = NOW() WHERE id = $1", [
-      link.id,
-    ]);
-    return {
-      ...result.rows[0],
-      id: Number(result.rows[0].id),
-      booking_access_link_id: Number(result.rows[0].booking_access_link_id),
-      patient_intake_id: result.rows[0].patient_intake_id
-        ? Number(result.rows[0].patient_intake_id)
-        : null,
-    };
-  });
+      ]);
+      return {
+        ...result.rows[0],
+        id: Number(result.rows[0].id),
+        booking_access_link_id: Number(result.rows[0].booking_access_link_id),
+        patient_intake_id: result.rows[0].patient_intake_id
+          ? Number(result.rows[0].patient_intake_id)
+          : null,
+      };
+    });
+
+  let appointment;
+  let professional;
+  for (const candidate of candidates) {
+    try {
+      appointment = await reserveWithProfessional(candidate);
+      professional = candidate;
+      break;
+    } catch (error) {
+      if (!automaticProfessional || error.message !== "BOOKING_SLOT_TAKEN") throw error;
+    }
+  }
+  if (!appointment || !professional) {
+    sendJson(response, 409, { error: "Ese horario ya no está disponible." });
+    return;
+  }
+  const professionalId = Number(professional.id);
 
   if (requiresPayment) {
     try {
@@ -747,6 +918,7 @@ const createAppointment = async (payload, response, url, link) => {
         professional_id: professionalId,
         preference_id: preference.preference_id,
         payment_mode: preference.mode,
+        selection_mode: automaticProfessional ? "first_available" : "professional",
         source: url.pathname,
       },
     });
@@ -758,6 +930,8 @@ const createAppointment = async (payload, response, url, link) => {
         date,
         start_time: startTime,
         end_time: endTime,
+        professional_id: professionalId,
+        professional_name: professional.name,
         payment_status: "pending",
         status: "pending_payment",
       },
@@ -778,6 +952,7 @@ const createAppointment = async (payload, response, url, link) => {
       date,
       payment_status: paymentStatus,
       agreement_type: link.agreement?.type || "",
+      selection_mode: automaticProfessional ? "first_available" : "professional",
       source: url.pathname,
     },
   });
@@ -789,6 +964,8 @@ const createAppointment = async (payload, response, url, link) => {
       date,
       start_time: startTime,
       end_time: endTime,
+      professional_id: professionalId,
+      professional_name: professional.name,
       payment_status: paymentStatus,
       status: "confirmed",
     },
@@ -834,6 +1011,118 @@ const assignAppointmentTriage = async (payload, response, link) => {
     bookingAccessLinkId: link.id,
   });
   sendJson(response, 200, { ok: true, url: triage.url });
+};
+
+const uploadAppointmentDocuments = async (
+  request,
+  response,
+  link,
+  appointmentId,
+) => {
+  const appointment = await one(
+    `
+      SELECT id
+      FROM appointments
+      WHERE id = $1
+        AND booking_access_link_id = $2
+        AND status = 'confirmed'
+    `,
+    [appointmentId, link.id],
+  );
+  if (!appointment) {
+    sendJson(response, 404, { error: "Turno confirmado no encontrado." });
+    return;
+  }
+
+  const { fields, files } = await parseMultipartForm(request, {
+    maxFiles: 5,
+    collectFiles: true,
+  });
+  const uploadedFiles = files.documents || [];
+  const links = normalizeDocumentLinks(fields.links_json || "[]");
+  if (!uploadedFiles.length && !links.length) {
+    sendJson(response, 422, { error: "Adjuntá al menos un archivo o enlace." });
+    return;
+  }
+  if (uploadedFiles.length + links.length > 8) {
+    sendJson(response, 422, { error: "Podés compartir hasta 8 elementos por vez." });
+    return;
+  }
+  const existing = await one(
+    `
+      SELECT COUNT(*) AS document_count, COALESCE(SUM(size_bytes), 0) AS total_bytes
+      FROM appointment_documents
+      WHERE appointment_id = $1
+    `,
+    [appointmentId],
+  );
+  const nextCount = Number(existing.document_count || 0) + uploadedFiles.length + links.length;
+  const nextBytes =
+    Number(existing.total_bytes || 0) +
+    uploadedFiles.reduce((total, file) => total + Number(file.buffer?.length || 0), 0);
+  if (nextCount > 20 || nextBytes > 30 * 1024 * 1024) {
+    sendJson(response, 422, {
+      error: "Este turno alcanzó el límite de documentación compartida.",
+    });
+    return;
+  }
+
+  const savedFiles = [];
+  try {
+    for (const file of uploadedFiles) {
+      savedFiles.push(await saveClinicalDocument(file, appointmentId));
+    }
+    const created = await tx(async (client) => {
+      const rows = [];
+      for (const file of savedFiles) {
+        const result = await client.query(
+          `
+            INSERT INTO appointment_documents
+              (appointment_id, kind, original_name, storage_path, mime_type, size_bytes)
+            VALUES ($1, 'file', $2, $3, $4, $5)
+            RETURNING *
+          `,
+          [
+            appointmentId,
+            file.originalName,
+            file.storagePath,
+            file.mimeType,
+            file.sizeBytes,
+          ],
+        );
+        rows.push(result.rows[0]);
+      }
+      for (const externalUrl of links) {
+        const result = await client.query(
+          `
+            INSERT INTO appointment_documents
+              (appointment_id, kind, original_name, external_url)
+            VALUES ($1, 'link', 'Estudio por enlace', $2)
+            RETURNING *
+          `,
+          [appointmentId, externalUrl],
+        );
+        rows.push(result.rows[0]);
+      }
+      return rows;
+    });
+    await recordAudit("appointment.documents.uploaded", {
+      detail: {
+        appointment_id: appointmentId,
+        file_count: savedFiles.length,
+        link_count: links.length,
+        source: "/agenda/",
+      },
+    });
+    sendJson(response, 201, {
+      ok: true,
+      documents: created.map(mapAppointmentDocument),
+      message: "La documentación se compartió con tu profesional.",
+    });
+  } catch (error) {
+    await removeClinicalDocuments(savedFiles.map((file) => file.storagePath));
+    throw error;
+  }
 };
 
 const refreshPaymentStatus = async (url, response, link) => {
@@ -1013,6 +1302,20 @@ export const handleBookingApi = async (request, response, url) => {
       return true;
     }
 
+    const appointmentDocumentsMatch = pathname.match(
+      /^\/api\/booking\/appointments\/(\d+)\/documents$/,
+    );
+    if (appointmentDocumentsMatch && request.method === "POST") {
+      const link = await requireAccessLink(readToken(request, url));
+      await uploadAppointmentDocuments(
+        request,
+        response,
+        link,
+        Number(appointmentDocumentsMatch[1]),
+      );
+      return true;
+    }
+
     let payload = {};
     if (request.method === "POST") {
       payload = await parseJsonBody(request);
@@ -1089,6 +1392,24 @@ export const handleBookingApi = async (request, response, url) => {
     }
     if (error.message === "BOOKING_SLOT_TAKEN") {
       sendJson(response, 409, { error: "Ese horario ya no está disponible." });
+      return true;
+    }
+    if (error.message === "PAYLOAD_TOO_LARGE") {
+      sendJson(response, 413, { error: "Los archivos superan el máximo total de 10 MB." });
+      return true;
+    }
+    if (error.message === "TOO_MANY_FILES") {
+      sendJson(response, 422, { error: "Podés adjuntar hasta 5 archivos por vez." });
+      return true;
+    }
+    if (error.message === "INVALID_APPOINTMENT_DOCUMENT") {
+      sendJson(response, 415, {
+        error: "Solo se permiten imágenes JPG, PNG o WebP y archivos PDF válidos.",
+      });
+      return true;
+    }
+    if (error.message === "INVALID_APPOINTMENT_DOCUMENT_LINK") {
+      sendJson(response, 422, { error: "Revisá los enlaces. Deben comenzar con https://." });
       return true;
     }
     if (

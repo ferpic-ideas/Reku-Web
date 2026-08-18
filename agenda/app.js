@@ -40,6 +40,10 @@
     triageUrl: '',
     triageLoading: false,
     triageError: '',
+    documents: [],
+    documentsUploading: false,
+    documentsMessage: '',
+    documentsError: '',
   };
 
   const escapeHtml = (value) =>
@@ -294,7 +298,14 @@
   }
 
   async function selectProfessional(professionalId) {
-    state.professional = state.professionals.find((professional) => professional.id === professionalId);
+    state.professional = professionalId === 'first_available'
+      ? {
+          id: 'first_available',
+          name: 'Primera disponibilidad',
+          specialty: 'Asignación automática',
+          automatic: true,
+        }
+      : state.professionals.find((professional) => professional.id === professionalId);
     state.selectedDate = '';
     state.selectedSlot = '';
     state.slots = [];
@@ -369,6 +380,7 @@
         body: JSON.stringify({
           service_id: state.service.id,
           professional_id: state.professional.id,
+          first_available: state.professional.automatic === true,
           date: state.selectedDate,
           start_time: state.selectedSlot,
         }),
@@ -379,6 +391,12 @@
         return;
       }
       state.appointment = payload.appointment;
+      if (payload.appointment?.professional_id) {
+        state.professional = {
+          id: payload.appointment.professional_id,
+          name: payload.appointment.professional_name || state.professional.name,
+        };
+      }
       state.step = 6;
       await loadTriage();
     } catch (error) {
@@ -407,6 +425,43 @@
       state.triageError = error.message;
     } finally {
       state.triageLoading = false;
+      render();
+    }
+  }
+
+  async function submitDocuments(form) {
+    if (state.documentsUploading || !state.appointment?.id) return;
+    const fileInput = form.querySelector('input[name="documents"]');
+    const linkInput = form.querySelector('textarea[name="links"]');
+    const links = String(linkInput?.value || '')
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const files = Array.from(fileInput?.files || []);
+    if (!files.length && !links.length) {
+      state.documentsError = 'Adjuntá al menos un archivo o pegá un enlace.';
+      state.documentsMessage = '';
+      render();
+      return;
+    }
+    const data = new FormData();
+    files.forEach((file) => data.append('documents', file));
+    data.set('links_json', JSON.stringify(links));
+    state.documentsUploading = true;
+    state.documentsError = '';
+    state.documentsMessage = '';
+    render();
+    try {
+      const payload = await api(
+        `/api/booking/appointments/${state.appointment.id}/documents`,
+        { method: 'POST', body: data },
+      );
+      state.documents.push(...(payload.documents || []));
+      state.documentsMessage = payload.message || 'La documentación se compartió.';
+    } catch (error) {
+      state.documentsError = error.message;
+    } finally {
+      state.documentsUploading = false;
       render();
     }
   }
@@ -545,9 +600,23 @@
   function renderProfessionals() {
     return `
       <section>
-        <h2 class="section-title">Elegí tu profesional</h2>
-        <p class="section-copy">Seleccioná el profesional de tu preferencia.</p>
+        <h2 class="section-title">Elegí cómo querés buscar</h2>
+        <p class="section-copy">Podés elegir un kinesiólogo o ver directamente los horarios más próximos.</p>
         <div class="card-grid">
+          ${
+            state.professionals.length
+              ? `<button type="button" class="choice-card automatic-choice" data-action="select-professional" data-id="first_available">
+                  <div class="choice-media automatic-choice-media" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="5" width="18" height="16" rx="3"></rect>
+                      <path d="M8 3v4M16 3v4M3 10h18M8 15l2.2 2.2L16 12"></path>
+                    </svg>
+                  </div>
+                  <h3>Primera disponibilidad</h3>
+                  <p class="professional-specialty">Te mostramos los horarios más próximos entre todos los profesionales disponibles.</p>
+                </button>`
+              : ''
+          }
           ${state.professionals
             .map(
               (professional) => `
@@ -560,6 +629,7 @@
                     }
                   </div>
                   <h3>${escapeHtml(professional.name)}</h3>
+                  ${professional.specialty ? `<p class="professional-specialty">${escapeHtml(professional.specialty)}</p>` : ''}
                 </button>
               `,
             )
@@ -602,7 +672,11 @@
     return `
       <section>
         <h2 class="section-title">Elegí fecha y hora</h2>
-        <p class="section-copy">Seleccioná el día y horario que prefieras.</p>
+        <p class="section-copy">${
+          state.professional?.automatic
+            ? 'Te mostramos la disponibilidad combinada de los kinesiólogos que realizan esta práctica.'
+            : 'Seleccioná el día y horario que prefieras.'
+        }</p>
         <div class="calendar-card">
           <div class="calendar-head">
             <h3>${escapeHtml(monthTitle(state.month))}</h3>
@@ -655,7 +729,7 @@
         <div class="payment-card">
           ${state.paymentNotice ? `<div class="status-warning">${escapeHtml(state.paymentNotice)}</div>` : ''}
           <p><strong>Servicio:</strong> ${escapeHtml(state.service.name)}</p>
-          <p><strong>Profesional:</strong> ${escapeHtml(state.professional.name)}</p>
+          <p><strong>Profesional:</strong> ${escapeHtml(state.professional.name)}${state.professional.automatic ? ' · Reku lo asignará al confirmar' : ''}</p>
           <p><strong>Fecha:</strong> ${escapeHtml(state.selectedDate)} ${escapeHtml(state.selectedSlot)}</p>
           <p><strong>Total:</strong> ${
             isCoveredByAgreement ? 'Cubierto por acuerdo' : escapeHtml(money(state.service.cost_amount))
@@ -676,6 +750,61 @@
           }</button>
         </div>
       </section>
+    `;
+  }
+
+  function renderDocumentsCard() {
+    return `
+      <div class="documents-card">
+        <div>
+          <span class="optional-label">Opcional</span>
+          <h3>Compartí documentación con tu fisio</h3>
+          <p>Podés subir la orden del traumatólogo, estudios o enlaces a imágenes.</p>
+        </div>
+        ${
+          state.documents.length
+            ? `<ul class="uploaded-documents">${state.documents
+                .map(
+                  (document) => `<li>${document.kind === 'link' ? 'Enlace' : 'Archivo'} · ${escapeHtml(document.name)}</li>`,
+                )
+                .join('')}</ul>`
+            : ''
+        }
+        ${state.documentsMessage ? `<div class="document-status ok">${escapeHtml(state.documentsMessage)}</div>` : ''}
+        ${state.documentsError ? `<div class="document-status error">${escapeHtml(state.documentsError)}</div>` : ''}
+        <form id="appointment-documents-form" class="documents-form">
+          <label>
+            Imágenes o PDF
+            <input name="documents" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple />
+            <span>Hasta 5 archivos y 10 MB en total.</span>
+          </label>
+          <label>
+            Links a estudios de imágenes
+            <textarea name="links" rows="3" placeholder="Pegá un link https:// por línea"></textarea>
+          </label>
+          <button class="secondary-button" type="submit" ${state.documentsUploading ? 'disabled' : ''}>${
+            state.documentsUploading ? 'Compartiendo…' : 'Compartir documentación'
+          }</button>
+        </form>
+      </div>
+    `;
+  }
+
+  function renderTriageCard() {
+    return `
+      <div class="triage-card">
+        <h3>Último paso: cuestionario previo</h3>
+        <p>Completalo antes de la consulta para que tu fisio pueda preparar mejor la atención.</p>
+        ${
+          state.triageLoading
+            ? '<p class="triage-loading">Preparando tu cuestionario…</p>'
+            : state.triageUrl
+              ? `<a class="primary-button" href="${escapeHtml(state.triageUrl)}" target="_blank" rel="noopener noreferrer">Completar cuestionario</a>
+                 <p class="triage-note">También vas a recibir este enlace por mail.</p>`
+              : `<p class="triage-error">${escapeHtml(state.triageError || 'Todavía no pudimos preparar el cuestionario.')}</p>
+                 <button type="button" class="secondary-button" data-action="retry-triage">Volver a intentar</button>`
+        }
+      </div>
     `;
   }
 
@@ -716,18 +845,8 @@
           }
           ${professionalName ? `<p><strong>Profesional:</strong> ${escapeHtml(professionalName)}</p>` : ''}
           ${serviceName ? `<p><strong>Práctica:</strong> ${escapeHtml(serviceName)}</p>` : ''}
-          ${
-            isPaid && state.triageUrl
-              ? `
-                <div class="triage-card">
-                  <h3>Último paso: cuestionario previo</h3>
-                  <p>Completalo antes de la consulta para que tu fisio pueda preparar mejor la atención.</p>
-                  <a class="primary-button" href="${escapeHtml(state.triageUrl)}" target="_blank" rel="noopener noreferrer">Completar cuestionario</a>
-                  <p class="triage-note">También vas a recibir este enlace por mail.</p>
-                </div>
-              `
-              : ''
-          }
+          ${isPaid ? renderDocumentsCard() : ''}
+          ${isPaid ? renderTriageCard() : ''}
           ${
             isPaid
               ? ''
@@ -788,13 +907,23 @@
       state.error = '';
       await submitIntake(event.currentTarget);
     });
+    app.querySelector('#appointment-documents-form')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await submitDocuments(event.currentTarget);
+    });
 
     app.querySelectorAll('[data-action]').forEach((element) => {
       element.addEventListener('click', async () => {
         const action = element.dataset.action;
         state.error = '';
         if (action === 'select-service') await selectService(Number(element.dataset.id));
-        if (action === 'select-professional') await selectProfessional(Number(element.dataset.id));
+        if (action === 'select-professional') {
+          await selectProfessional(
+            element.dataset.id === 'first_available'
+              ? 'first_available'
+              : Number(element.dataset.id),
+          );
+        }
         if (action === 'select-date') await selectDate(element.dataset.date);
         if (action === 'select-slot') {
           state.selectedSlot = element.dataset.slot;
@@ -807,6 +936,7 @@
           render();
         }
         if (action === 'confirm-payment') await confirmPayment();
+        if (action === 'retry-triage') await loadTriage();
         if (action === 'restart-booking') {
           window.history.replaceState({}, '', '/agenda/');
           state.step = 2;
