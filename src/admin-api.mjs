@@ -2212,13 +2212,13 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (error.message === "PROFESSIONAL_PASSWORD_REQUIRED") {
       sendJson(response, 422, {
-        error: "Creá una clave de al menos 10 caracteres para la cuenta profesional.",
+        error: "Creá una clave de al menos 8 caracteres para la cuenta profesional.",
       });
       return true;
     }
     if (error.message === "PROFESSIONAL_PASSWORD_INVALID") {
       sendJson(response, 422, {
-        error: "La clave de la cuenta profesional debe tener al menos 10 caracteres.",
+        error: "La clave de la cuenta profesional debe tener al menos 8 caracteres.",
       });
       return true;
     }

@@ -1207,11 +1207,11 @@
               name="account_password"
               type="password"
               autocomplete="new-password"
-              minlength="10"
+              minlength="8"
               ${needsAccount ? 'required' : ''}
             />
             <span class="field-help">
-              ${item.has_user ? 'Dejala vacía para conservar la clave actual.' : 'Mínimo 10 caracteres.'}
+              ${item.has_user ? 'Dejala vacía para conservar la clave actual.' : 'Mínimo 8 caracteres.'}
             </span>
           </label>
         </div>

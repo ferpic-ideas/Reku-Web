@@ -1,4 +1,4 @@
-export const PROFESSIONAL_PASSWORD_MIN_LENGTH = 10;
+export const PROFESSIONAL_PASSWORD_MIN_LENGTH = 8;
 
 const professionalAccountError = (message, statusCode = 422) => {
   const error = new Error(message);

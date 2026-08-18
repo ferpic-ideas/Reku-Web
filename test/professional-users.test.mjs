@@ -22,10 +22,10 @@ test("professional account password is mandatory for a new or missing account", 
     { message: "PROFESSIONAL_PASSWORD_REQUIRED" },
   );
   assert.throws(
-    () => validateProfessionalPassword("short", { required: true }),
+    () => validateProfessionalPassword("1234567", { required: true }),
     { message: "PROFESSIONAL_PASSWORD_INVALID" },
   );
-  assert.equal(validateProfessionalPassword("long-enough"), "long-enough");
+  assert.equal(validateProfessionalPassword("12345678"), "12345678");
   assert.equal(validateProfessionalPassword(""), "");
 });
 
