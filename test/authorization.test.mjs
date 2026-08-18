@@ -19,6 +19,7 @@ test("operational user is explicitly denied system and sensitive deletion permis
   const user = { role: "user" };
   assert.equal(hasPermission(user, "agreements.read"), true);
   assert.equal(hasPermission(user, "appointments.read"), true);
+  assert.equal(hasPermission(user, "appointments.write"), false);
   assert.equal(hasPermission(user, "agreements.write"), false);
   assert.equal(hasPermission(user, "users.read"), false);
   assert.equal(hasPermission(user, "records.delete"), false);
@@ -77,6 +78,18 @@ test("professional role has self-service permissions but no admin API access", (
 });
 
 test("admin route policy fails closed for missing and unknown routes", () => {
+  assert.equal(
+    requiredPermissionForRequest("PUT", "/api/admin/appointments/12"),
+    "appointments.write",
+  );
+  assert.equal(
+    requiredPermissionForRequest("POST", "/api/admin/appointments/12/cancel"),
+    "appointments.write",
+  );
+  assert.equal(
+    requiredPermissionForRequest("GET", "/api/admin/appointments/12/slots"),
+    "appointments.write",
+  );
   assert.equal(
     requiredPermissionForRequest(
       "POST",

@@ -859,6 +859,17 @@ tr:hover td {
   background: #ffe4df;
 }
 
+.icon-button.danger {
+  color: var(--danger);
+  border-color: #f0b8b2;
+  background: var(--danger-soft);
+}
+
+.icon-button.danger:hover {
+  border-color: #e79a92;
+  background: #ffe4df;
+}
+
 .table-icon-button .action-icon {
   width: 18px;
   height: 18px;
@@ -1122,6 +1133,38 @@ tr:hover td {
 .appointment-detail-grid.detail-payment-ok .detail-row:nth-child(n + 9) {
   border-color: #cfe9d8;
   background: #f3fbf6;
+}
+
+.appointment-detail-actions {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.appointment-current-summary {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid #cfeaf0;
+  border-radius: 8px;
+  background: #eef9fb;
+}
+
+.appointment-current-summary span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.appointment-current-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.appointment-edit-form .status-box {
+  min-height: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--danger-soft);
 }
 
 .detail-row > span {

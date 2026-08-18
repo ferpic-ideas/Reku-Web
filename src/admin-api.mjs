@@ -40,6 +40,7 @@ import {
 } from "./uploads.mjs";
 import { createBookingAccessLink } from "./booking-links.mjs";
 import {
+  createMercadoPagoFullRefund,
   mergeMercadoPagoSettingsPayload,
   publicMercadoPagoSettings,
 } from "./mercado-pago.mjs";
@@ -58,6 +59,17 @@ import {
   createProfessionalInvitation,
   sendProfessionalInvitation,
 } from "./professional-invitations.mjs";
+import { computeSlots } from "./booking-api.mjs";
+import {
+  notifyConfirmedAppointment,
+  notifyPatientForCancellation,
+  notifyPatientForPendingPayment,
+} from "./appointment-notifications.mjs";
+import {
+  cancelGoogleCalendarAppointment,
+  cancelGoogleCalendarEventForProfessional,
+  holdAppointmentOnGoogleCalendar,
+} from "./google-calendar.mjs";
 
 const canDeleteRecords = (user) => hasPermission(user, "records.delete");
 const canManageSystem = (user) => hasPermission(user, "users.write");
@@ -171,6 +183,15 @@ const timeToMinutes = (value) => {
   const [hours, minutes] = String(value || "00:00").slice(0, 5).split(":").map(Number);
   return hours * 60 + minutes;
 };
+
+const minutesToTime = (minutes) => {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+};
+
+const addMinutes = (value, minutes) =>
+  minutesToTime(timeToMinutes(value) + Number(minutes || 0));
 
 const assertTimeRange = (startTime, endTime) => {
   if (timeToMinutes(startTime) >= timeToMinutes(endTime)) {
@@ -1862,6 +1883,7 @@ const mapAppointment = (row) => ({
     ? Number(row.booking_access_link_id)
     : null,
   patient_intake_id: row.patient_intake_id ? Number(row.patient_intake_id) : null,
+  service_id: Number(row.service_id),
   professional_id: Number(row.professional_id),
   service_name: row.service_name || "",
   professional_name: row.professional_name || "",
@@ -1894,6 +1916,9 @@ const mapAppointment = (row) => ({
     : row.triage_assignment_error
       ? "failed"
       : "pending",
+  is_future: Boolean(row.is_future),
+  reservation_active: Boolean(row.reservation_active),
+  reschedule_count: Number(row.reschedule_count || 0),
   created_at: row.created_at,
 });
 
@@ -1909,6 +1934,8 @@ const listAppointments = async (response) => {
       COALESCE(NULLIF(a.agreement_name_snapshot, ''), pi.agreement_name_snapshot, ag.name, '') AS agreement_name,
       COALESCE(NULLIF(a.agreement_slug_snapshot, ''), pi.agreement_slug_snapshot, ag.slug, '') AS agreement_slug,
       COALESCE(NULLIF(a.agreement_type_snapshot, ''), pi.agreement_type_snapshot, ag.type, '') AS agreement_type,
+      ((a.appointment_date + a.start_time) AT TIME ZONE $1) > NOW() AS is_future,
+      (a.status <> 'pending_payment' OR a.created_at > NOW() - INTERVAL '40 minutes') AS reservation_active,
       to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
       to_char(a.start_time, 'HH24:MI') AS start_time,
       to_char(a.end_time, 'HH24:MI') AS end_time
@@ -1919,8 +1946,385 @@ const listAppointments = async (response) => {
     LEFT JOIN agreements ag ON ag.id = COALESCE(a.agreement_id, pi.agreement_id)
     ORDER BY a.appointment_date DESC, a.start_time DESC
     LIMIT 500
-  `);
+  `, [config.googleCalendarTimeZone]);
   sendJson(response, 200, { appointments: result.rows.map(mapAppointment) });
+};
+
+export const adminAppointmentCapabilities = (appointment) => {
+  const status = String(appointment?.status || "");
+  const active =
+    status === "confirmed" ||
+    (status === "pending_payment" && appointment?.reservation_active !== false);
+  const future = Boolean(appointment?.is_future);
+  return {
+    can_edit: active && future,
+    can_cancel: active && future,
+  };
+};
+
+const appointmentManagementError = (message, statusCode = 409) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const loadAppointmentForManagement = async (appointmentId, client = null) => {
+  const executor = client || { query };
+  const result = await executor.query(
+    `
+      SELECT
+        appointment.*,
+        to_char(appointment.appointment_date, 'YYYY-MM-DD') AS appointment_date_text,
+        to_char(appointment.start_time, 'HH24:MI') AS start_time_text,
+        to_char(appointment.end_time, 'HH24:MI') AS end_time_text,
+        ((appointment.appointment_date + appointment.start_time) AT TIME ZONE $2) > NOW() AS is_future,
+        (appointment.status <> 'pending_payment' OR appointment.created_at > NOW() - INTERVAL '40 minutes') AS reservation_active,
+        service.name AS service_name,
+        service.duration_minutes,
+        professional.name AS professional_name,
+        professional.email AS professional_email
+      FROM appointments appointment
+      INNER JOIN services service ON service.id = appointment.service_id
+      INNER JOIN professionals professional ON professional.id = appointment.professional_id
+      WHERE appointment.id = $1
+      ${client ? "FOR UPDATE OF appointment" : ""}
+    `,
+    [appointmentId, config.googleCalendarTimeZone],
+  );
+  return result.rows[0] || null;
+};
+
+const requireEditableAdminAppointment = (appointment) => {
+  if (!appointment) throw appointmentManagementError("ADMIN_APPOINTMENT_NOT_FOUND", 404);
+  if (!adminAppointmentCapabilities(appointment).can_edit) {
+    throw appointmentManagementError("ADMIN_APPOINTMENT_EDIT_NOT_ALLOWED");
+  }
+};
+
+const listAdminAppointmentSlots = async (url, response, appointmentId) => {
+  const appointment = await loadAppointmentForManagement(appointmentId);
+  requireEditableAdminAppointment(appointment);
+  const professionalId = parsePositiveInteger(url.searchParams.get("professional_id"));
+  const appointmentDate = validateDate(url.searchParams.get("date"));
+  const { slots } = await computeSlots({
+    serviceId: Number(appointment.service_id),
+    professionalId,
+    date: appointmentDate,
+    excludeAppointmentId: appointmentId,
+  });
+  if (
+    professionalId === Number(appointment.professional_id) &&
+    appointmentDate === appointment.appointment_date_text &&
+    !slots.includes(appointment.start_time_text)
+  ) {
+    slots.push(appointment.start_time_text);
+    slots.sort();
+  }
+  sendJson(response, 200, {
+    slots,
+    duration_minutes: Number(appointment.duration_minutes),
+  });
+};
+
+const updateAdminAppointment = async (request, response, user, appointmentId) => {
+  const payload = await parseJsonBody(request);
+  const professionalId = parsePositiveInteger(payload.professional_id);
+  const appointmentDate = validateDate(payload.appointment_date);
+  const startTime = normalizeTime(payload.start_time);
+  const initial = await loadAppointmentForManagement(appointmentId);
+  requireEditableAdminAppointment(initial);
+  if (
+    professionalId === Number(initial.professional_id) &&
+    appointmentDate === initial.appointment_date_text &&
+    startTime === initial.start_time_text
+  ) {
+    throw appointmentManagementError("ADMIN_APPOINTMENT_UNCHANGED", 422);
+  }
+
+  const { service, slots } = await computeSlots({
+    serviceId: Number(initial.service_id),
+    professionalId,
+    date: appointmentDate,
+    excludeAppointmentId: appointmentId,
+  });
+  if (!slots.includes(startTime)) {
+    throw appointmentManagementError("ADMIN_APPOINTMENT_SLOT_TAKEN");
+  }
+  const endTime = addMinutes(startTime, Number(service.duration_minutes));
+
+  const previous = await tx(async (client) => {
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
+      [professionalId, appointmentDate],
+    );
+    const current = await loadAppointmentForManagement(appointmentId, client);
+    requireEditableAdminAppointment(current);
+    if (
+      professionalId === Number(current.professional_id) &&
+      appointmentDate === current.appointment_date_text &&
+      startTime === current.start_time_text
+    ) {
+      throw appointmentManagementError("ADMIN_APPOINTMENT_UNCHANGED", 422);
+    }
+    const eligible = await client.query(
+      `
+        SELECT 1
+        FROM professional_services relation
+        INNER JOIN professionals professional ON professional.id = relation.professional_id
+        WHERE relation.professional_id = $1
+          AND relation.service_id = $2
+          AND professional.active = TRUE
+          AND professional.deleted_at IS NULL
+          AND (
+            $3::boolean = FALSE
+            OR EXISTS (
+              SELECT 1
+              FROM professional_google_connections connection
+              WHERE connection.professional_id = professional.id
+                AND connection.status = 'active'
+            )
+          )
+      `,
+      [professionalId, current.service_id, config.googleCalendarRequired],
+    );
+    if (!eligible.rows[0]) {
+      throw appointmentManagementError("ADMIN_APPOINTMENT_PROFESSIONAL_INVALID", 422);
+    }
+    const conflict = await client.query(
+      `
+        SELECT id
+        FROM appointments
+        WHERE professional_id = $1
+          AND appointment_date = $2::date
+          AND id <> $3
+          AND (
+            status = 'confirmed'
+            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '40 minutes')
+          )
+          AND start_time < $5::time
+          AND end_time > $4::time
+        FOR UPDATE
+      `,
+      [professionalId, appointmentDate, appointmentId, startTime, endTime],
+    );
+    const block = await client.query(
+      `
+        SELECT id
+        FROM schedule_blocks
+        WHERE professional_id = $1
+          AND block_date = $2::date
+          AND start_time < $4::time
+          AND end_time > $3::time
+        FOR UPDATE
+      `,
+      [professionalId, appointmentDate, startTime, endTime],
+    );
+    if (conflict.rows[0] || block.rows[0]) {
+      throw appointmentManagementError("ADMIN_APPOINTMENT_SLOT_TAKEN");
+    }
+    const professionalChanged = professionalId !== Number(current.professional_id);
+    await client.query(
+      `
+        UPDATE appointments
+        SET professional_id = $2,
+            appointment_date = $3::date,
+            start_time = $4::time,
+            end_time = $5::time,
+            rescheduled_at = NOW(),
+            reschedule_count = reschedule_count + 1,
+            patient_notified_at = NULL,
+            patient_notification_message_id = NULL,
+            patient_notification_error = NULL,
+            professional_notified_at = NULL,
+            professional_notification_message_id = NULL,
+            professional_notification_error = NULL,
+            pending_payment_notified_at = NULL,
+            pending_payment_notification_message_id = NULL,
+            pending_payment_notification_error = NULL,
+            patient_followup_notified_at = NULL,
+            patient_followup_notification_message_id = NULL,
+            patient_followup_notification_error = NULL,
+            google_calendar_event_id = CASE WHEN $6 THEN NULL ELSE google_calendar_event_id END,
+            google_calendar_event_url = CASE WHEN $6 THEN NULL ELSE google_calendar_event_url END,
+            google_meet_url = CASE WHEN $6 THEN NULL ELSE google_meet_url END,
+            google_sync_status = CASE WHEN $6 THEN 'not_connected' ELSE google_sync_status END,
+            google_sync_error = CASE WHEN $6 THEN '' ELSE google_sync_error END,
+            google_synced_at = CASE WHEN $6 THEN NULL ELSE google_synced_at END,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [appointmentId, professionalId, appointmentDate, startTime, endTime, professionalChanged],
+    );
+    return current;
+  });
+
+  const professionalChanged = professionalId !== Number(previous.professional_id);
+  const oldCalendar = professionalChanged
+    ? await cancelGoogleCalendarEventForProfessional({
+        professionalId: Number(previous.professional_id),
+        eventId: previous.google_calendar_event_id,
+      })
+    : { skipped: true, reason: "same_professional" };
+  let notification;
+  let googleCalendar;
+  if (previous.status === "confirmed") {
+    notification = await notifyConfirmedAppointment(appointmentId, {
+      forceGoogleSync: true,
+    });
+    googleCalendar = notification.google_calendar;
+  } else {
+    try {
+      googleCalendar = await holdAppointmentOnGoogleCalendar(appointmentId);
+    } catch (error) {
+      googleCalendar = { ok: false, error: error.message };
+    }
+    notification = await notifyPatientForPendingPayment(appointmentId);
+  }
+
+  await recordAudit("admin.appointment.updated", {
+    actorUserId: user.id,
+    detail: {
+      appointment_id: appointmentId,
+      previous_professional_id: Number(previous.professional_id),
+      professional_id: professionalId,
+      previous_date: previous.appointment_date_text,
+      appointment_date: appointmentDate,
+      previous_start_time: previous.start_time_text,
+      start_time: startTime,
+      previous_google_event_id: previous.google_calendar_event_id || "",
+      old_calendar_removed:
+        oldCalendar.skipped === true || oldCalendar.ok === true,
+      patient_notified: Boolean(
+        previous.status === "confirmed"
+          ? notification.patient?.ok
+          : notification.ok,
+      ),
+    },
+  });
+  const warnings = [];
+  if (professionalChanged && oldCalendar.skipped !== true && oldCalendar.ok !== true) {
+    warnings.push("No se pudo quitar el evento del Calendar anterior.");
+  }
+  if (googleCalendar?.ok === false || googleCalendar?.status === "pending") {
+    warnings.push("La actualización de Google Calendar quedó pendiente.");
+  }
+  const patientNotification =
+    previous.status === "confirmed" ? notification.patient : notification;
+  if (patientNotification?.ok !== true || patientNotification?.skipped === true) {
+    warnings.push("El mail al paciente quedó pendiente de envío.");
+  }
+  sendJson(response, 200, {
+    ok: true,
+    message: warnings.length
+      ? "Turno actualizado."
+      : "Turno actualizado y notificado por mail.",
+    warnings,
+  });
+};
+
+const cancelAdminAppointment = async (request, response, user, appointmentId) => {
+  const payload = await parseJsonBody(request);
+  const reason = String(payload.reason || "").trim().slice(0, 500);
+  if (!reason) throw appointmentManagementError("ADMIN_APPOINTMENT_REASON_REQUIRED", 422);
+
+  const appointment = await tx(async (client) => {
+    const current = await loadAppointmentForManagement(appointmentId, client);
+    if (!current) throw appointmentManagementError("ADMIN_APPOINTMENT_NOT_FOUND", 404);
+    if (!adminAppointmentCapabilities(current).can_cancel) {
+      throw appointmentManagementError("ADMIN_APPOINTMENT_CANCEL_NOT_ALLOWED");
+    }
+    const paidWithMercadoPago =
+      current.payment_status === "approved" &&
+      current.payment_provider === "mercadopago";
+    const refundStatus = paidWithMercadoPago ? "pending" : "not_required";
+    const updated = await client.query(
+      `
+        UPDATE appointments
+        SET status = 'cancelled',
+            cancelled_at = NOW(),
+            cancelled_by_user_id = $2,
+            cancellation_reason = $3,
+            refund_status = $4,
+            refund_error = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [appointmentId, user.id, reason, refundStatus],
+    );
+    return updated.rows[0];
+  });
+
+  let refundStatus = appointment.refund_status || "not_required";
+  let refundError = "";
+  if (refundStatus === "pending") {
+    if (!appointment.payment_id) {
+      refundStatus = "failed";
+      refundError = "El pago aprobado no tiene un identificador para reembolsar.";
+    } else {
+      try {
+        const refund = await createMercadoPagoFullRefund({
+          appointmentId,
+          paymentId: appointment.payment_id,
+        });
+        refundStatus = "approved";
+        await query(
+          `
+            UPDATE appointments
+            SET refund_status = 'approved',
+                refund_id = $2,
+                refund_amount = $3,
+                refund_error = NULL,
+                payment_status = 'refunded',
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [appointmentId, refund.id || null, refund.amount || Number(appointment.amount || 0)],
+        );
+      } catch (error) {
+        refundStatus = "failed";
+        refundError = String(error.message || "No se pudo solicitar el reembolso.").slice(0, 500);
+      }
+    }
+    if (refundStatus === "failed") {
+      await query(
+        `
+          UPDATE appointments
+          SET refund_status = 'failed', refund_error = $2, updated_at = NOW()
+          WHERE id = $1
+        `,
+        [appointmentId, refundError],
+      );
+    }
+  }
+
+  const [googleCalendar, notification] = await Promise.all([
+    cancelGoogleCalendarAppointment(appointmentId),
+    notifyPatientForCancellation(appointmentId),
+  ]);
+  await recordAudit("admin.appointment.cancelled", {
+    actorUserId: user.id,
+    detail: {
+      appointment_id: appointmentId,
+      refund_status: refundStatus,
+      patient_notified: Boolean(notification.ok),
+      google_calendar_cancelled:
+        googleCalendar.reason === "not_synced" || Boolean(googleCalendar.ok),
+    },
+  });
+  sendJson(response, 200, {
+    ok: true,
+    message:
+      refundStatus === "approved"
+        ? "Turno cancelado y reembolso solicitado correctamente."
+        : refundStatus === "failed"
+          ? "Turno cancelado. El reembolso requiere revisión."
+          : "Turno cancelado.",
+    refund_status: refundStatus,
+    refund_error: refundError,
+    notification,
+    google_calendar: googleCalendar,
+  });
 };
 
 const dashboard = async (response) => {
@@ -2286,6 +2690,39 @@ export const handleAdminApi = async (request, response, url) => {
       await listAppointments(response);
       return true;
     }
+    const appointmentSlotsMatch = pathname.match(
+      /^\/api\/admin\/appointments\/(\d+)\/slots$/,
+    );
+    if (appointmentSlotsMatch && request.method === "GET") {
+      await listAdminAppointmentSlots(
+        url,
+        response,
+        Number(appointmentSlotsMatch[1]),
+      );
+      return true;
+    }
+    const appointmentCancelMatch = pathname.match(
+      /^\/api\/admin\/appointments\/(\d+)\/cancel$/,
+    );
+    if (appointmentCancelMatch && request.method === "POST") {
+      await cancelAdminAppointment(
+        request,
+        response,
+        user,
+        Number(appointmentCancelMatch[1]),
+      );
+      return true;
+    }
+    const appointmentMatch = pathname.match(/^\/api\/admin\/appointments\/(\d+)$/);
+    if (appointmentMatch && request.method === "PUT") {
+      await updateAdminAppointment(
+        request,
+        response,
+        user,
+        Number(appointmentMatch[1]),
+      );
+      return true;
+    }
 
     if (pathname === "/api/admin/booking-links/test" && request.method === "POST") {
       await createTestBookingLink(request, response, user);
@@ -2433,6 +2870,59 @@ export const handleAdminApi = async (request, response, url) => {
     if (error.message === "PROFESSIONAL_EMAIL_IN_USE") {
       sendJson(response, 409, {
         error: "Ese mail ya pertenece a otra cuenta. Usá un mail distinto.",
+      });
+      return true;
+    }
+    if (error.message === "ADMIN_APPOINTMENT_NOT_FOUND") {
+      sendJson(response, 404, { error: "Turno no encontrado." });
+      return true;
+    }
+    if (
+      error.message === "ADMIN_APPOINTMENT_EDIT_NOT_ALLOWED" ||
+      error.message === "ADMIN_APPOINTMENT_CANCEL_NOT_ALLOWED"
+    ) {
+      sendJson(response, 409, {
+        error: "Solo se pueden editar o cancelar turnos futuros que sigan activos.",
+      });
+      return true;
+    }
+    if (error.message === "ADMIN_APPOINTMENT_UNCHANGED") {
+      sendJson(response, 422, { error: "Elegí otro profesional, día u horario." });
+      return true;
+    }
+    if (error.message === "ADMIN_APPOINTMENT_PROFESSIONAL_INVALID") {
+      sendJson(response, 422, {
+        error: "El profesional elegido no atiende la práctica de este turno.",
+      });
+      return true;
+    }
+    if (
+      error.message === "ADMIN_APPOINTMENT_SLOT_TAKEN" ||
+      error.message === "BOOKING_SLOT_TAKEN"
+    ) {
+      sendJson(response, 409, { error: "Ese horario ya no está disponible." });
+      return true;
+    }
+    if (error.message === "BOOKING_SELECTION_INVALID") {
+      sendJson(response, 422, {
+        error: "El profesional elegido no está disponible para esa práctica.",
+      });
+      return true;
+    }
+    if (error.message === "BOOKING_DATE_INVALID") {
+      sendJson(response, 422, { error: "Seleccioná una fecha válida." });
+      return true;
+    }
+    if (error.message === "ADMIN_APPOINTMENT_REASON_REQUIRED") {
+      sendJson(response, 422, { error: "Indicá el motivo de la cancelación." });
+      return true;
+    }
+    if (
+      error.message === "GOOGLE_REAUTH_REQUIRED" ||
+      error.message === "GOOGLE_API_ERROR"
+    ) {
+      sendJson(response, 503, {
+        error: "No se pudo validar la disponibilidad de Google Calendar.",
       });
       return true;
     }

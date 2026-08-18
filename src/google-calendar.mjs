@@ -589,6 +589,20 @@ export const holdAppointmentOnGoogleCalendar = async (appointmentId) => {
   if (connection.status !== "active") throw new Error("GOOGLE_REAUTH_REQUIRED");
 
   const eventId = appointment.google_calendar_event_id || eventIdForAppointment(appointmentId);
+  const holdEvent = {
+    summary: "Horario reservado · Reku",
+    description: "Reserva de pago en curso. No incluye información clínica.",
+    start: {
+      dateTime: `${appointment.appointment_date_text}T${appointment.start_time_text}:00`,
+      timeZone: config.googleCalendarTimeZone,
+    },
+    end: {
+      dateTime: `${appointment.appointment_date_text}T${appointment.end_time_text}:00`,
+      timeZone: config.googleCalendarTimeZone,
+    },
+    transparency: "opaque",
+    reminders: { useDefault: false },
+  };
   let event;
   try {
     event = await calendarRequest(
@@ -598,24 +612,17 @@ export const holdAppointmentOnGoogleCalendar = async (appointmentId) => {
         method: "POST",
         body: JSON.stringify({
           id: eventId,
-          summary: "Horario reservado · Reku",
-          description: "Reserva de pago en curso. No incluye información clínica.",
-          start: {
-            dateTime: `${appointment.appointment_date_text}T${appointment.start_time_text}:00`,
-            timeZone: config.googleCalendarTimeZone,
-          },
-          end: {
-            dateTime: `${appointment.appointment_date_text}T${appointment.end_time_text}:00`,
-            timeZone: config.googleCalendarTimeZone,
-          },
-          transparency: "opaque",
-          reminders: { useDefault: false },
+          ...holdEvent,
         }),
       },
     );
   } catch (error) {
     if (error.googleStatus === 409) {
-      event = await getCalendarEvent(connection, eventId);
+      event = await calendarRequest(
+        connection,
+        `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+        { method: "PATCH", body: JSON.stringify(holdEvent) },
+      );
     } else {
       await query(
         `
@@ -652,6 +659,33 @@ export const holdAppointmentOnGoogleCalendar = async (appointmentId) => {
     },
   });
   return { skipped: false, event_id: eventId };
+};
+
+export const cancelGoogleCalendarEventForProfessional = async ({
+  professionalId,
+  eventId,
+}) => {
+  if (!eventId) return { skipped: true, reason: "not_synced" };
+  if (!googleIntegrationConfigured()) {
+    return { skipped: false, ok: false, reason: "not_configured" };
+  }
+  const connection = await loadConnection(professionalId);
+  if (!connection || connection.status !== "active") {
+    return { skipped: false, ok: false, reason: "reauth_required" };
+  }
+  try {
+    await calendarRequest(
+      connection,
+      `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+      { method: "DELETE" },
+    );
+  } catch (error) {
+    if (![404, 410].includes(error.googleStatus)) {
+      return { skipped: false, ok: false, reason: "google_api_error" };
+    }
+  }
+  busyCache.clear();
+  return { skipped: false, ok: true };
 };
 
 export const syncAppointmentToGoogleCalendar = async (

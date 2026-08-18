@@ -40,6 +40,9 @@
     appointmentPaymentFilter: '',
     appointmentProfessionalFilter: '',
     appointmentPatientFilter: '',
+    appointmentEditSlots: [],
+    appointmentEditLoading: false,
+    appointmentEditError: '',
     scheduleBlockDateFilter: 'future',
     scheduleBlockProfessionalFilter: '',
     status: '',
@@ -300,6 +303,11 @@
         <path d="M12 20h9" />
         <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
       `,
+      cancel: `
+        <circle cx="12" cy="12" r="9" />
+        <path d="m9 9 6 6" />
+        <path d="m15 9-6 6" />
+      `,
       revoke: `
         <path d="M10 17l5-5-5-5" />
         <path d="M15 12H3" />
@@ -394,6 +402,12 @@
     const endDate = appointmentDateTime(item, 'end_time') || appointmentDateTime(item);
     return endDate ? endDate < now : false;
   };
+
+  const canManageAppointment = (appointment) =>
+    can('appointments.write') &&
+    appointment?.is_future === true &&
+    appointment?.reservation_active !== false &&
+    ['confirmed', 'pending_payment'].includes(appointment?.status);
 
   const scheduleBlockDateTime = (item, timeField = 'start_time') => {
     const date = item.block_date;
@@ -670,7 +684,7 @@
   }
 
   function selectedAppointment() {
-    if (state.dialog?.type !== 'appointment-view') return null;
+    if (!String(state.dialog?.type || '').startsWith('appointment-')) return null;
     return state.appointments.find((appointment) => appointment.id === state.dialog.id) || null;
   }
 
@@ -710,6 +724,17 @@
         <strong>${renderCopyInline(value, label)}</strong>
       </div>
     `;
+  }
+
+  function professionalsForAppointment(appointment) {
+    return state.professionals.filter(
+      (professional) =>
+        Number(professional.id) === Number(appointment.professional_id) ||
+        (professional.active &&
+          (professional.services || []).some(
+            (service) => Number(service.id) === Number(appointment.service_id),
+          )),
+    );
   }
 
   function renderDialog() {
@@ -826,7 +851,105 @@
               ${detailRow('Cuestionario previo', appointment.triage_status === 'assigned' ? 'Enlace generado' : appointment.triage_status === 'failed' ? 'Alerta: no se pudo obtener de ReHub' : 'Pendiente')}
               ${detailRow('Alta paciente', appointment.patient_intake_id ? `#${appointment.patient_intake_id}` : 'Sin alta asociada')}
             </div>
+            ${
+              canManageAppointment(appointment)
+                ? `<div class="modal-actions appointment-detail-actions">
+                    <button type="button" class="danger-button" data-action="cancel-appointment" data-id="${appointment.id}">Cancelar turno</button>
+                    <button type="button" class="primary-button" data-action="edit-appointment" data-id="${appointment.id}">Editar turno</button>
+                  </div>`
+                : ''
+            }
           </div>
+        </div>
+      `;
+    }
+
+    if (state.dialog.type === 'appointment-edit') {
+      const appointment = selectedAppointment();
+      if (!appointment) return '';
+      const dialog = state.dialog;
+      const professionals = professionalsForAppointment(appointment);
+      const slots = state.appointmentEditSlots;
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel modal-panel-wide appointment-edit-form" id="appointment-edit-form">
+            <div class="modal-header">
+              <div>
+                <h2>Editar turno</h2>
+                <p class="muted">${escapeHtml(appointment.patient_name || 'Paciente')} · ${escapeHtml(appointment.service_name)}</p>
+              </div>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            <div class="appointment-current-summary">
+              <span>Actual</span>
+              <strong>${escapeHtml(appointment.professional_name)} · ${escapeHtml(appointment.appointment_date)} · ${escapeHtml(appointment.start_time)}</strong>
+            </div>
+            <div class="grid-two">
+              <label>
+                Profesional
+                <select name="professional_id" id="appointment-edit-professional" required>
+                  ${professionals
+                    .map(
+                      (professional) => `<option value="${professional.id}" ${Number(dialog.professionalId) === Number(professional.id) ? 'selected' : ''}>${escapeHtml(professional.name)}</option>`,
+                    )
+                    .join('')}
+                </select>
+              </label>
+              <label>
+                Fecha
+                <input name="appointment_date" id="appointment-edit-date" type="date" min="${todayInput()}" value="${escapeHtml(dialog.appointmentDate)}" required />
+              </label>
+              <label class="span-two">
+                Horario disponible
+                <select name="start_time" id="appointment-edit-slot" ${state.appointmentEditLoading || !slots.length ? 'disabled' : ''} required>
+                  ${
+                    state.appointmentEditLoading
+                      ? '<option>Cargando horarios…</option>'
+                      : slots.length
+                        ? slots.map((slot) => `<option value="${escapeHtml(slot)}" ${dialog.startTime === slot ? 'selected' : ''}>${escapeHtml(slot)}</option>`).join('')
+                        : '<option value="">No hay horarios disponibles</option>'
+                  }
+                </select>
+              </label>
+            </div>
+            ${state.appointmentEditError ? `<div class="status-box error">${escapeHtml(state.appointmentEditError)}</div>` : ''}
+            <p class="field-help">Al guardar se actualizará Google Calendar y se enviará el nuevo detalle por mail.</p>
+            <div class="modal-actions">
+              <button type="button" class="secondary-button" data-action="close-dialog">Cerrar</button>
+              <button type="submit" class="primary-button" ${state.appointmentEditLoading || !slots.length ? 'disabled' : ''}>Guardar cambios</button>
+            </div>
+          </form>
+        </div>
+      `;
+    }
+
+    if (state.dialog.type === 'appointment-cancel') {
+      const appointment = selectedAppointment();
+      if (!appointment) return '';
+      const requiresRefund =
+        appointment.payment_status === 'approved' &&
+        appointment.payment_provider === 'mercadopago';
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel" id="appointment-cancel-form">
+            <div class="modal-header">
+              <h2>Cancelar turno</h2>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            <div class="appointment-current-summary">
+              <span>${escapeHtml(appointment.patient_name || 'Paciente')}</span>
+              <strong>${escapeHtml(appointment.professional_name)} · ${escapeHtml(appointment.appointment_date)} · ${escapeHtml(appointment.start_time)}</strong>
+            </div>
+            <label>
+              Motivo de cancelación
+              <textarea name="reason" rows="4" maxlength="500" required placeholder="Contale al paciente por qué se cancela"></textarea>
+            </label>
+            <p class="field-help">${requiresRefund ? 'Este turno está pagado por Mercado Pago: al confirmar se solicitará el reembolso total.' : 'El paciente recibirá un mail informando la cancelación.'}</p>
+            <div class="modal-actions">
+              <button type="button" class="secondary-button" data-action="close-dialog">Volver</button>
+              <button type="submit" class="danger-button">Confirmar cancelación</button>
+            </div>
+          </form>
         </div>
       `;
     }
@@ -1597,6 +1720,26 @@
             >
               ${actionIcon('eye')}
             </button>
+            ${
+              canManageAppointment(item)
+                ? `<button
+                    type="button"
+                    class="icon-button mini-button"
+                    data-action="edit-appointment"
+                    data-id="${item.id}"
+                    aria-label="Editar turno"
+                    title="Editar turno"
+                  >${actionIcon('edit')}</button>
+                  <button
+                    type="button"
+                    class="icon-button mini-button danger"
+                    data-action="cancel-appointment"
+                    data-id="${item.id}"
+                    aria-label="Cancelar turno"
+                    title="Cancelar turno"
+                  >${actionIcon('cancel')}</button>`
+                : ''
+            }
           </div>
         </td>
       </tr>
@@ -2732,11 +2875,34 @@
     document.getElementById('professional-form')?.addEventListener('submit', handleProfessionalSubmit);
     document.getElementById('professional-invite-form')?.addEventListener('submit', handleProfessionalInviteSubmit);
     document.getElementById('schedule-block-form')?.addEventListener('submit', handleScheduleBlockSubmit);
+    document.getElementById('appointment-edit-form')?.addEventListener('submit', handleAppointmentEditSubmit);
+    document.getElementById('appointment-cancel-form')?.addEventListener('submit', handleAppointmentCancelSubmit);
     document.getElementById('mercado-pago-form')?.addEventListener('submit', handleMercadoPagoSubmit);
     document.getElementById('user-form')?.addEventListener('submit', handleUserSubmit);
     document
       .getElementById('change-password-form')
       ?.addEventListener('submit', handleChangePasswordSubmit);
+
+    const appointmentEditProfessional = document.getElementById('appointment-edit-professional');
+    appointmentEditProfessional?.addEventListener('change', async () => {
+      if (state.dialog?.type !== 'appointment-edit') return;
+      state.dialog.professionalId = Number(appointmentEditProfessional.value);
+      state.dialog.startTime = '';
+      await loadAppointmentEditSlots();
+    });
+    const appointmentEditDate = document.getElementById('appointment-edit-date');
+    appointmentEditDate?.addEventListener('change', async () => {
+      if (state.dialog?.type !== 'appointment-edit') return;
+      state.dialog.appointmentDate = appointmentEditDate.value;
+      state.dialog.startTime = '';
+      await loadAppointmentEditSlots();
+    });
+    const appointmentEditSlot = document.getElementById('appointment-edit-slot');
+    appointmentEditSlot?.addEventListener('change', () => {
+      if (state.dialog?.type === 'appointment-edit') {
+        state.dialog.startTime = appointmentEditSlot.value;
+      }
+    });
 
     const agreementTypeSelect = document.getElementById('agreement-type-select');
     if (agreementTypeSelect) {
@@ -2997,6 +3163,10 @@
         if (state.dialog?.type === 'professional-form') {
           state.editingProfessionalId = null;
         }
+        if (state.dialog?.type === 'appointment-edit') {
+          state.appointmentEditSlots = [];
+          state.appointmentEditError = '';
+        }
         state.dialog = null;
         render();
         return;
@@ -3004,6 +3174,14 @@
       if (action === 'view-appointment') {
         state.dialog = { type: 'appointment-view', id };
         render();
+        return;
+      }
+      if (action === 'edit-appointment') {
+        await openAppointmentEdit(id);
+        return;
+      }
+      if (action === 'cancel-appointment') {
+        openAppointmentCancel(id);
         return;
       }
       if (action === 'copy-field') {
@@ -3296,6 +3474,108 @@
           end_time: range.querySelector('[data-field="end_time"]')?.value || '',
         })),
       );
+  }
+
+  async function loadAppointmentEditSlots() {
+    const appointment = selectedAppointment();
+    const dialog = state.dialog;
+    if (!appointment || dialog?.type !== 'appointment-edit') return;
+    state.appointmentEditLoading = true;
+    state.appointmentEditError = '';
+    render();
+    try {
+      const params = new URLSearchParams({
+        professional_id: String(dialog.professionalId),
+        date: dialog.appointmentDate,
+      });
+      const payload = await api(
+        `/api/admin/appointments/${appointment.id}/slots?${params.toString()}`,
+      );
+      state.appointmentEditSlots = payload.slots || [];
+      if (!state.appointmentEditSlots.includes(dialog.startTime)) {
+        dialog.startTime = state.appointmentEditSlots[0] || '';
+      }
+    } catch (error) {
+      state.appointmentEditSlots = [];
+      state.appointmentEditError = error.message;
+    } finally {
+      state.appointmentEditLoading = false;
+      render();
+    }
+  }
+
+  async function openAppointmentEdit(appointmentId) {
+    const appointment = state.appointments.find((item) => item.id === appointmentId);
+    if (!appointment || !canManageAppointment(appointment)) return;
+    state.appointmentEditSlots = [];
+    state.appointmentEditError = '';
+    state.dialog = {
+      type: 'appointment-edit',
+      id: appointmentId,
+      professionalId: appointment.professional_id,
+      appointmentDate: appointment.appointment_date,
+      startTime: appointment.start_time,
+    };
+    render();
+    await loadAppointmentEditSlots();
+  }
+
+  function openAppointmentCancel(appointmentId) {
+    const appointment = state.appointments.find((item) => item.id === appointmentId);
+    if (!appointment || !canManageAppointment(appointment)) return;
+    state.dialog = { type: 'appointment-cancel', id: appointmentId };
+    render();
+  }
+
+  async function handleAppointmentEditSubmit(event) {
+    event.preventDefault();
+    const appointment = selectedAppointment();
+    if (!appointment) return;
+    const form = event.currentTarget;
+    try {
+      const result = await api(`/api/admin/appointments/${appointment.id}`, {
+        method: 'PUT',
+        body: {
+          professional_id: form.professional_id.value,
+          appointment_date: form.appointment_date.value,
+          start_time: form.start_time.value,
+        },
+      });
+      state.dialog = null;
+      state.appointmentEditSlots = [];
+      await loadData();
+      const warning = (result.warnings || []).join(' ');
+      setStatus(
+        warning ? `${result.message} ${warning}` : result.message || 'Turno actualizado.',
+        warning ? 'error' : 'ok',
+      );
+    } catch (error) {
+      state.appointmentEditError = error.message;
+      render();
+    }
+  }
+
+  async function handleAppointmentCancelSubmit(event) {
+    event.preventDefault();
+    const appointment = selectedAppointment();
+    if (!appointment) return;
+    const form = event.currentTarget;
+    try {
+      const result = await api(`/api/admin/appointments/${appointment.id}/cancel`, {
+        method: 'POST',
+        body: { reason: form.reason.value },
+      });
+      state.dialog = null;
+      await loadData();
+      setStatus(
+        result.refund_status === 'failed' && result.refund_error
+          ? `${result.message} ${result.refund_error}`
+          : result.message || 'Turno cancelado.',
+        result.refund_status === 'failed' ? 'error' : 'ok',
+      );
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
   }
 
   async function handleServiceSubmit(event) {

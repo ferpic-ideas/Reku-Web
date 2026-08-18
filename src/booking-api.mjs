@@ -423,7 +423,7 @@ const professionalSupportsService = async (professionalId, serviceId) =>
     [professionalId, serviceId, config.googleCalendarRequired],
   );
 
-const computeSlots = async ({
+export const computeSlots = async ({
   serviceId,
   professionalId,
   date,
