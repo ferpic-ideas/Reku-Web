@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   resolvePublicUploadPath,
   resolveStaticRequestPath,
@@ -8,6 +9,16 @@ import {
 
 test("static request routing exposes only declared application entrypoints", () => {
   assert.equal(resolveStaticRequestPath("/"), "/index.html");
+  assert.equal(
+    resolveStaticRequestPath("/privacidad"),
+    "/privacidad/index.html",
+  );
+  assert.equal(
+    resolveStaticRequestPath("/privacidad/"),
+    "/privacidad/index.html",
+  );
+  assert.equal(resolveStaticRequestPath("/terminos"), "/terminos/index.html");
+  assert.equal(resolveStaticRequestPath("/terminos/"), "/terminos/index.html");
   assert.equal(resolveStaticRequestPath("/agenda/"), "/agenda/index.html");
   assert.equal(
     resolveStaticRequestPath("/congreso-cokiba"),
@@ -58,6 +69,31 @@ test("static resolver serves only declared public files and mounts", async () =>
     await resolveStaticPath("/congreso-cokiba/index.html"),
     /congreso-cokiba\/index\.html$/,
   );
+  assert.match(
+    await resolveStaticPath("/privacidad/index.html"),
+    /privacidad\/index\.html$/,
+  );
+  assert.match(
+    await resolveStaticPath("/terminos/index.html"),
+    /terminos\/index\.html$/,
+  );
+  assert.match(await resolveStaticPath("/legal/styles.css"), /legal\/styles\.css$/);
+});
+
+test("legal pages identify the operator and disclose Google data use", async () => {
+  const privacyPath = await resolveStaticPath("/privacidad/index.html");
+  const termsPath = await resolveStaticPath("/terminos/index.html");
+  const [privacy, terms] = await Promise.all([
+    readFile(privacyPath, "utf8"),
+    readFile(termsPath, "utf8"),
+  ]);
+
+  assert.match(privacy, /FISIOS S\.A\.S\./);
+  assert.match(privacy, /30-71796517-1/);
+  assert.match(privacy, /Uso limitado de datos de Google/);
+  assert.match(privacy, /api-services-user-data-policy/);
+  assert.match(terms, /FISIOS S\.A\.S\./);
+  assert.match(terms, /Google Calendar y Google Meet/);
 });
 
 test("static resolver blocks source, deployment and secret paths", async () => {
