@@ -1414,7 +1414,7 @@
             }
             ${
               can('professionals.revoke_access')
-                ? `<button type="button" class="table-icon-button" data-action="revoke-professional-access" data-id="${professional.id}" aria-label="Revocar accesos" title="Revocar accesos">${actionIcon('revoke')}</button>`
+                ? `<button type="button" class="table-icon-button" data-action="revoke-professional-access" data-id="${professional.id}" aria-label="Revocar" title="Revocar">${actionIcon('revoke')}</button>`
                 : ''
             }
             ${
@@ -3177,7 +3177,7 @@
           type: 'confirm-delete',
           target: 'professional-access',
           id,
-          title: 'Revocar accesos',
+          title: 'Revocar',
           message:
             'Todos los links y sesiones vigentes de este profesional dejarán de funcionar.',
           confirmLabel: 'Revocar',
