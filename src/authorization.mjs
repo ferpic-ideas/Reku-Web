@@ -9,6 +9,19 @@ const rolePermissions = Object.freeze({
     "schedule_blocks.read",
     "appointments.read",
   ],
+  professional: [
+    "professional.account.self",
+    "professional.profile.read_self",
+    "professional.profile.write_self",
+    "professional.availability.read_self",
+    "professional.availability.write_self",
+    "professional.blocks.read_self",
+    "professional.blocks.write_self",
+    "professional.patients.read_all",
+    "professional.appointments.read_self",
+    "professional.appointments.cancel_self",
+    "professional.integrations.google.manage_self",
+  ],
 });
 
 const routeRules = [

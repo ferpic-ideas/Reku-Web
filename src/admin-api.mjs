@@ -54,7 +54,7 @@ const canManageSystem = (user) => hasPermission(user, "users.write");
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
-const userRoles = new Set(["user", "admin"]);
+const userRoles = new Set(["user", "admin", "professional"]);
 
 const parseJsonBody = async (request) => {
   const body = await readBody(request);
@@ -127,7 +127,14 @@ const parseJsonArray = (value) => {
 
 const normalizeTime = (value) => {
   const trimmed = String(value || "").trim();
-  if (!timePattern.test(trimmed)) {
+  const [hours, minutes] = trimmed.split(":").map(Number);
+  if (
+    !timePattern.test(trimmed) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
     const error = new Error("TIME_INVALID");
     error.statusCode = 422;
     throw error;
@@ -137,7 +144,12 @@ const normalizeTime = (value) => {
 
 const validateDate = (value) => {
   const trimmed = String(value || "").trim();
-  if (!datePattern.test(trimmed)) {
+  const parsed = new Date(`${trimmed}T00:00:00Z`);
+  if (
+    !datePattern.test(trimmed) ||
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== trimmed
+  ) {
     const error = new Error("DATE_INVALID");
     error.statusCode = 422;
     throw error;
@@ -158,8 +170,8 @@ const assertTimeRange = (startTime, endTime) => {
   }
 };
 
-const normalizeAvailability = (value) =>
-  parseJsonArray(value)
+const normalizeAvailability = (value) => {
+  const availability = parseJsonArray(value)
     .map((item) => ({
       day_of_week: parsePositiveInteger(item.day_of_week, { min: 1, max: 7 }),
       start_time: normalizeTime(item.start_time),
@@ -169,6 +181,26 @@ const normalizeAvailability = (value) =>
       assertTimeRange(item.start_time, item.end_time);
       return item;
     });
+  const ordered = [...availability].sort(
+    (a, b) =>
+      a.day_of_week - b.day_of_week ||
+      timeToMinutes(a.start_time) - timeToMinutes(b.start_time),
+  );
+  if (
+    ordered.some(
+      (range, index) =>
+        index > 0 &&
+        ordered[index - 1].day_of_week === range.day_of_week &&
+        timeToMinutes(ordered[index - 1].end_time) >
+          timeToMinutes(range.start_time),
+    )
+  ) {
+    const error = new Error("TIME_RANGE_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+  return availability;
+};
 
 const requireSystemAdmin = (user) => {
   if (!canManageSystem(user)) {
@@ -243,6 +275,8 @@ const mapAdminUser = (row) => ({
   email: row.email,
   name: row.name || "",
   role: row.role,
+  professional_id: row.professional_id ? Number(row.professional_id) : null,
+  professional_name: row.professional_name || "",
   is_active: Boolean(row.is_active),
   last_login_at: row.last_login_at,
   created_at: row.created_at,
@@ -269,6 +303,14 @@ const handleLogin = async (request, response) => {
       detail: { email, client_ip: getClientIp(request) },
     });
     sendJson(response, 401, { error: "Credenciales inválidas." });
+    return;
+  }
+
+  if (user.role === "professional") {
+    sendJson(response, 403, {
+      error: "Ingresá desde el portal de profesionales.",
+      portal_url: "/profesional/",
+    });
     return;
   }
 
@@ -345,10 +387,20 @@ const handleChangePassword = async (request, response) => {
 
 const listUsers = async (response) => {
   const result = await query(`
-    SELECT id, email, name, role, is_active, last_login_at, created_at
-    FROM users
-    WHERE is_active = TRUE
-    ORDER BY created_at DESC
+    SELECT
+      u.id,
+      u.email,
+      u.name,
+      u.role,
+      u.professional_id,
+      u.is_active,
+      u.last_login_at,
+      u.created_at,
+      p.name AS professional_name
+    FROM users u
+    LEFT JOIN professionals p ON p.id = u.professional_id
+    WHERE u.is_active = TRUE
+    ORDER BY u.created_at DESC
   `);
   sendJson(response, 200, { users: result.rows.map(mapAdminUser) });
 };
@@ -359,6 +411,7 @@ const createUser = async (request, response, user) => {
   const name = String(payload.name || "").trim();
   const password = String(payload.password || "");
   const requestedRole = normalizeUserRole(payload.role);
+  const requestedProfessionalId = Number(payload.professional_id || 0);
 
   if (!emailPattern.test(email)) {
     sendJson(response, 422, { error: "Ingresá un email válido." });
@@ -368,12 +421,43 @@ const createUser = async (request, response, user) => {
     sendJson(response, 422, { error: "La clave debe tener al menos 10 caracteres." });
     return;
   }
-  if (requestedRole === "admin" && !canManageSystem(user)) {
-    sendJson(response, 403, { error: "Solo un admin puede crear usuarios admin." });
+  if (["admin", "professional"].includes(requestedRole) && !canManageSystem(user)) {
+    sendJson(response, 403, { error: "Solo un admin puede crear ese tipo de usuario." });
     return;
   }
 
   const role = canManageSystem(user) ? requestedRole : "user";
+  const professionalId = role === "professional" ? requestedProfessionalId : null;
+  if (role === "professional") {
+    if (!Number.isInteger(professionalId) || professionalId < 1) {
+      sendJson(response, 422, { error: "Seleccioná la ficha del profesional." });
+      return;
+    }
+    const professional = await one(
+      `
+        SELECT p.id, u.email AS linked_user_email
+        FROM professionals p
+        LEFT JOIN users u ON u.professional_id = p.id
+        WHERE p.id = $1
+          AND p.active = TRUE
+          AND p.deleted_at IS NULL
+      `,
+      [professionalId],
+    );
+    if (!professional) {
+      sendJson(response, 422, { error: "La ficha profesional no está disponible." });
+      return;
+    }
+    if (
+      professional.linked_user_email &&
+      professional.linked_user_email.toLowerCase() !== email
+    ) {
+      sendJson(response, 409, {
+        error: "Esa ficha ya está vinculada a otra cuenta profesional.",
+      });
+      return;
+    }
+  }
   const safeName = name || email.split("@")[0];
   const passwordHash = await hashPassword(password);
   const existing = await one(
@@ -397,22 +481,23 @@ const createUser = async (request, response, user) => {
         SET name = $1,
             password_hash = $2,
             role = $3,
+            professional_id = $4,
             is_active = TRUE,
             session_version = session_version + 1,
             updated_at = NOW()
-        WHERE id = $4
-        RETURNING id, email, name, role, is_active, last_login_at, created_at
+        WHERE id = $5
+        RETURNING id, email, name, role, professional_id, is_active, last_login_at, created_at
       `,
-      [safeName, passwordHash, role, existing.id],
+      [safeName, passwordHash, role, professionalId, existing.id],
     );
   } else {
     result = await one(
       `
-        INSERT INTO users (email, name, password_hash, role)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, email, name, role, is_active, last_login_at, created_at
+        INSERT INTO users (email, name, password_hash, role, professional_id)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, email, name, role, professional_id, is_active, last_login_at, created_at
       `,
-      [email, safeName, passwordHash, role],
+      [email, safeName, passwordHash, role, professionalId],
     );
   }
 
@@ -1106,6 +1191,10 @@ const mapProfessional = (row) => ({
   photo_path: row.photo_path || "",
   photo_url: row.photo_path ? `/uploads/${row.photo_path}` : "",
   active: Boolean(row.active),
+  license_number: row.license_number || "",
+  specialty: row.specialty || "",
+  bio: row.bio || "",
+  phone: row.phone || "",
   services: row.services || [],
   availability: row.availability || [],
   created_at: row.created_at,
@@ -1198,6 +1287,10 @@ const professionalPayloadFromMultipart = async (request) => {
   const { fields, files } = await parseMultipartForm(request);
   const name = String(fields.name || "").trim();
   const email = String(fields.email || "").trim().toLowerCase();
+  const licenseNumber = String(fields.license_number || "").trim().slice(0, 120);
+  const specialty = String(fields.specialty || "").trim().slice(0, 160);
+  const bio = String(fields.bio || "").trim().slice(0, 2_000);
+  const phone = String(fields.phone || "").trim().slice(0, 80);
   const serviceIds = [
     ...new Set(parseJsonArray(fields.service_ids).map((value) => parsePositiveInteger(value))),
   ];
@@ -1228,6 +1321,10 @@ const professionalPayloadFromMultipart = async (request) => {
     fields: {
       name,
       email,
+      licenseNumber,
+      specialty,
+      bio,
+      phone,
       serviceIds,
       availability,
       active: fields.active !== "false",
@@ -1243,8 +1340,9 @@ const createProfessional = async (request, response, user) => {
   const professionalId = await tx(async (client) => {
     const result = await client.query(
       `
-        INSERT INTO professionals (name, email, photo_path, active)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO professionals
+          (name, email, photo_path, active, license_number, specialty, bio, phone)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
       `,
       [
@@ -1252,6 +1350,10 @@ const createProfessional = async (request, response, user) => {
         payload.fields.email,
         photoPath || null,
         payload.fields.active,
+        payload.fields.licenseNumber,
+        payload.fields.specialty,
+        payload.fields.bio,
+        payload.fields.phone,
       ],
     );
     const id = Number(result.rows[0].id);
@@ -1287,14 +1389,22 @@ const updateProfessional = async (request, response, user, id) => {
             email = $2,
             photo_path = $3,
             active = $4,
+            license_number = $5,
+            specialty = $6,
+            bio = $7,
+            phone = $8,
             updated_at = NOW()
-        WHERE id = $5
+        WHERE id = $9
       `,
       [
         payload.fields.name,
         payload.fields.email,
         payload.fields.remove_photo ? null : photoPath || current.photo_path || null,
         payload.fields.active,
+        payload.fields.licenseNumber,
+        payload.fields.specialty,
+        payload.fields.bio,
+        payload.fields.phone,
         id,
       ],
     );
@@ -1361,20 +1471,63 @@ const createScheduleBlock = async (request, response, user) => {
   const reason = String(payload.reason || "").trim();
   assertTimeRange(startTime, endTime);
 
-  const result = await query(
-    `
-      INSERT INTO schedule_blocks
-        (professional_id, block_date, start_time, end_time, reason)
-      VALUES ($1, $2::date, $3::time, $4::time, $5)
-      RETURNING id
-    `,
-    [professionalId, blockDate, startTime, endTime, reason || null],
-  );
+  const result = await tx(async (client) => {
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
+      [professionalId, blockDate],
+    );
+    const conflict = await client.query(
+      `
+        SELECT id
+        FROM appointments
+        WHERE professional_id = $1
+          AND appointment_date = $2::date
+          AND (
+            status = 'confirmed'
+            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '40 minutes')
+          )
+          AND start_time < $4::time
+          AND end_time > $3::time
+        LIMIT 1
+      `,
+      [professionalId, blockDate, startTime, endTime],
+    );
+    if (conflict.rows[0]) return null;
+    const existingBlock = await client.query(
+      `
+        SELECT id
+        FROM schedule_blocks
+        WHERE professional_id = $1
+          AND block_date = $2::date
+          AND start_time < $4::time
+          AND end_time > $3::time
+        LIMIT 1
+      `,
+      [professionalId, blockDate, startTime, endTime],
+    );
+    if (existingBlock.rows[0]) return null;
+    const inserted = await client.query(
+      `
+        INSERT INTO schedule_blocks
+          (professional_id, block_date, start_time, end_time, reason)
+        VALUES ($1, $2::date, $3::time, $4::time, $5)
+        RETURNING id
+      `,
+      [professionalId, blockDate, startTime, endTime, reason || null],
+    );
+    return inserted.rows[0];
+  });
+  if (!result) {
+    sendJson(response, 409, {
+      error: "Ese bloqueo se superpone con un turno u otro bloqueo existente.",
+    });
+    return;
+  }
   await recordAudit("schedule_block.created", {
     actorUserId: user.id,
-    detail: { schedule_block_id: result.rows[0].id, professional_id: professionalId },
+    detail: { schedule_block_id: result.id, professional_id: professionalId },
   });
-  sendJson(response, 201, { ok: true, id: Number(result.rows[0].id) });
+  sendJson(response, 201, { ok: true, id: Number(result.id) });
 };
 
 const deleteScheduleBlock = async (response, user, id) => {
@@ -1410,6 +1563,15 @@ const mapAppointment = (row) => ({
   payment_status: row.payment_status,
   payment_provider: row.payment_provider || "",
   status: row.status,
+  cancelled_at: row.cancelled_at || null,
+  cancellation_reason: row.cancellation_reason || "",
+  refund_status: row.refund_status || "not_required",
+  refund_id: row.refund_id || "",
+  refund_amount: Number(row.refund_amount || 0),
+  refund_error: row.refund_error || "",
+  google_meet_url: row.google_meet_url || "",
+  google_sync_status: row.google_sync_status || "not_connected",
+  google_sync_error: row.google_sync_error || "",
   created_at: row.created_at,
 });
 

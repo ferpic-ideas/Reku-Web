@@ -44,6 +44,14 @@ export const config = {
   mercadoPagoWebhookMaxAgeSeconds: Number(
     process.env.MP_WEBHOOK_MAX_AGE_SECONDS || 300,
   ),
+  googleOAuthClientId: (process.env.GOOGLE_OAUTH_CLIENT_ID || "").trim(),
+  googleOAuthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || "",
+  googleOAuthRedirectUri: (process.env.GOOGLE_OAUTH_REDIRECT_URI || "").trim(),
+  googleIntegrationEncryptionKey:
+    process.env.GOOGLE_INTEGRATION_ENCRYPTION_KEY || "",
+  googleCalendarTimeZone:
+    process.env.GOOGLE_CALENDAR_TIME_ZONE || "America/Argentina/Buenos_Aires",
+  googleCalendarRequired: process.env.GOOGLE_CALENDAR_REQUIRED === "true",
   contactToEmail: process.env.CONTACT_TO_EMAIL || "hola@reku.io",
   patientIntakeToEmail:
     process.env.PATIENT_INTAKE_TO_EMAIL || "altas-pacientes@reku.io",
@@ -95,6 +103,29 @@ export const assertSafeStartup = () => {
   }
   if (!["ses", "resend"].includes(config.emailProvider)) {
     throw new Error("EMAIL_PROVIDER must be ses or resend");
+  }
+  const googleConfigured = Boolean(
+    config.googleOAuthClientId || config.googleOAuthClientSecret,
+  );
+  if (
+    googleConfigured &&
+    (!config.googleOAuthClientId || !config.googleOAuthClientSecret)
+  ) {
+    throw new Error("Google OAuth client id and secret must be configured together");
+  }
+  if (
+    googleConfigured &&
+    isProduction &&
+    config.googleIntegrationEncryptionKey.length < 32
+  ) {
+    throw new Error(
+      "GOOGLE_INTEGRATION_ENCRYPTION_KEY must have at least 32 characters in production",
+    );
+  }
+  if (config.googleCalendarRequired && !googleConfigured) {
+    throw new Error(
+      "GOOGLE_CALENDAR_REQUIRED needs Google OAuth client credentials",
+    );
   }
 };
 

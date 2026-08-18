@@ -41,6 +41,32 @@ const genericDomains = new Set([
 const namePattern = /^[\p{L}]+(?:[ '-][\p{L}]+)*$/u;
 const phonePattern = /^[+()\d\s.-]+$/;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const congressProfessions = new Set([
+  "Kinesiólogo / Fisioterapeuta",
+  "Estudiante universitario",
+]);
+const congressWorkSettings = new Set([
+  "Consultorio / Centro kinésico propio",
+  "Atención a domicilio",
+  "Institución de salud pública/privada",
+  "Club / Centro deportivo",
+]);
+const congressTelehealthInterests = new Set([
+  "Sí, me interesa activamente.",
+  "Me gustaría recibir más información primero.",
+  "No por el momento.",
+]);
+const congressTechnologyInterests = new Set([
+  "Sí, busco implementar nuevas herramientas digitales.",
+  "Sí, si es fácil de integrar a mi práctica actual.",
+  "No estoy interesado/a.",
+]);
+
+const getTrimmedValues = (params, key) =>
+  params
+    .getAll(key)
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
 
 const validateName = (value, fieldName) => {
   if (!value) return `Ingresá tu ${fieldName}.`;
@@ -111,21 +137,36 @@ export const normalizeSubmission = (params) => {
     return {
       formName,
       to: config.contactToEmail,
-      subject: "Contacto Reku",
+      subject: "Nuevo registro Congreso COKIBA - Reku",
       replyTo: getTrimmed(params, "email").toLowerCase(),
       values: {
-        nombre: getTrimmed(params, "nombre"),
-        apellido: getTrimmed(params, "apellido"),
+        nombre_apellido:
+          getTrimmed(params, "nombre_apellido") ||
+          [getTrimmed(params, "nombre"), getTrimmed(params, "apellido")]
+            .filter(Boolean)
+            .join(" "),
         profesion: getTrimmed(params, "profesion"),
         telefono: getTrimmed(params, "telefono"),
         email: getTrimmed(params, "email").toLowerCase(),
+        ambitos: getTrimmedValues(params, "ambito"),
+        interes_telerehabilitacion: getTrimmed(
+          params,
+          "interes_telerehabilitacion",
+        ),
+        interes_tecnologia: getTrimmed(params, "interes_tecnologia"),
+        comentario: getTrimmed(params, "comentario"),
       },
       labels: {
-        nombre: "Nombre",
-        apellido: "Apellido",
-        profesion: "Profesión",
-        telefono: "Celular",
-        email: "Mail",
+        nombre_apellido: "Nombre y apellido",
+        profesion: "Profesión / especialidad",
+        telefono: "Teléfono / WhatsApp",
+        email: "Correo electrónico",
+        ambitos: "Ámbitos de trabajo",
+        interes_telerehabilitacion:
+          "Interés en un proyecto o red de telerehabilitación",
+        interes_tecnologia:
+          "Interés en tecnología para atender y monitorear pacientes",
+        comentario: "Duda o consulta específica",
       },
     };
   }
@@ -150,8 +191,20 @@ export const validateBaseSubmission = (submission) => {
   const errors = {};
   const { formName, values } = submission;
 
-  errors.nombre = validateName(values.nombre, "nombre");
-  errors.apellido = validateName(values.apellido, "apellido");
+  if (formName === "congreso-cokiba") {
+    const fullNameError = validateName(
+      values.nombre_apellido,
+      "nombre y apellido",
+    );
+    errors.nombre_apellido =
+      fullNameError ||
+      (values.nombre_apellido.split(/\s+/).length < 2
+        ? "Ingresá tu nombre y apellido."
+        : "");
+  } else {
+    errors.nombre = validateName(values.nombre, "nombre");
+    errors.apellido = validateName(values.apellido, "apellido");
+  }
   errors.telefono = validatePhone(values.telefono);
   errors.email = validateEmail(values.email, { corporate: formName === "contact" });
 
@@ -165,9 +218,27 @@ export const validateBaseSubmission = (submission) => {
 
   if (formName === "congreso-cokiba") {
     if (!values.profesion) {
-      errors.profesion = "Ingresá tu profesión.";
-    } else if (values.profesion.length < 2 || values.profesion.length > 100) {
-      errors.profesion = "Ingresá una profesión válida.";
+      errors.profesion = "Seleccioná tu profesión o especialidad.";
+    } else if (!congressProfessions.has(values.profesion)) {
+      errors.profesion = "Seleccioná una profesión válida.";
+    }
+    if (values.ambitos.some((value) => !congressWorkSettings.has(value))) {
+      errors.ambito = "Seleccioná únicamente ámbitos válidos.";
+    }
+    if (
+      values.interes_telerehabilitacion &&
+      !congressTelehealthInterests.has(values.interes_telerehabilitacion)
+    ) {
+      errors.interes_telerehabilitacion = "Seleccioná una opción válida.";
+    }
+    if (
+      values.interes_tecnologia &&
+      !congressTechnologyInterests.has(values.interes_tecnologia)
+    ) {
+      errors.interes_tecnologia = "Seleccioná una opción válida.";
+    }
+    if (values.comentario.length > 2_000) {
+      errors.comentario = "El comentario no puede superar los 2000 caracteres.";
     }
   }
 
@@ -215,16 +286,22 @@ const insertCongressRegistration = async (submission, requestUrl) => {
   const result = await query(
     `
       INSERT INTO congreso_cokiba_registrations
-        (nombre, apellido, profesion, telefono, email, source_path)
-      VALUES ($1, $2, $3, $4, $5, $6)
+        (
+          nombre, apellido, profesion, telefono, email, ambitos,
+          interes_telerehabilitacion, interes_tecnologia, comentario, source_path
+        )
+      VALUES ($1, '', $2, $3, $4, $5::text[], $6, $7, $8, $9)
       RETURNING id
     `,
     [
-      submission.values.nombre,
-      submission.values.apellido,
+      submission.values.nombre_apellido,
       submission.values.profesion,
       submission.values.telefono,
       submission.values.email,
+      submission.values.ambitos,
+      submission.values.interes_telerehabilitacion || null,
+      submission.values.interes_tecnologia || null,
+      submission.values.comentario || null,
       requestUrl,
     ],
   );

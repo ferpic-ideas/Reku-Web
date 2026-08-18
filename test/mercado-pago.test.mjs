@@ -1,7 +1,10 @@
 import { createHmac } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { verifyMercadoPagoWebhookSignature } from "../src/mercado-pago.mjs";
+import {
+  mercadoPagoRefundIdempotencyKey,
+  verifyMercadoPagoWebhookSignature,
+} from "../src/mercado-pago.mjs";
 
 const signedHeaders = ({ secret, dataId, timestamp, requestId = "request-1" }) => {
   const manifest = `id:${dataId};request-id:${requestId};ts:${timestamp};`;
@@ -63,5 +66,16 @@ test("webhook verification rejects stale and malformed signatures", () => {
       secret,
     }).valid,
     false,
+  );
+});
+
+test("refunds use a stable appointment-scoped idempotency key", () => {
+  assert.equal(
+    mercadoPagoRefundIdempotencyKey(42),
+    mercadoPagoRefundIdempotencyKey(42),
+  );
+  assert.notEqual(
+    mercadoPagoRefundIdempotencyKey(42),
+    mercadoPagoRefundIdempotencyKey(43),
   );
 });

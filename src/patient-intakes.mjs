@@ -138,38 +138,66 @@ const updatePatientBookingEmailResult = async (id, { messageId = null, error = n
 export const insertPatientIntake = async (submission, agreement, sourcePath) => {
   if (!pool) return { id: null, created: false };
 
-  const result = await query(
-    `
-      INSERT INTO patient_intakes
-        (
-          agreement_id,
-          agreement_slug_snapshot,
-          agreement_name_snapshot,
-          agreement_type_snapshot,
-          nombre,
-          apellido,
-          telefono,
-          email,
-          identificador,
-          source_path
-        )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id
-    `,
-    [
-      agreement?.id || null,
-      agreement?.slug || submission.agreementSlug || "",
-      agreement?.name || "",
-      agreement?.type || "",
-      submission.values.nombre,
-      submission.values.apellido,
-      submission.values.telefono,
-      submission.values.email,
-      submission.values.identificador || null,
-      sourcePath,
-    ],
-  );
-  return { id: Number(result.rows[0].id), created: true };
+  return tx(async (client) => {
+    const patient = await client.query(
+      `
+        INSERT INTO patients
+          (first_name, last_name, full_name, email, email_normalized, phone)
+        VALUES ($1, $2, $3, $4, lower(trim($4)), $5)
+        ON CONFLICT (email_normalized)
+        DO UPDATE SET
+          first_name = EXCLUDED.first_name,
+          last_name = EXCLUDED.last_name,
+          full_name = EXCLUDED.full_name,
+          email = EXCLUDED.email,
+          phone = EXCLUDED.phone,
+          active = TRUE,
+          updated_at = NOW()
+        RETURNING id
+      `,
+      [
+        submission.values.nombre,
+        submission.values.apellido,
+        patientFullName(submission),
+        submission.values.email,
+        submission.values.telefono,
+      ],
+    );
+    const result = await client.query(
+      `
+        INSERT INTO patient_intakes
+          (
+            patient_id,
+            agreement_id,
+            agreement_slug_snapshot,
+            agreement_name_snapshot,
+            agreement_type_snapshot,
+            nombre,
+            apellido,
+            telefono,
+            email,
+            identificador,
+            source_path
+          )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING id
+      `,
+      [
+        patient.rows[0].id,
+        agreement?.id || null,
+        agreement?.slug || submission.agreementSlug || "",
+        agreement?.name || "",
+        agreement?.type || "",
+        submission.values.nombre,
+        submission.values.apellido,
+        submission.values.telefono,
+        submission.values.email,
+        submission.values.identificador || null,
+        sourcePath,
+      ],
+    );
+    return { id: Number(result.rows[0].id), created: true };
+  });
 };
 
 const createPatientIntakeVerification = async ({ recordId }) => {

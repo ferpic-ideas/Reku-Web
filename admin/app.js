@@ -308,6 +308,8 @@
       free: 'Sin costo',
       nomina: 'Nómina',
       preference_error: 'Error al crear pago',
+      calendar_error: 'Error de calendario',
+      expired: 'Reserva vencida',
     })[value] || value || '';
 
   const appointmentStatusLabel = (appointment) => {
@@ -320,6 +322,7 @@
       {
         payment_failed: 'Pago rechazado',
         payment_reversed: 'Pago revertido',
+        cancelled: 'Cancelado',
       }[appointment?.status] ||
       appointment?.status ||
       'Sin dato'
@@ -366,6 +369,7 @@
     ({
       admin: 'Admin',
       user: 'User',
+      professional: 'Profesional',
     })[role] || role || 'User';
 
   const setStatus = (message, type = '') => {
@@ -682,9 +686,28 @@
               Rol
               <select name="role" ${state.user.can_manage_system ? '' : 'disabled'}>
                 <option value="user" selected>User</option>
-                ${state.user.can_manage_system ? '<option value="admin">Admin</option>' : ''}
+                ${state.user.can_manage_system ? '<option value="professional">Profesional</option><option value="admin">Admin</option>' : ''}
               </select>
             </label>
+            ${
+              state.user.can_manage_system
+                ? `
+                  <label>
+                    Ficha profesional
+                    <select name="professional_id">
+                      <option value="">Seleccionar cuando el rol sea Profesional</option>
+                      ${state.professionals
+                        .filter((professional) => professional.active)
+                        .map(
+                          (professional) =>
+                            `<option value="${professional.id}">${escapeHtml(professional.name)}</option>`,
+                        )
+                        .join('')}
+                    </select>
+                  </label>
+                `
+                : ''
+            }
             <div class="modal-actions">
               <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
               <button type="submit" class="primary-button">Crear usuario</button>
@@ -762,6 +785,12 @@
               ${detailRow('Pago', paymentStatusLabel(appointment.payment_status))}
               ${detailRow('Monto', formatMoney(appointment.amount))}
               ${detailRow('Estado', appointmentStatusLabel(appointment))}
+              ${appointment.cancellation_reason ? detailRow('Motivo de cancelación', appointment.cancellation_reason) : ''}
+              ${appointment.refund_status && appointment.refund_status !== 'not_required' ? detailRow('Devolución', appointment.refund_status === 'approved' ? 'Completada' : appointment.refund_status === 'failed' ? 'Fallida / requiere reintento' : 'Pendiente') : ''}
+              ${appointment.refund_error ? detailRow('Error de devolución', appointment.refund_error) : ''}
+              ${appointment.google_sync_status ? detailRow('Google Calendar', appointment.google_sync_status) : ''}
+              ${appointment.google_meet_url ? detailCopyRow('Google Meet', appointment.google_meet_url) : ''}
+              ${appointment.google_sync_error ? detailRow('Error de Google', appointment.google_sync_error) : ''}
               ${detailRow('Alta paciente', appointment.patient_intake_id ? `#${appointment.patient_intake_id}` : 'Sin alta asociada')}
             </div>
           </div>
@@ -1060,6 +1089,10 @@
       state.professionals.find((professional) => professional.id === state.editingProfessionalId) || {
         name: '',
         email: '',
+        license_number: '',
+        specialty: '',
+        bio: '',
+        phone: '',
         photo_url: '',
         active: true,
         services: [],
@@ -1137,6 +1170,22 @@
         <label>
           Mail
           <input name="email" type="email" value="${escapeHtml(item.email)}" required />
+        </label>
+        <label>
+          Matrícula
+          <input name="license_number" value="${escapeHtml(item.license_number || '')}" maxlength="120" />
+        </label>
+        <label>
+          Especialidad
+          <input name="specialty" value="${escapeHtml(item.specialty || '')}" maxlength="160" />
+        </label>
+        <label>
+          Teléfono
+          <input name="phone" value="${escapeHtml(item.phone || '')}" maxlength="80" autocomplete="tel" />
+        </label>
+        <label class="span-two">
+          Bio
+          <textarea name="bio" maxlength="2000" rows="4">${escapeHtml(item.bio || '')}</textarea>
         </label>
         <label>
           Foto
@@ -3033,6 +3082,10 @@
           email: form.email.value,
           password: form.password.value,
           role: state.user.can_manage_system ? form.role.value : 'user',
+          professional_id:
+            state.user.can_manage_system && form.role.value === 'professional'
+              ? form.professional_id.value
+              : null,
         },
       });
       state.dialog = null;

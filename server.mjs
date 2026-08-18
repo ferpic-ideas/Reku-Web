@@ -15,6 +15,8 @@ import {
 import { initDb } from "./src/db.mjs";
 import { handleFormSubmission } from "./src/forms.mjs";
 import { handleHealth } from "./src/health.mjs";
+import { cleanupExpiredGoogleCalendarHolds } from "./src/google-calendar.mjs";
+import { retryPendingGoogleAppointmentNotifications } from "./src/appointment-notifications.mjs";
 import {
   sendJson,
   sendRedirect,
@@ -27,6 +29,17 @@ import {
 assertSafeStartup();
 await ensureRuntimeDirectories();
 await initDb();
+
+const runCalendarMaintenance = () =>
+  Promise.all([
+    cleanupExpiredGoogleCalendarHolds(),
+    retryPendingGoogleAppointmentNotifications(),
+  ]).catch((error) => {
+    console.error("Google Calendar maintenance failed", { message: error.message });
+  });
+runCalendarMaintenance();
+const calendarCleanupTimer = setInterval(runCalendarMaintenance, 5 * 60 * 1000);
+calendarCleanupTimer.unref();
 
 const server = createServer(async (request, response) => {
   const requestUrl = new URL(request.url, `http://${request.headers.host}`);

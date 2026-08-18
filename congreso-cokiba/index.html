@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Formulario de contacto de Reku para el Congreso COKIBA."
+      content="Cuestionario de registro de Reku para el Congreso COKIBA."
     />
-    <title>Congreso COKIBA | Reku</title>
+    <title>Registro Congreso COKIBA | Reku</title>
     <link rel="icon" href="/favicon.ico" />
-    <link rel="stylesheet" href="/congreso-cokiba/styles.css" />
-    <script src="/congreso-cokiba/app.js" defer></script>
+    <link rel="stylesheet" href="/congreso-cokiba/styles.css?v=2" />
+    <script src="/congreso-cokiba/app.js?v=2" defer></script>
   </head>
   <body>
     <header class="site-header">
@@ -22,13 +22,14 @@
     <main>
       <section class="intro" aria-labelledby="page-title">
         <p class="eyebrow">Congreso COKIBA</p>
-        <h1 id="page-title">Conectemos</h1>
+        <h1 id="page-title">Sumate a la evolución digital en salud</h1>
         <p class="intro-copy">
-          Completá tus datos y nos pondremos en contacto con vos.
+          Completá tus datos, contanos cómo trabajás y conocé la plataforma de
+          telerehabilitación de Reku.
         </p>
       </section>
 
-      <section class="form-card" aria-label="Formulario de contacto">
+      <section class="form-card" aria-label="Cuestionario de registro">
         <form id="congreso-form" method="post" action="/congreso-cokiba/" novalidate>
           <input type="hidden" name="reku-form" value="congreso-cokiba" />
           <div class="honeypot" aria-hidden="true">
@@ -36,95 +37,190 @@
             <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
           </div>
 
-          <div class="form-grid">
-            <div class="field">
-              <label for="nombre">Nombre</label>
-              <input
-                id="nombre"
-                name="nombre"
-                type="text"
-                autocomplete="given-name"
-                maxlength="80"
-                aria-describedby="nombre-error"
-                required
-              />
-              <p class="field-error" id="nombre-error" aria-live="polite"></p>
+          <div class="form-heading">
+            <div>
+              <p class="form-kicker">Cuestionario de registro</p>
+              <h2>Queremos conocerte</h2>
             </div>
-
-            <div class="field">
-              <label for="apellido">Apellido</label>
-              <input
-                id="apellido"
-                name="apellido"
-                type="text"
-                autocomplete="family-name"
-                maxlength="80"
-                aria-describedby="apellido-error"
-                required
-              />
-              <p class="field-error" id="apellido-error" aria-live="polite"></p>
-            </div>
-
-            <div class="field field-wide">
-              <label for="profesion">Profesión</label>
-              <input
-                id="profesion"
-                name="profesion"
-                type="text"
-                autocomplete="organization-title"
-                maxlength="100"
-                placeholder="Ej. Kinesiólogo/a"
-                aria-describedby="profesion-error"
-                required
-              />
-              <p class="field-error" id="profesion-error" aria-live="polite"></p>
-            </div>
-
-            <div class="field">
-              <label for="telefono">Celular</label>
-              <input
-                id="telefono"
-                name="telefono"
-                type="tel"
-                autocomplete="tel"
-                inputmode="tel"
-                maxlength="30"
-                placeholder="+54 9 11 1234 5678"
-                aria-describedby="telefono-error"
-                required
-              />
-              <p class="field-error" id="telefono-error" aria-live="polite"></p>
-            </div>
-
-            <div class="field">
-              <label for="email">Mail</label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autocomplete="email"
-                maxlength="254"
-                placeholder="nombre@email.com"
-                aria-describedby="email-error"
-                required
-              />
-              <p class="field-error" id="email-error" aria-live="polite"></p>
-            </div>
+            <p class="required-note"><span aria-hidden="true">*</span> Campos obligatorios</p>
           </div>
 
+          <fieldset class="question-section">
+            <legend><span>1</span> Datos de contacto y perfil</legend>
+            <div class="form-grid">
+              <div class="field field-wide">
+                <label for="nombre_apellido">Nombre y apellido <span aria-hidden="true">*</span></label>
+                <input
+                  id="nombre_apellido"
+                  name="nombre_apellido"
+                  type="text"
+                  autocomplete="name"
+                  maxlength="160"
+                  aria-describedby="nombre_apellido-error"
+                  required
+                />
+                <p class="field-error" id="nombre_apellido-error" aria-live="polite"></p>
+              </div>
+
+              <div class="field">
+                <label for="email">Correo electrónico <span aria-hidden="true">*</span></label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  maxlength="254"
+                  placeholder="nombre@email.com"
+                  aria-describedby="email-error"
+                  required
+                />
+                <p class="field-error" id="email-error" aria-live="polite"></p>
+              </div>
+
+              <div class="field">
+                <label for="telefono">Teléfono / WhatsApp <span aria-hidden="true">*</span></label>
+                <input
+                  id="telefono"
+                  name="telefono"
+                  type="tel"
+                  autocomplete="tel"
+                  inputmode="tel"
+                  maxlength="30"
+                  placeholder="+54 9 11 1234 5678"
+                  aria-describedby="telefono-error"
+                  required
+                />
+                <p class="field-error" id="telefono-error" aria-live="polite"></p>
+              </div>
+
+              <div class="field field-wide choice-field" data-field-name="profesion">
+                <span class="field-label">Profesión / especialidad <span aria-hidden="true">*</span></span>
+                <div class="choice-grid" role="radiogroup" aria-describedby="profesion-error">
+                  <label class="choice-card">
+                    <input
+                      name="profesion"
+                      type="radio"
+                      value="Kinesiólogo / Fisioterapeuta"
+                      required
+                    />
+                    <span>Kinesiólogo / Fisioterapeuta</span>
+                  </label>
+                  <label class="choice-card">
+                    <input
+                      name="profesion"
+                      type="radio"
+                      value="Estudiante universitario"
+                    />
+                    <span>Estudiante universitario</span>
+                  </label>
+                </div>
+                <p class="field-error" id="profesion-error" aria-live="polite"></p>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="question-section">
+            <legend><span>2</span> Modalidad de trabajo</legend>
+            <div class="field choice-field" data-field-name="ambito">
+              <span class="field-label">¿En qué ámbito ejercés principalmente?</span>
+              <span class="optional-label">Podés elegir más de uno · Opcional</span>
+              <div class="choice-grid choice-grid-two">
+                <label class="choice-card">
+                  <input name="ambito" type="checkbox" value="Consultorio / Centro kinésico propio" />
+                  <span>Consultorio / Centro kinésico propio</span>
+                </label>
+                <label class="choice-card">
+                  <input name="ambito" type="checkbox" value="Atención a domicilio" />
+                  <span>Atención a domicilio</span>
+                </label>
+                <label class="choice-card">
+                  <input name="ambito" type="checkbox" value="Institución de salud pública/privada" />
+                  <span>Institución de salud pública/privada</span>
+                </label>
+                <label class="choice-card">
+                  <input name="ambito" type="checkbox" value="Club / Centro deportivo" />
+                  <span>Club / Centro deportivo</span>
+                </label>
+              </div>
+              <p class="field-error" id="ambito-error" aria-live="polite"></p>
+            </div>
+          </fieldset>
+
+          <fieldset class="question-section">
+            <legend><span>3</span> Interés e innovación</legend>
+            <div class="question-stack">
+              <div class="field choice-field" data-field-name="interes_telerehabilitacion">
+                <span class="field-label">¿Te gustaría formar parte de un proyecto o red de telerehabilitación?</span>
+                <span class="optional-label">Opcional</span>
+                <div class="choice-list" role="radiogroup" aria-describedby="interes_telerehabilitacion-error">
+                  <label class="choice-card">
+                    <input name="interes_telerehabilitacion" type="radio" value="Sí, me interesa activamente." />
+                    <span>Sí, me interesa activamente.</span>
+                  </label>
+                  <label class="choice-card">
+                    <input name="interes_telerehabilitacion" type="radio" value="Me gustaría recibir más información primero." />
+                    <span>Me gustaría recibir más información primero.</span>
+                  </label>
+                  <label class="choice-card">
+                    <input name="interes_telerehabilitacion" type="radio" value="No por el momento." />
+                    <span>No por el momento.</span>
+                  </label>
+                </div>
+                <p class="field-error" id="interes_telerehabilitacion-error" aria-live="polite"></p>
+              </div>
+
+              <div class="field choice-field" data-field-name="interes_tecnologia">
+                <span class="field-label">¿Te gustaría contar con esta tecnología para atender y monitorear a tus pacientes?</span>
+                <span class="optional-label">Opcional</span>
+                <div class="choice-list" role="radiogroup" aria-describedby="interes_tecnologia-error">
+                  <label class="choice-card">
+                    <input name="interes_tecnologia" type="radio" value="Sí, busco implementar nuevas herramientas digitales." />
+                    <span>Sí, busco implementar nuevas herramientas digitales.</span>
+                  </label>
+                  <label class="choice-card">
+                    <input name="interes_tecnologia" type="radio" value="Sí, si es fácil de integrar a mi práctica actual." />
+                    <span>Sí, si es fácil de integrar a mi práctica actual.</span>
+                  </label>
+                  <label class="choice-card">
+                    <input name="interes_tecnologia" type="radio" value="No estoy interesado/a." />
+                    <span>No estoy interesado/a.</span>
+                  </label>
+                </div>
+                <p class="field-error" id="interes_tecnologia-error" aria-live="polite"></p>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="question-section">
+            <legend><span>4</span> Comentario</legend>
+            <div class="field field-wide">
+              <label for="comentario">¿Tenés alguna duda o consulta específica?</label>
+              <span class="optional-label">Opcional</span>
+              <textarea
+                id="comentario"
+                name="comentario"
+                rows="5"
+                maxlength="2000"
+                placeholder="Escribí tu consulta acá..."
+                aria-describedby="comentario-error"
+              ></textarea>
+              <p class="field-error" id="comentario-error" aria-live="polite"></p>
+            </div>
+          </fieldset>
+
           <button class="submit-button" id="submit-button" type="submit">
-            Enviar
+            Registrarme
           </button>
           <p class="form-note">
-            Usaremos estos datos únicamente para contactarte sobre Reku.
+            Usaremos estos datos únicamente para contactarte sobre Reku y esta iniciativa.
           </p>
           <p class="form-status" id="form-status" aria-live="polite"></p>
         </form>
 
         <div class="success-state" id="success-state" hidden tabindex="-1">
           <span class="success-mark" aria-hidden="true">✓</span>
-          <h2>¡Gracias!</h2>
-          <p>Recibimos tus datos correctamente. Nos pondremos en contacto a la brevedad.</p>
+          <h2>¡Gracias por registrarte!</h2>
+          <p>Nos pondremos en contacto contigo a la brevedad.</p>
           <button class="secondary-button" id="new-response-button" type="button">
             Enviar otra respuesta
           </button>

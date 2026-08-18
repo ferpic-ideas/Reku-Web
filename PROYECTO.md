@@ -39,7 +39,10 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/alta-pacientes/?form=<slug>`: redirige a `/agenda/?form=<slug>`.
 - `/profesional-turnos/#token=<token>`: link de un solo uso; se canjea por una sesión
   `HttpOnly` corta y se elimina de la URL.
-- `/congreso-cokiba`: formulario público de registro del Congreso COKIBA.
+- `/profesional/`: portal permanente del rol Profesional para gestionar perfil,
+  horarios, bloqueos, pacientes y turnos.
+- `/congreso-cokiba`: cuestionario público del Congreso COKIBA; `/congreso-coquiba`
+  redirige a esta ruta por compatibilidad.
 - `/admin/`: admin interno.
 - `/admin/<modulo>`: deep links del admin para cada módulo, por ejemplo `/admin/turnos`.
 - `/api/public/agreements/<slug>`: datos publicos de un acuerdo.
@@ -47,6 +50,7 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/api/booking/*`: API publica de agenda con token firmado.
 - `/api/booking/mercado-pago/webhook`: webhook de Mercado Pago.
 - `/api/professional/appointments`: API de turnos del profesional autenticada por cookie.
+- `/api/professional/integrations/google/*`: conexión OAuth y estado de Google Calendar.
 - `/uploads/*`: handler público limitado a carpetas y extensiones explícitas. No sirve
   el storage privado ni SVG subidos.
 
@@ -73,6 +77,10 @@ devuelve 404.
 |   |-- index.html              # Vista publica de turnos para profesionales
 |   |-- app.js                  # Carga turnos por token
 |   `-- styles.css              # UI mobile-first de turnos
+|-- profesional/
+|   |-- index.html              # Portal permanente del profesional
+|   |-- app.js                  # Perfil, agenda, pacientes e integración Google
+|   `-- styles.css              # Layout responsive del portal
 |-- src/
 |   |-- admin-api.mjs           # Auth y endpoints del admin
 |   |-- appointment-notifications.mjs # Mails al profesional por turnos confirmados
@@ -84,10 +92,11 @@ devuelve 404.
 |   |-- db.mjs                  # Pool Postgres, esquema legado y helpers
 |   |-- email.mjs               # Envio por SES/Resend y dry-run
 |   |-- forms.mjs               # Procesamiento de formularios publicos
+|   |-- google-calendar.mjs     # OAuth, FreeBusy, eventos, Meet y limpieza de holds
 |   |-- http.mjs                # Helpers HTTP, headers y static serving
 |   |-- mercado-pago.mjs        # Checkout Pro, consulta de pagos y webhook signature
 |   |-- migrations.mjs          # Ejecutor transaccional de migraciones versionadas
-|   |-- professional-api.mjs    # API publica de turnos para profesionales
+|   |-- professional-api.mjs    # Cuenta y operaciones del portal profesional
 |   |-- professional-links.mjs  # Links firmados para profesionales
 |   |-- rate-limit.mjs          # Rate limit distribuido/persistente en Postgres
 |   |-- security.mjs            # Sesiones, CSRF, password hashing y rate limit
@@ -138,12 +147,15 @@ Funciones actuales:
 
 Tablas principales:
 
-- `users`: usuarios admin, password hash, rol, permisos explícitos, estado y versión de sesión.
+- `users`: usuarios admin/operativos/profesionales, password hash, rol, permisos
+  explícitos, vínculo opcional con `professionals`, estado y versión de sesión.
 - `agreements`: acuerdos, co-branding, PDF, links de pago y templates.
 - `nomina_entries`: registros de nomina asociados a acuerdos tipo `Nomina`.
 - `patient_intakes`: altas iniciadas desde `/agenda/?form=<slug>`.
+- `patients`: directorio canónico de pacientes, deduplicado por email normalizado.
 - `contacts`: contactos enviados desde la web principal.
-- `congreso_cokiba_registrations`: registros del formulario del Congreso COKIBA.
+- `congreso_cokiba_registrations`: contacto, profesión, ámbitos, intereses y comentarios
+  del cuestionario del Congreso COKIBA.
 - `services`: servicios reservables con duracion, costo y link fallback.
 - `professionals`: profesionales, foto, mail, estado.
 - `professional_services`: servicios que atiende cada profesional.
@@ -156,6 +168,8 @@ Tablas principales:
 - `public_rate_limits`: buckets persistentes de rate limit, sin IPs/emails en claro.
 - `schema_migrations`: migraciones SQL ya aplicadas.
 - `appointments`: turnos, estado de pago y referencias Mercado Pago.
+- `professional_google_connections`: tokens Google cifrados, cuenta, scopes y estado.
+- `google_oauth_states`: intentos OAuth de un solo uso, con `state` hasheado y PKCE cifrado.
 - `app_settings`: configuraciones internas como credenciales Mercado Pago.
 - `audit_events`: eventos relevantes del admin.
 
@@ -214,8 +228,15 @@ Estados relevantes:
 - `appointments.status = payment_failed`: pago rechazado/cancelado o error.
 - `appointments.payment_status`: estado crudo recibido de Mercado Pago.
 
-Los turnos `pending_payment` bloquean el horario por 30 minutos para evitar doble
-reserva durante el checkout.
+Checkout Pro vence a los 30 minutos. Reku conserva un margen total de 40 minutos
+antes de liberar un `pending_payment`, para absorber notificaciones demoradas, y
+elimina de forma periódica los holds vencidos de Google.
+
+Cuando el profesional conectó Google, el cálculo de slots cruza disponibilidad,
+bloqueos, turnos internos y FreeBusy. Durante un pago pendiente se crea un evento
+privado sin paciente ni Meet. Al confirmar se actualiza de forma idempotente,
+se crea una sala de Meet nueva y Google invita al paciente. El mail branded de
+Reku incluye el mismo enlace.
 
 Cuando un turno pasa a `confirmed`, el backend envia un mail al profesional con:
 
@@ -228,6 +249,12 @@ El mail no se envia cuando el turno esta `pending_payment`; se dispara al confir
 un pago `approved` por webhook/retorno de Mercado Pago o al crear un turno sin
 costo. `appointments.professional_notified_at` evita duplicados si llegan webhook
 y retorno casi al mismo tiempo.
+
+El profesional puede cancelar un turno propio desde `/profesional/`. Reku registra
+el motivo, elimina el evento de Google con `sendUpdates=all`, envía además su mail
+branded y, si el pago central de Mercado Pago estaba aprobado, solicita un
+reembolso total con una clave de idempotencia estable por turno. Los fallos quedan
+separados en `refund_status` y pueden reintentarse sin duplicar la devolución.
 
 Credenciales:
 
@@ -273,6 +300,12 @@ Variables clave:
 - `PROFESSIONAL_SESSION_TTL_SECONDS`
 - `PROFESSIONAL_SESSION_COOKIE_NAME`
 - `MP_WEBHOOK_MAX_AGE_SECONDS`
+- `GOOGLE_OAUTH_CLIENT_ID`
+- `GOOGLE_OAUTH_CLIENT_SECRET`
+- `GOOGLE_OAUTH_REDIRECT_URI`
+- `GOOGLE_INTEGRATION_ENCRYPTION_KEY`
+- `GOOGLE_CALENDAR_TIME_ZONE`
+- `GOOGLE_CALENDAR_REQUIRED`
 - `CONTACT_TO_EMAIL`
 - `PATIENT_INTAKE_TO_EMAIL`
 - `EMAIL_PROVIDER`
@@ -286,7 +319,9 @@ Variables clave:
 - `RESEND_FROM_EMAIL`
 - `EMAIL_DRY_RUN`
 
-En produccion, `SESSION_SECRET` y `POSTGRES_PASSWORD` son obligatorios. No
+En produccion, `SESSION_SECRET` y `POSTGRES_PASSWORD` son obligatorios. Si Google
+OAuth está habilitado, `GOOGLE_INTEGRATION_ENCRYPTION_KEY` debe tener al menos 32
+caracteres y ser independiente del secreto de sesión. No
 imprimir ni pegar el `.env` en chats, commits o logs.
 
 Para usar Resend temporalmente mientras SES esta en sandbox:

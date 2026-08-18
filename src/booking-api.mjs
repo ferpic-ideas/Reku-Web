@@ -9,7 +9,10 @@ import {
   verifyMercadoPagoWebhookSignature,
   getMercadoPagoSettings,
 } from "./mercado-pago.mjs";
-import { notifyConfirmedAppointment } from "./appointment-notifications.mjs";
+import {
+  notifyConfirmedAppointment,
+  notifyPatientForCancellation,
+} from "./appointment-notifications.mjs";
 import {
   enforceIntakeRateLimits,
   enforceWebhookRateLimits,
@@ -23,6 +26,11 @@ import {
 } from "./patient-intakes.mjs";
 import { bookingAccessCookie } from "./booking-links.mjs";
 import { config } from "./config.mjs";
+import {
+  cancelGoogleCalendarAppointment,
+  getGoogleBusyRanges,
+  holdAppointmentOnGoogleCalendar,
+} from "./google-calendar.mjs";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
@@ -50,6 +58,21 @@ const dateToDow = (date) => {
 
 const addMinutes = (time, minutes) => minutesToTime(timeToMinutes(time) + minutes);
 
+const currentDateInCalendarTimeZone = () => {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: config.googleCalendarTimeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .formatToParts(new Date())
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
 const rangesOverlap = (startA, endA, startB, endB) =>
   timeToMinutes(startA) < timeToMinutes(endB) &&
   timeToMinutes(startB) < timeToMinutes(endA);
@@ -73,6 +96,7 @@ const requireAccessLink = async (token) => {
         p.apellido,
         p.email AS intake_email,
         p.telefono AS intake_telefono,
+        p.patient_id AS intake_patient_id,
         p.agreement_id AS intake_agreement_id,
         p.agreement_name_snapshot AS intake_agreement_name,
         p.agreement_slug_snapshot AS intake_agreement_slug,
@@ -96,6 +120,7 @@ const requireAccessLink = async (token) => {
   return {
     id: Number(link.id),
     patient_intake_id: link.patient_intake_id ? Number(link.patient_intake_id) : null,
+    patient_id: link.intake_patient_id ? Number(link.intake_patient_id) : null,
     expires_at: link.expires_at,
     agreement: {
       id: link.intake_agreement_id || link.agreement_id
@@ -278,9 +303,18 @@ const listProfessionals = async (url, response) => {
       WHERE ps.service_id = $1
         AND p.deleted_at IS NULL
         AND p.active = TRUE
+        AND (
+          $2::boolean = FALSE
+          OR EXISTS (
+            SELECT 1
+            FROM professional_google_connections pgc
+            WHERE pgc.professional_id = p.id
+              AND pgc.status = 'active'
+          )
+        )
       ORDER BY p.name ASC
     `,
-    [serviceId],
+    [serviceId, config.googleCalendarRequired],
   );
   sendJson(response, 200, { professionals: result.rows.map(mapProfessional) });
 };
@@ -319,12 +353,31 @@ const professionalSupportsService = async (professionalId, serviceId) =>
         AND ps.service_id = $2
         AND p.active = TRUE
         AND p.deleted_at IS NULL
+        AND (
+          $3::boolean = FALSE
+          OR EXISTS (
+            SELECT 1
+            FROM professional_google_connections pgc
+            WHERE pgc.professional_id = p.id
+              AND pgc.status = 'active'
+          )
+        )
     `,
-    [professionalId, serviceId],
+    [professionalId, serviceId, config.googleCalendarRequired],
   );
 
-const computeSlots = async ({ serviceId, professionalId, date }) => {
-  if (!datePattern.test(date)) {
+const computeSlots = async ({
+  serviceId,
+  professionalId,
+  date,
+  externalBusyRanges,
+}) => {
+  const parsedDate = new Date(`${date}T00:00:00Z`);
+  if (
+    !datePattern.test(date) ||
+    Number.isNaN(parsedDate.getTime()) ||
+    parsedDate.toISOString().slice(0, 10) !== date
+  ) {
     const error = new Error("BOOKING_DATE_INVALID");
     error.statusCode = 422;
     throw error;
@@ -337,12 +390,12 @@ const computeSlots = async ({ serviceId, professionalId, date }) => {
     throw error;
   }
 
-  if (date < new Date().toISOString().slice(0, 10)) {
+  if (date < currentDateInCalendarTimeZone()) {
     return { service, slots: [] };
   }
 
   const dayOfWeek = dateToDow(date);
-  const [availability, blocks, appointments] = await Promise.all([
+  const [availability, blocks, appointments, googleBusyByDate] = await Promise.all([
     query(
       `
         SELECT to_char(start_time, 'HH24:MI') AS start_time,
@@ -372,15 +425,30 @@ const computeSlots = async ({ serviceId, professionalId, date }) => {
           AND appointment_date = $2::date
           AND (
             status = 'confirmed'
-            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '30 minutes')
+            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '40 minutes')
           )
       `,
       [professionalId, date],
     ),
+    externalBusyRanges
+      ? Promise.resolve({ [date]: externalBusyRanges })
+      : getGoogleBusyRanges({
+          professionalId,
+          startDate: date,
+          endDateExclusive: (() => {
+            const next = new Date(`${date}T12:00:00Z`);
+            next.setUTCDate(next.getUTCDate() + 1);
+            return next.toISOString().slice(0, 10);
+          })(),
+        }),
   ]);
 
   const duration = Number(service.duration_minutes);
-  const busyRanges = [...blocks.rows, ...appointments.rows];
+  const busyRanges = [
+    ...blocks.rows,
+    ...appointments.rows,
+    ...(googleBusyByDate[date] || []),
+  ];
   const slots = [];
 
   for (const range of availability.rows) {
@@ -418,10 +486,25 @@ const listDays = async (url, response) => {
 
   const [year, monthNumber] = month.split("-").map(Number);
   const daysInMonth = new Date(year, monthNumber, 0).getDate();
+  const startDate = `${month}-01`;
+  const endDateExclusive =
+    monthNumber === 12
+      ? `${year + 1}-01-01`
+      : `${year}-${String(monthNumber + 1).padStart(2, "0")}-01`;
+  const googleBusyByDate = await getGoogleBusyRanges({
+    professionalId,
+    startDate,
+    endDateExclusive,
+  });
   const days = [];
   for (let day = 1; day <= daysInMonth; day += 1) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
-    const { slots } = await computeSlots({ serviceId, professionalId, date });
+    const { slots } = await computeSlots({
+      serviceId,
+      professionalId,
+      date,
+      externalBusyRanges: googleBusyByDate[date] || [],
+    });
     if (slots.length) days.push({ date, slots_count: slots.length });
   }
   sendJson(response, 200, { days });
@@ -432,7 +515,14 @@ const createAppointment = async (payload, response, url, link) => {
   const professionalId = Number(payload.professional_id);
   const date = String(payload.date || "");
   const startTime = String(payload.start_time || "");
-  if (!timePattern.test(startTime)) {
+  const [startHours, startMinutes] = startTime.split(":").map(Number);
+  if (
+    !timePattern.test(startTime) ||
+    startHours < 0 ||
+    startHours > 23 ||
+    startMinutes < 0 ||
+    startMinutes > 59
+  ) {
     sendJson(response, 422, { error: "Seleccioná un horario válido." });
     return;
   }
@@ -449,9 +539,9 @@ const createAppointment = async (payload, response, url, link) => {
   }
 
   const patient = link.patient;
-  const patientName = String(payload.patient_name || patient.name || "Paciente Reku").trim();
-  const patientEmail = String(payload.patient_email || patient.email || "").trim().toLowerCase();
-  const patientPhone = String(payload.patient_phone || patient.phone || "").trim();
+  const patientName = String(patient.name || payload.patient_name || "Paciente Reku").trim();
+  const patientEmail = String(patient.email || payload.patient_email || "").trim().toLowerCase();
+  const patientPhone = String(patient.phone || payload.patient_phone || "").trim();
   const endTime = addMinutes(startTime, Number(service.duration_minutes));
   const requiresPayment = link.agreement?.type !== "Nomina" && Number(service.cost_amount || 0) > 0;
   const amount = requiresPayment ? Number(service.cost_amount || 0) : 0;
@@ -462,6 +552,10 @@ const createAppointment = async (payload, response, url, link) => {
       : "free";
 
   const appointment = await tx(async (client) => {
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
+      [professionalId, date],
+    );
     const conflict = await client.query(
       `
         SELECT id
@@ -470,7 +564,7 @@ const createAppointment = async (payload, response, url, link) => {
           AND appointment_date = $2::date
           AND (
             status = 'confirmed'
-            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '30 minutes')
+            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '40 minutes')
           )
           AND start_time < $4::time
           AND end_time > $3::time
@@ -484,12 +578,39 @@ const createAppointment = async (payload, response, url, link) => {
       throw error;
     }
 
+    let patientId = link.patient_id;
+    if (patientEmail) {
+      const canonicalPatient = await client.query(
+        `
+          INSERT INTO patients
+            (full_name, email, email_normalized, phone)
+          VALUES ($1, $2, lower(trim($2)), $3)
+          ON CONFLICT (email_normalized) DO UPDATE SET
+            full_name = CASE
+              WHEN EXCLUDED.full_name <> '' THEN EXCLUDED.full_name
+              ELSE patients.full_name
+            END,
+            email = EXCLUDED.email,
+            phone = CASE
+              WHEN EXCLUDED.phone <> '' THEN EXCLUDED.phone
+              ELSE patients.phone
+            END,
+            active = TRUE,
+            updated_at = NOW()
+          RETURNING id
+        `,
+        [patientName, patientEmail, patientPhone],
+      );
+      patientId = Number(canonicalPatient.rows[0].id);
+    }
+
     const result = await client.query(
       `
         INSERT INTO appointments
           (
             booking_access_link_id,
             patient_intake_id,
+            patient_id,
             service_id,
             professional_id,
             appointment_date,
@@ -506,16 +627,17 @@ const createAppointment = async (payload, response, url, link) => {
             payment_status,
             payment_provider,
             status
-          )
+        )
         VALUES (
-          $1, $2, $3, $4, $5::date, $6::time, $7::time, $8, $9, $10,
-          $11, $12, $13, $14, $15, $16, $17, $18
+          $1, $2, $3, $4, $5, $6::date, $7::time, $8::time, $9, $10, $11,
+          $12, $13, $14, $15, $16, $17, $18, $19
         )
         RETURNING *
       `,
       [
         link.id,
         link.patient_intake_id,
+        patientId,
         serviceId,
         professionalId,
         date,
@@ -548,6 +670,21 @@ const createAppointment = async (payload, response, url, link) => {
   });
 
   if (requiresPayment) {
+    try {
+      await holdAppointmentOnGoogleCalendar(appointment.id);
+    } catch (error) {
+      await query(
+        `
+          UPDATE appointments
+          SET payment_status = 'calendar_error',
+              status = 'payment_failed',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [appointment.id],
+      );
+      throw error;
+    }
     let preference;
     try {
       preference = await createMercadoPagoPreference({
@@ -577,6 +714,7 @@ const createAppointment = async (payload, response, url, link) => {
         `,
         [appointment.id],
       );
+      await cancelGoogleCalendarAppointment(appointment.id);
       throw error;
     }
     await query(
@@ -744,6 +882,8 @@ const refreshPaymentStatus = async (url, response, link) => {
       appointment = await updateAppointmentFromMercadoPagoPayment(payment);
       if (appointment.status === "confirmed") {
         await notifyConfirmedAppointment(appointment.id);
+      } else if (appointment.status === "cancelled") {
+        await notifyPatientForCancellation(appointment.id);
       }
     } catch (error) {
       if (error.message !== "MERCADO_PAGO_API_ERROR") throw error;
@@ -837,6 +977,8 @@ const handleMercadoPagoWebhook = async (request, response, url) => {
   const appointment = await updateAppointmentFromMercadoPagoPayment(payment);
   if (appointment.status === "confirmed") {
     await notifyConfirmedAppointment(appointment.id);
+  } else if (appointment.status === "cancelled") {
+    await notifyPatientForCancellation(appointment.id);
   }
   await recordAudit("mercado_pago.payment_webhook", {
     detail: {
@@ -930,6 +1072,16 @@ export const handleBookingApi = async (request, response, url) => {
     }
     if (error.message === "BOOKING_SLOT_TAKEN") {
       sendJson(response, 409, { error: "Ese horario ya no está disponible." });
+      return true;
+    }
+    if (
+      error.message === "GOOGLE_REAUTH_REQUIRED" ||
+      error.message === "GOOGLE_API_ERROR"
+    ) {
+      sendJson(response, 503, {
+        error:
+          "La agenda del profesional no se puede validar con Google en este momento.",
+      });
       return true;
     }
     if (error.message === "MERCADO_PAGO_NOT_CONFIGURED") {

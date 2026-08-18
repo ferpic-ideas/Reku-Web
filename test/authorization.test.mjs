@@ -55,6 +55,27 @@ test("operational user is explicitly denied system and sensitive deletion permis
   );
 });
 
+test("professional role has self-service permissions but no admin API access", () => {
+  const professional = { role: "professional" };
+  assert.equal(hasPermission(professional, "professional.profile.read_self"), true);
+  assert.equal(hasPermission(professional, "professional.patients.read_all"), true);
+  assert.equal(
+    hasPermission(professional, "professional.integrations.google.manage_self"),
+    true,
+  );
+  assert.equal(hasPermission(professional, "appointments.read"), false);
+  assert.equal(hasPermission(professional, "users.read"), false);
+  assert.throws(
+    () =>
+      requireAdminApiPermission(
+        professional,
+        "GET",
+        "/api/admin/appointments",
+      ),
+    { message: "PERMISSION_DENIED" },
+  );
+});
+
 test("admin route policy fails closed for missing and unknown routes", () => {
   assert.equal(
     requiredPermissionForRequest(

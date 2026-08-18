@@ -71,7 +71,7 @@ export const initDb = async () => {
 
     UPDATE users
       SET role = 'user'
-      WHERE role NOT IN ('user', 'admin');
+      WHERE role NOT IN ('user', 'admin', 'professional');
 
     ALTER TABLE users
       ALTER COLUMN role SET DEFAULT 'user';
@@ -80,7 +80,7 @@ export const initDb = async () => {
       DROP CONSTRAINT IF EXISTS users_role_check;
 
     ALTER TABLE users
-      ADD CONSTRAINT users_role_check CHECK (role IN ('user', 'admin'));
+      ADD CONSTRAINT users_role_check CHECK (role IN ('user', 'admin', 'professional'));
 
     CREATE TABLE IF NOT EXISTS agreements (
       id BIGSERIAL PRIMARY KEY,
@@ -345,6 +345,16 @@ export const initDb = async () => {
       patient_notified_at TIMESTAMPTZ,
       patient_notification_message_id TEXT,
       patient_notification_error TEXT,
+      cancelled_at TIMESTAMPTZ,
+      cancelled_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      cancellation_reason TEXT,
+      refund_status TEXT NOT NULL DEFAULT 'not_required',
+      refund_id TEXT,
+      refund_amount NUMERIC(12,2),
+      refund_error TEXT,
+      patient_cancellation_notified_at TIMESTAMPTZ,
+      patient_cancellation_message_id TEXT,
+      patient_cancellation_error TEXT,
       status TEXT NOT NULL DEFAULT 'confirmed',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -469,6 +479,7 @@ export const bootstrapAdmin = async () => {
       `
         UPDATE users
         SET role = 'admin',
+            professional_id = NULL,
             is_active = TRUE,
             password_hash = $1,
             session_version = session_version + 1,

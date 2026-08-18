@@ -227,7 +227,9 @@ export const buildPatientVerificationEmail = ({
 export const buildContactEmail = (submission) => {
   const rows = Object.entries(submission.labels).map(([key, label]) => ({
     label,
-    value: submission.values[key] || "",
+    value: Array.isArray(submission.values[key])
+      ? submission.values[key].join(", ")
+      : submission.values[key] || "",
   }));
 
   const text = rows.map(({ label, value }) => `${label}: ${value}`).join("\n");

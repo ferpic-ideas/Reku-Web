@@ -197,6 +197,11 @@ const publicMounts = [
     extensions: new Set([".html", ".css", ".js"]),
   },
   {
+    prefix: "/profesional/",
+    directory: join(root, "profesional"),
+    extensions: new Set([".html", ".css", ".js"]),
+  },
+  {
     prefix: "/alta-pacientes/",
     directory: join(root, "alta-pacientes"),
     extensions: new Set([".html", ".css", ".js"]),
@@ -232,6 +237,13 @@ export const resolveStaticRequestPath = (pathname) => {
     (pathname.startsWith("/admin/") &&
       !pathname.slice("/admin/".length).includes("."));
   if (isAdminPage) return "/admin/index.html";
+
+  const isProfessionalPage =
+    pathname === "/profesional" ||
+    pathname === "/profesional/" ||
+    (pathname.startsWith("/profesional/") &&
+      !pathname.slice("/profesional/".length).includes("."));
+  if (isProfessionalPage) return "/profesional/index.html";
 
   if (
     pathname === "/profesional-turnos" ||
@@ -350,6 +362,7 @@ export const serveStatic = async (request, response, pathname) => {
   try {
     const isPrivateRoute =
       pathname.startsWith("/admin") ||
+      pathname.startsWith("/profesional") ||
       pathname.startsWith("/profesional-turnos");
     const allowsSameOriginFrame = pathname.startsWith("/agenda");
     await serveFile(request, response, filePath, {

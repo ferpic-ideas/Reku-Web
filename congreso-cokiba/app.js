@@ -9,17 +9,28 @@
     return;
   }
 
-  const fields = {
-    nombre: form.elements.nombre,
-    apellido: form.elements.apellido,
-    profesion: form.elements.profesion,
-    telefono: form.elements.telefono,
-    email: form.elements.email,
-  };
+  const requiredFields = ["nombre_apellido", "email", "telefono", "profesion"];
+  const allFieldNames = [
+    ...requiredFields,
+    "ambito",
+    "interes_telerehabilitacion",
+    "interes_tecnologia",
+    "comentario",
+  ];
   const touched = new Set();
   const namePattern = /^[\p{L}]+(?:[ '-][\p{L}]+)*$/u;
   const phonePattern = /^[+()\d\s.-]+$/;
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+  const controlsFor = (name) => [...form.querySelectorAll(`[name="${name}"]`)];
+
+  const valueFor = (name) => {
+    const controls = controlsFor(name);
+    if (controls[0]?.type === "radio") {
+      return controls.find((control) => control.checked)?.value || "";
+    }
+    return controls[0]?.value?.trim() || "";
+  };
 
   const setStatus = (message = "", type = "") => {
     formStatus.textContent = message;
@@ -27,91 +38,92 @@
     if (type) formStatus.classList.add(`is-${type}`);
   };
 
-  const setFieldError = (field, message = "") => {
-    const wrapper = field.closest(".field");
-    const error = document.getElementById(`${field.name}-error`);
-    field.setAttribute("aria-invalid", message ? "true" : "false");
+  const setFieldError = (name, message = "") => {
+    const controls = controlsFor(name);
+    const wrapper =
+      form.querySelector(`[data-field-name="${name}"]`) ||
+      controls[0]?.closest(".field");
+    const error = document.getElementById(`${name}-error`);
+    controls.forEach((control) =>
+      control.setAttribute("aria-invalid", message ? "true" : "false"),
+    );
     wrapper?.classList.toggle("is-invalid", Boolean(message));
     if (error) error.textContent = message;
   };
 
-  const validateName = (field, label) => {
-    const value = field.value.trim();
-    if (!value) return `Ingresá tu ${label}.`;
-    if (value.length < 2) return `El ${label} debe tener al menos 2 letras.`;
-    if (!namePattern.test(value)) {
-      return "Usá solo letras, espacios, apóstrofes o guiones.";
-    }
-    return "";
-  };
-
   const validators = {
-    nombre: (field) => validateName(field, "nombre"),
-    apellido: (field) => validateName(field, "apellido"),
-    profesion: (field) => {
-      const value = field.value.trim();
-      if (!value) return "Ingresá tu profesión.";
-      if (value.length < 2 || value.length > 100) {
-        return "Ingresá una profesión válida.";
+    nombre_apellido: () => {
+      const value = valueFor("nombre_apellido");
+      if (!value) return "Ingresá tu nombre y apellido.";
+      if (value.length < 2) return "El nombre debe tener al menos 2 letras.";
+      if (value.split(/\s+/).length < 2) return "Ingresá tu nombre y apellido.";
+      if (!namePattern.test(value)) {
+        return "Usá solo letras, espacios, apóstrofes o guiones.";
       }
       return "";
     },
-    telefono: (field) => {
-      const value = field.value.trim();
-      const digits = value.replace(/\D/g, "");
-      if (!value) return "Ingresá tu celular.";
-      if (!phonePattern.test(value) || digits.length < 8 || digits.length > 15) {
-        return "Ingresá un celular válido, con código de área.";
-      }
-      return "";
-    },
-    email: (field) => {
-      const value = field.value.trim().toLowerCase();
-      if (!value) return "Ingresá tu mail.";
+    email: () => {
+      const value = valueFor("email").toLowerCase();
+      if (!value) return "Ingresá tu correo electrónico.";
       if (!emailPattern.test(value)) {
-        return "Ingresá un mail válido, por ejemplo nombre@email.com.";
+        return "Ingresá un correo válido, por ejemplo nombre@email.com.";
       }
       return "";
     },
+    telefono: () => {
+      const value = valueFor("telefono");
+      const digits = value.replace(/\D/g, "");
+      if (!value) return "Ingresá tu teléfono o WhatsApp.";
+      if (!phonePattern.test(value) || digits.length < 8 || digits.length > 15) {
+        return "Ingresá un número válido, con código de área.";
+      }
+      return "";
+    },
+    profesion: () =>
+      valueFor("profesion") ? "" : "Seleccioná tu profesión o especialidad.",
   };
 
-  const validateField = (field) => {
-    const message = validators[field.name]?.(field) || "";
-    setFieldError(field, message);
+  const validateField = (name) => {
+    const message = validators[name]?.() || "";
+    setFieldError(name, message);
     return !message;
   };
 
   const validateForm = () => {
-    let firstInvalid = null;
-    Object.values(fields).forEach((field) => {
-      if (!validateField(field) && !firstInvalid) firstInvalid = field;
+    let firstInvalid = "";
+    requiredFields.forEach((name) => {
+      if (!validateField(name) && !firstInvalid) firstInvalid = name;
     });
-    firstInvalid?.focus();
+    controlsFor(firstInvalid)[0]?.focus();
     return !firstInvalid;
   };
 
-  Object.values(fields).forEach((field) => {
-    field.addEventListener("blur", () => {
-      touched.add(field.name);
-      validateField(field);
-    });
-    field.addEventListener("input", () => {
-      if (touched.has(field.name) || field.getAttribute("aria-invalid") === "true") {
-        validateField(field);
-      }
+  requiredFields.forEach((name) => {
+    controlsFor(name).forEach((control) => {
+      const eventName = control.type === "radio" ? "change" : "input";
+      control.addEventListener("blur", () => {
+        touched.add(name);
+        validateField(name);
+      });
+      control.addEventListener(eventName, () => {
+        if (touched.has(name) || control.getAttribute("aria-invalid") === "true") {
+          validateField(name);
+        }
+      });
     });
   });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     setStatus();
-    Object.keys(fields).forEach((name) => touched.add(name));
+    requiredFields.forEach((name) => touched.add(name));
     if (!validateForm()) return;
 
-    Object.values(fields).forEach((field) => {
-      field.value = field.value.trim();
-    });
-    fields.email.value = fields.email.value.toLowerCase();
+    form.querySelectorAll("input[type='text'], input[type='email'], input[type='tel'], textarea")
+      .forEach((control) => {
+        control.value = control.value.trim();
+      });
+    form.elements.email.value = form.elements.email.value.toLowerCase();
 
     submitButton.disabled = true;
     submitButton.textContent = "Enviando...";
@@ -127,23 +139,26 @@
       if (!response.ok) {
         if (payload.errors) {
           Object.entries(payload.errors).forEach(([name, message]) => {
-            if (fields[name]) setFieldError(fields[name], message);
+            if (allFieldNames.includes(name)) setFieldError(name, message);
           });
         }
         throw new Error(payload.error || "No se pudo enviar el formulario.");
       }
 
       form.reset();
-      Object.values(fields).forEach((field) => setFieldError(field));
+      allFieldNames.forEach((name) => setFieldError(name));
       touched.clear();
       form.hidden = true;
       successState.hidden = false;
       successState.focus();
     } catch (error) {
-      setStatus(error.message || "No se pudo enviar el formulario. Probá de nuevo.", "error");
+      setStatus(
+        error.message || "No se pudo enviar el formulario. Probá de nuevo.",
+        "error",
+      );
     } finally {
       submitButton.disabled = false;
-      submitButton.textContent = "Enviar";
+      submitButton.textContent = "Registrarme";
     }
   });
 
@@ -151,6 +166,6 @@
     successState.hidden = true;
     form.hidden = false;
     setStatus();
-    fields.nombre.focus();
+    controlsFor("nombre_apellido")[0]?.focus();
   });
 })();

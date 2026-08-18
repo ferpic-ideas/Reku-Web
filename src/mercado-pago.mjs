@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "./config.mjs";
-import { one, query } from "./db.mjs";
+import { one, query, recordAudit } from "./db.mjs";
 
 const mpApiBase = "https://api.mercadopago.com";
 const modes = ["development", "production"];
@@ -117,12 +117,16 @@ const parseMpResponse = async (response) => {
   }
 };
 
-const mercadoPagoRequest = async (path, { accessToken, method = "GET", body } = {}) => {
+const mercadoPagoRequest = async (
+  path,
+  { accessToken, method = "GET", body, headers = {} } = {},
+) => {
   const response = await fetch(`${mpApiBase}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
+      ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -135,6 +139,29 @@ const mercadoPagoRequest = async (path, { accessToken, method = "GET", body } = 
     throw error;
   }
   return payload;
+};
+
+export const mercadoPagoRefundIdempotencyKey = (appointmentId) =>
+  `reku-appointment-${Number(appointmentId)}-full-refund`;
+
+export const createMercadoPagoFullRefund = async ({ appointmentId, paymentId }) => {
+  const credentials = await getActiveMercadoPagoCredentials();
+  const refund = await mercadoPagoRequest(
+    `/v1/payments/${encodeURIComponent(String(paymentId))}/refunds`,
+    {
+      method: "POST",
+      accessToken: credentials.access_token,
+      headers: {
+        "X-Idempotency-Key": mercadoPagoRefundIdempotencyKey(appointmentId),
+      },
+    },
+  );
+  return {
+    id: refund.id ? String(refund.id) : "",
+    payment_id: refund.payment_id ? String(refund.payment_id) : String(paymentId),
+    amount: Number(refund.amount || 0),
+    status: refund.status || "",
+  };
 };
 
 const splitPatientName = (value) => {
@@ -172,6 +199,8 @@ export const createMercadoPagoPreference = async ({
   };
   const patientName = splitPatientName(patient.name);
   const unitPrice = Number(service.cost_amount || 0);
+  const expirationDateFrom = new Date();
+  const expirationDateTo = new Date(expirationDateFrom.getTime() + 30 * 60 * 1000);
   const preference = await mercadoPagoRequest("/checkout/preferences", {
     method: "POST",
     accessToken: credentials.access_token,
@@ -199,6 +228,9 @@ export const createMercadoPagoPreference = async ({
         pending: returnUrl("pending"),
       },
       auto_return: "approved",
+      expires: true,
+      expiration_date_from: expirationDateFrom.toISOString(),
+      expiration_date_to: expirationDateTo.toISOString(),
       external_reference: externalReference,
       notification_url: `${config.appPublicUrl}/api/booking/mercado-pago/webhook`,
       metadata: {
@@ -283,7 +315,28 @@ export const updateAppointmentFromMercadoPagoPayment = async (payment) => {
           payment_reference = COALESCE(NULLIF($1, ''), payment_reference),
           payment_external_reference = COALESCE(NULLIF($3, ''), payment_external_reference),
           payment_detail = $4::jsonb,
-          status = $5,
+          status = CASE
+            WHEN status = 'cancelled' THEN 'cancelled'
+            WHEN payment_status = 'expired' AND $2 = 'approved' THEN 'cancelled'
+            ELSE $5
+          END,
+          cancelled_at = CASE
+            WHEN payment_status = 'expired' AND $2 = 'approved'
+              THEN COALESCE(cancelled_at, NOW())
+            ELSE cancelled_at
+          END,
+          cancellation_reason = CASE
+            WHEN payment_status = 'expired' AND $2 = 'approved'
+              THEN COALESCE(cancellation_reason, 'El pago se acreditó después de vencer la reserva.')
+            ELSE cancellation_reason
+          END,
+          refund_status = CASE
+            WHEN (status = 'cancelled' OR payment_status = 'expired')
+              AND $2 = 'approved'
+              AND refund_status <> 'approved'
+              THEN 'pending'
+            ELSE refund_status
+          END,
           updated_at = NOW()
       WHERE id = $6
       RETURNING *
@@ -303,8 +356,62 @@ export const updateAppointmentFromMercadoPagoPayment = async (payment) => {
     error.statusCode = 404;
     throw error;
   }
+  let appointment = result.rows[0];
+  if (
+    appointment.status === "cancelled" &&
+    paymentStatus === "approved" &&
+    appointment.refund_status !== "approved" &&
+    paymentId
+  ) {
+    try {
+      const refund = await createMercadoPagoFullRefund({
+        appointmentId: appointment.id,
+        paymentId,
+      });
+      const refunded = await query(
+        `
+          UPDATE appointments
+          SET refund_status = 'approved',
+              refund_id = $2,
+              refund_amount = $3,
+              refund_error = NULL,
+              payment_status = 'refunded',
+              updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `,
+        [appointment.id, refund.id || null, refund.amount || Number(appointment.amount || 0)],
+      );
+      appointment = refunded.rows[0] || appointment;
+      await recordAudit("appointment.refund.completed_after_payment_update", {
+        detail: {
+          appointment_id: Number(appointment.id),
+          payment_id: paymentId,
+          refund_id: refund.id || "",
+        },
+      });
+    } catch (error) {
+      const failed = await query(
+        `
+          UPDATE appointments
+          SET refund_status = 'failed', refund_error = $2, updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `,
+        [appointment.id, String(error.message || "No se pudo reembolsar.").slice(0, 500)],
+      );
+      appointment = failed.rows[0] || appointment;
+      await recordAudit("appointment.refund.failed_after_payment_update", {
+        detail: {
+          appointment_id: Number(appointment.id),
+          payment_id: paymentId,
+          error: String(error.message || "MERCADO_PAGO_REFUND_FAILED").slice(0, 120),
+        },
+      });
+    }
+  }
 
-  return result.rows[0];
+  return appointment;
 };
 
 const parseSignatureHeader = (value) =>

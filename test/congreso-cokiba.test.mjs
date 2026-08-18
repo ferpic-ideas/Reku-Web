@@ -5,48 +5,129 @@ import {
   normalizeSubmission,
   validateBaseSubmission,
 } from "../src/forms.mjs";
+import { buildContactEmail } from "../src/templates.mjs";
 
 const validParams = () =>
-  new URLSearchParams({
-    "reku-form": "congreso-cokiba",
-    nombre: "María",
-    apellido: "Gómez",
-    profesion: "Lic. en Kinesiología",
-    telefono: "+54 9 11 4444 5555",
-    email: "maria@gmail.com",
-  });
+  new URLSearchParams([
+    ["reku-form", "congreso-cokiba"],
+    ["nombre_apellido", "María Gómez"],
+    ["email", "maria@gmail.com"],
+    ["telefono", "+54 9 11 4444 5555"],
+    ["profesion", "Kinesiólogo / Fisioterapeuta"],
+    ["ambito", "Consultorio / Centro kinésico propio"],
+    ["ambito", "Atención a domicilio"],
+    ["interes_telerehabilitacion", "Sí, me interesa activamente."],
+    [
+      "interes_tecnologia",
+      "Sí, busco implementar nuevas herramientas digitales.",
+    ],
+    ["comentario", "Quisiera conocer los próximos pasos."],
+  ]);
 
-test("congreso COKIBA normalizes its five fields and accepts personal email", () => {
+test("congreso COKIBA normalizes the questionnaire and accepts personal email", () => {
   const submission = normalizeSubmission(validParams());
 
   assert.equal(submission.formName, "congreso-cokiba");
-  assert.equal(submission.subject, "Contacto Reku");
+  assert.equal(submission.subject, "Nuevo registro Congreso COKIBA - Reku");
   assert.deepEqual(validateBaseSubmission(submission), {});
   assert.deepEqual(submission.values, {
-    nombre: "María",
-    apellido: "Gómez",
-    profesion: "Lic. en Kinesiología",
+    nombre_apellido: "María Gómez",
+    profesion: "Kinesiólogo / Fisioterapeuta",
     telefono: "+54 9 11 4444 5555",
     email: "maria@gmail.com",
+    ambitos: [
+      "Consultorio / Centro kinésico propio",
+      "Atención a domicilio",
+    ],
+    interes_telerehabilitacion: "Sí, me interesa activamente.",
+    interes_tecnologia:
+      "Sí, busco implementar nuevas herramientas digitales.",
+    comentario: "Quisiera conocer los próximos pasos.",
   });
 });
 
-test("congreso COKIBA requires profession", () => {
+test("congreso COKIBA only requires contact data and profession", () => {
   const params = validParams();
-  params.set("profesion", "");
-  const errors = validateBaseSubmission(normalizeSubmission(params));
+  params.delete("ambito");
+  params.delete("interes_telerehabilitacion");
+  params.delete("interes_tecnologia");
+  params.delete("comentario");
 
-  assert.equal(errors.profesion, "Ingresá tu profesión.");
+  const submission = normalizeSubmission(params);
+
+  assert.deepEqual(validateBaseSubmission(submission), {});
+  assert.deepEqual(submission.values.ambitos, []);
+  assert.equal(submission.values.comentario, "");
 });
 
-test("congreso COKIBA page posts the expected form fields", async () => {
+test("congreso COKIBA requires both name and surname", () => {
+  const params = validParams();
+  params.set("nombre_apellido", "María");
+
+  const errors = validateBaseSubmission(normalizeSubmission(params));
+
+  assert.equal(errors.nombre_apellido, "Ingresá tu nombre y apellido.");
+});
+
+test("congreso COKIBA requires an allowed profession", () => {
+  const params = validParams();
+  params.set("profesion", "");
+  let errors = validateBaseSubmission(normalizeSubmission(params));
+  assert.equal(errors.profesion, "Seleccioná tu profesión o especialidad.");
+
+  params.set("profesion", "Otra profesión");
+  errors = validateBaseSubmission(normalizeSubmission(params));
+  assert.equal(errors.profesion, "Seleccioná una profesión válida.");
+});
+
+test("congreso COKIBA rejects forged optional selections", () => {
+  const params = validParams();
+  params.append("ambito", "Opción inventada");
+  params.set("interes_telerehabilitacion", "Tal vez");
+  params.set("interes_tecnologia", "Otro");
+
+  const errors = validateBaseSubmission(normalizeSubmission(params));
+
+  assert.equal(errors.ambito, "Seleccioná únicamente ámbitos válidos.");
+  assert.equal(errors.interes_telerehabilitacion, "Seleccioná una opción válida.");
+  assert.equal(errors.interes_tecnologia, "Seleccioná una opción válida.");
+});
+
+test("congreso COKIBA email renders multiple work settings legibly", () => {
+  const email = buildContactEmail(normalizeSubmission(validParams()));
+
+  assert.match(
+    email.text,
+    /Ámbitos de trabajo: Consultorio \/ Centro kinésico propio, Atención a domicilio/,
+  );
+  assert.doesNotMatch(email.text, /\[object Object\]/);
+});
+
+test("congreso COKIBA page exposes the requested fields and closing message", async () => {
   const html = await readFile(
     new URL("../congreso-cokiba/index.html", import.meta.url),
     "utf8",
   );
 
   assert.match(html, /name="reku-form" value="congreso-cokiba"/);
-  for (const field of ["nombre", "apellido", "profesion", "telefono", "email"]) {
+  for (const field of [
+    "nombre_apellido",
+    "email",
+    "telefono",
+    "profesion",
+    "ambito",
+    "interes_telerehabilitacion",
+    "interes_tecnologia",
+    "comentario",
+  ]) {
     assert.match(html, new RegExp(`name="${field}"`));
   }
+
+  assert.match(html, /Sumate a la evolución digital en salud/);
+  assert.match(html, /¡Gracias por registrarte!/);
+  assert.match(html, /Nos pondremos en contacto contigo a la brevedad\./);
+  assert.doesNotMatch(
+    html,
+    /name="(?:ambito|interes_telerehabilitacion|interes_tecnologia|comentario)"[^>]*required/,
+  );
 });
