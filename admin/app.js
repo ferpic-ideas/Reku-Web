@@ -1187,7 +1187,6 @@
         <label>
           Mail
           <input name="email" type="email" value="${escapeHtml(item.email)}" required />
-          <span class="field-help">Este mail también será el usuario para ingresar al portal profesional.</span>
         </label>
         <div class="professional-account-box span-two ${needsAccount && isEditing ? 'warning' : ''}">
           <div>
