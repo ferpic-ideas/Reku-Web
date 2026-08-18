@@ -622,6 +622,129 @@ button {
   font-size: 13px;
 }
 
+.management-header {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.management-shell {
+  max-width: 780px;
+  display: grid;
+  gap: 18px;
+  margin: 0 auto;
+}
+
+.management-access-note {
+  padding: 18px;
+  border: 1px solid #f5d78d;
+  border-radius: 16px;
+  background: #fff9e9;
+  color: #694700;
+}
+
+.management-access-note strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 18px;
+}
+
+.management-access-note p,
+.management-summary p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.management-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.management-status {
+  width: fit-content;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: #e8f8ef;
+  color: #11633a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.management-actions .primary-button,
+.management-actions .secondary-button,
+.danger-outline-button {
+  flex: 1 1 190px;
+}
+
+.secondary-button:hover,
+.secondary-button:focus-visible {
+  background: #e9f8fb;
+}
+
+.danger-outline-button {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  border: 1px solid #f3aaa4;
+  border-radius: 14px;
+  background: #fff1ef;
+  color: var(--danger);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.danger-outline-button:not(:disabled):hover,
+.danger-outline-button:not(:disabled):focus-visible {
+  background: #ffe1dd;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.danger-outline-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.management-reminder-note {
+  margin-top: 8px !important;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.management-reschedule {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid #ded8ff;
+  border-radius: 18px;
+  background: #f7f5ff;
+}
+
+.management-month {
+  color: var(--navy);
+  text-transform: capitalize;
+}
+
+.management-reschedule .time-button,
+.management-reschedule .date-button.available {
+  border: 1px solid var(--border);
+}
+
+.management-reschedule .time-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 @media (min-width: 740px) {
   .booking-shell {
     padding: 42px 32px 56px;

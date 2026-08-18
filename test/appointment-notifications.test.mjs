@@ -5,6 +5,8 @@ import {
   patientConfirmationText,
   patientFollowupHtml,
   patientFollowupText,
+  patientPendingPaymentHtml,
+  patientPendingPaymentText,
   patientTriageReminderHtml,
   patientTriageReminderText,
 } from "../src/appointment-notifications.mjs";
@@ -18,6 +20,62 @@ const appointment = {
   patient_name: "Paciente Reku",
   google_meet_url: "",
 };
+
+const manageUrl = "https://www.reku.io/agenda/#manage=private-token";
+
+test("confirmation email is the patient's no-account management access", () => {
+  const withTriage = {
+    ...appointment,
+    payment_status: "approved",
+    triage_url: "https://patient-dev2.rehub.cloud/opentriage/example",
+  };
+
+  for (const content of [
+    patientConfirmationText({ appointment: withTriage, manageUrl }),
+    patientConfirmationHtml({ appointment: withTriage, manageUrl }),
+  ]) {
+    assert.match(content, /Guardá este mail/i);
+    assert.match(content, /no necesitás.*usuario/i);
+    assert.match(content, /manage=private-token/);
+    assert.match(content, /gestionar o mover/i);
+    assert.match(content, /aproximadamente 24 horas/i);
+    assert.match(content, /opentriage\/example/);
+  }
+});
+
+test("pending payment email allows payment or cancellation without an account", () => {
+  const pending = {
+    ...appointment,
+    payment_init_point: "https://mercadopago.com.ar/checkout/example",
+  };
+
+  for (const content of [
+    patientPendingPaymentText({ appointment: pending, manageUrl }),
+    patientPendingPaymentHtml({ appointment: pending, manageUrl }),
+  ]) {
+    assert.match(content, /Guardá este mail/i);
+    assert.match(content, /no necesitás.*usuario/i);
+    assert.match(content, /completar.*pago/i);
+    assert.match(content, /cancelar.*reserva/i);
+    assert.match(content, /manage=private-token/);
+  }
+});
+
+test("24-hour reminder keeps management and triage access", () => {
+  const withTriage = {
+    ...appointment,
+    triage_url: "https://patient-dev2.rehub.cloud/opentriage/reminder",
+  };
+
+  for (const content of [
+    patientFollowupText({ appointment: withTriage, manageUrl }),
+    patientFollowupHtml({ appointment: withTriage, manageUrl }),
+  ]) {
+    assert.match(content, /aproximadamente 24 horas/i);
+    assert.match(content, /manage=private-token/);
+    assert.match(content, /opentriage\/reminder/);
+  }
+});
 
 test("patient emails include the triage URL when it was assigned", () => {
   const withTriage = {

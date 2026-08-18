@@ -4,12 +4,14 @@
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
   const initialToken = urlParams.get('token') || hashParams.get('token') || '';
   const verificationToken = hashParams.get('verify') || '';
+  const managementToken = hashParams.get('manage') || '';
+  const managementMode = Boolean(managementToken || urlParams.get('manage') === '1');
   const formSlug = urlParams.get('form') || '';
   const returnAppointmentId = urlParams.get('appointment_id') || '';
   const returnPaymentId = urlParams.get('payment_id') || urlParams.get('collection_id') || '';
   const returnResult = urlParams.get('mp_return') || '';
   const state = {
-    step: verificationToken ? 7 : initialToken ? 2 : 1,
+    step: managementMode ? 8 : verificationToken ? 7 : initialToken ? 2 : 1,
     loading: true,
     error: '',
     formSlug,
@@ -44,6 +46,18 @@
     documentsUploading: false,
     documentsMessage: '',
     documentsError: '',
+    management: {
+      appointment: null,
+      rescheduling: false,
+      availableDays: [],
+      slots: [],
+      selectedDate: '',
+      selectedSlot: '',
+      month: new Date(),
+      submitting: false,
+      message: '',
+      error: '',
+    },
   };
 
   const escapeHtml = (value) =>
@@ -57,6 +71,14 @@
   const removeSensitiveUrlTokens = () => {
     const clean = new URL(window.location.href);
     clean.searchParams.delete('token');
+    clean.hash = '';
+    window.history.replaceState({}, '', `${clean.pathname}${clean.search}`);
+  };
+
+  const removeManagementToken = () => {
+    const clean = new URL(window.location.href);
+    clean.search = '';
+    clean.searchParams.set('manage', '1');
     clean.hash = '';
     window.history.replaceState({}, '', `${clean.pathname}${clean.search}`);
   };
@@ -128,6 +150,39 @@
     }
   }
 
+  async function loadManagedAppointment() {
+    const payload = await api('/api/booking/manage/appointment');
+    state.management.appointment = payload.appointment;
+    const date = payload.appointment?.date;
+    if (date) state.management.month = new Date(`${date}T12:00:00`);
+    state.step = 8;
+  }
+
+  async function loadManagement() {
+    try {
+      if (managementToken) {
+        const payload = await api('/api/booking/manage/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: managementToken }),
+        });
+        state.management.appointment = payload.appointment;
+        if (payload.appointment?.date) {
+          state.management.month = new Date(`${payload.appointment.date}T12:00:00`);
+        }
+        removeManagementToken();
+      } else {
+        await loadManagedAppointment();
+      }
+      state.step = 8;
+    } catch (error) {
+      state.error = error.message;
+    } finally {
+      state.loading = false;
+      render();
+    }
+  }
+
   async function loadPaymentReturn() {
     if (!returnAppointmentId) return false;
     try {
@@ -171,6 +226,10 @@
   }
 
   async function loadInitial() {
+    if (managementMode) {
+      await loadManagement();
+      return;
+    }
     if (verificationToken) {
       await verifyIntake();
       return;
@@ -466,7 +525,131 @@
     }
   }
 
+  async function loadManagementDays() {
+    const management = state.management;
+    management.error = '';
+    try {
+      const payload = await api(
+        `/api/booking/manage/days?month=${monthKey(management.month)}`,
+      );
+      management.availableDays = payload.days || [];
+    } catch (error) {
+      management.error = error.message;
+    } finally {
+      render();
+    }
+  }
+
+  async function openManagementReschedule() {
+    const management = state.management;
+    management.rescheduling = true;
+    management.selectedDate = '';
+    management.selectedSlot = '';
+    management.slots = [];
+    management.message = '';
+    management.error = '';
+    render();
+    await loadManagementDays();
+  }
+
+  async function changeManagementMonth(offset) {
+    const management = state.management;
+    management.month = new Date(
+      management.month.getFullYear(),
+      management.month.getMonth() + offset,
+      1,
+    );
+    management.selectedDate = '';
+    management.selectedSlot = '';
+    management.slots = [];
+    await loadManagementDays();
+  }
+
+  async function selectManagementDate(date) {
+    const management = state.management;
+    management.selectedDate = date;
+    management.selectedSlot = '';
+    management.error = '';
+    render();
+    try {
+      const payload = await api(
+        `/api/booking/manage/slots?date=${encodeURIComponent(date)}`,
+      );
+      management.slots = payload.slots || [];
+    } catch (error) {
+      management.error = error.message;
+    } finally {
+      render();
+    }
+  }
+
+  async function rescheduleManagedAppointment() {
+    const management = state.management;
+    if (!management.selectedDate || !management.selectedSlot || management.submitting) return;
+    management.submitting = true;
+    management.error = '';
+    management.message = '';
+    render();
+    try {
+      const payload = await api('/api/booking/manage/reschedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: management.selectedDate,
+          start_time: management.selectedSlot,
+        }),
+      });
+      management.appointment = payload.appointment;
+      management.message = payload.message || 'El turno fue reprogramado.';
+      management.rescheduling = false;
+      management.availableDays = [];
+      management.slots = [];
+      management.selectedDate = '';
+      management.selectedSlot = '';
+    } catch (error) {
+      management.error = error.message;
+    } finally {
+      management.submitting = false;
+      render();
+    }
+  }
+
+  async function cancelManagedAppointment() {
+    const management = state.management;
+    if (management.submitting) return;
+    if (!window.confirm('¿Querés cancelar esta reserva pendiente de pago?')) return;
+    management.submitting = true;
+    management.error = '';
+    management.message = '';
+    render();
+    try {
+      const payload = await api('/api/booking/manage/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      management.appointment = payload.appointment;
+      management.message = payload.message || 'La reserva fue cancelada.';
+      management.rescheduling = false;
+    } catch (error) {
+      management.error = error.message;
+    } finally {
+      management.submitting = false;
+      render();
+    }
+  }
+
   function renderHeader() {
+    if (state.step === 8) {
+      return `
+        <header class="booking-header management-header">
+          <div class="booking-title">
+            <img src="/images/logo-reku.svg" alt="Reku" />
+            <h1>Gestioná tu turno</h1>
+          </div>
+        </header>
+      `;
+    }
     const progress =
       state.step === 7
         ? { activeStep: 0, completedThrough: 1 }
@@ -857,6 +1040,110 @@
     `;
   }
 
+  function managementCalendarCells() {
+    const management = state.management;
+    const year = management.month.getFullYear();
+    const month = management.month.getMonth();
+    const first = new Date(year, month, 1);
+    const startOffset = first.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const available = new Set(management.availableDays.map((item) => item.date));
+    const cells = Array.from({ length: startOffset }, () => '<span></span>');
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = `${monthKey(management.month)}-${String(day).padStart(2, '0')}`;
+      const isAvailable = available.has(date);
+      cells.push(`
+        <button
+          type="button"
+          class="date-button${isAvailable ? ' available' : ''}${management.selectedDate === date ? ' active' : ''}"
+          data-action="select-management-date"
+          data-date="${date}"
+          ${isAvailable ? '' : 'disabled'}
+        >${day}</button>
+      `);
+    }
+    return cells.join('');
+  }
+
+  const managedAppointmentStatus = (appointment) => {
+    if (appointment.status === 'cancelled') return 'Reserva cancelada';
+    if (appointment.status === 'pending_payment') return 'Pago pendiente';
+    if (appointment.status === 'payment_failed') return 'Reserva vencida';
+    return 'Turno confirmado';
+  };
+
+  function renderManagementReschedule(appointment) {
+    const management = state.management;
+    return `
+      <div class="management-reschedule">
+        <div class="calendar-head">
+          <div>
+            <span class="optional-label">Reprogramación</span>
+            <h3>Elegí un nuevo día y horario</h3>
+          </div>
+          <div class="calendar-nav">
+            <button type="button" class="icon-btn" data-action="previous-management-month" aria-label="Mes anterior">‹</button>
+            <button type="button" class="icon-btn" data-action="next-management-month" aria-label="Mes siguiente">›</button>
+          </div>
+        </div>
+        <strong class="management-month">${escapeHtml(monthTitle(management.month))}</strong>
+        <div class="weekday-grid">
+          <span>Dom</span><span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span>
+        </div>
+        <div class="calendar-grid">${managementCalendarCells()}</div>
+        ${
+          management.selectedDate
+            ? `<strong class="time-section-title">Horarios disponibles</strong>
+               <div class="time-grid">${management.slots
+                 .map((slot) => {
+                   const isCurrent =
+                     management.selectedDate === appointment.date &&
+                     slot === appointment.start_time;
+                   return `<button type="button" class="time-button${management.selectedSlot === slot ? ' active' : ''}" data-action="select-management-slot" data-slot="${slot}" ${isCurrent ? 'disabled' : ''}>${escapeHtml(slot)}${isCurrent ? ' · actual' : ''}</button>`;
+                 })
+                 .join('') || '<div class="empty-card">No quedan horarios para este día.</div>'}</div>`
+            : ''
+        }
+        <div class="actions">
+          <button type="button" class="back-button" data-action="close-management-reschedule">Cancelar cambio</button>
+          <button type="button" class="primary-button" data-action="confirm-management-reschedule" ${management.selectedSlot && !management.submitting ? '' : 'disabled'}>${management.submitting ? 'Reprogramando…' : 'Confirmar nuevo horario'}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAppointmentManagement() {
+    const management = state.management;
+    const appointment = management.appointment;
+    if (!appointment) return '<div class="empty-card">No pudimos cargar el turno.</div>';
+    const capabilities = appointment.capabilities || {};
+    return `
+      <section class="management-shell">
+        <div class="management-access-note">
+          <strong>Guardá el mail que recibiste</strong>
+          <p>No necesitás usuario ni contraseña. El enlace de ese mail es tu acceso privado para volver a esta pantalla y gestionar el turno. No lo reenvíes.</p>
+        </div>
+        ${management.message ? `<div class="document-status ok">${escapeHtml(management.message)}</div>` : ''}
+        ${management.error ? `<div class="document-status error">${escapeHtml(management.error)}</div>` : ''}
+        <div class="payment-card management-summary">
+          <div class="management-status">${escapeHtml(managedAppointmentStatus(appointment))}</div>
+          <h2 class="section-title">${escapeHtml(appointment.service.name)}</h2>
+          <p><strong>Fecha:</strong> ${escapeHtml(appointment.date)}</p>
+          <p><strong>Hora:</strong> ${escapeHtml(appointment.start_time)} a ${escapeHtml(appointment.end_time)}</p>
+          <p><strong>Profesional:</strong> ${escapeHtml(appointment.professional.name)}</p>
+          <div class="management-actions">
+            ${appointment.payment_url && appointment.status === 'pending_payment' ? `<a class="primary-button" href="${escapeHtml(appointment.payment_url)}">Completar pago</a>` : ''}
+            ${capabilities.can_reschedule ? '<button type="button" class="secondary-button" data-action="open-management-reschedule">Mover turno</button>' : ''}
+            ${capabilities.can_cancel ? `<button type="button" class="danger-outline-button" data-action="cancel-management-appointment" ${management.submitting ? 'disabled' : ''}>Cancelar reserva</button>` : ''}
+            ${appointment.triage_url ? `<a class="primary-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Completar cuestionario previo</a>` : ''}
+          </div>
+          ${appointment.status === 'confirmed' ? '<p class="management-reminder-note">También te enviaremos un recordatorio aproximadamente 24 horas antes.</p>' : ''}
+        </div>
+        ${management.rescheduling ? renderManagementReschedule(appointment) : ''}
+      </section>
+    `;
+  }
+
   function renderVerificationPending() {
     return `
       <section>
@@ -896,6 +1183,7 @@
       5: renderPayment,
       6: renderSuccess,
       7: renderVerificationPending,
+      8: renderAppointmentManagement,
     }[state.step]();
     app.innerHTML = `${renderHeader()}${content}`;
     bindEvents();
@@ -957,6 +1245,37 @@
         }
         if (action === 'next-month') {
           await changeMonth(1);
+        }
+        if (action === 'open-management-reschedule') {
+          await openManagementReschedule();
+        }
+        if (action === 'close-management-reschedule') {
+          state.management.rescheduling = false;
+          state.management.selectedDate = '';
+          state.management.selectedSlot = '';
+          state.management.slots = [];
+          state.management.error = '';
+          render();
+        }
+        if (action === 'previous-management-month') {
+          await changeManagementMonth(-1);
+        }
+        if (action === 'next-management-month') {
+          await changeManagementMonth(1);
+        }
+        if (action === 'select-management-date') {
+          await selectManagementDate(element.dataset.date);
+        }
+        if (action === 'select-management-slot') {
+          state.management.selectedSlot = element.dataset.slot;
+          state.management.error = '';
+          render();
+        }
+        if (action === 'confirm-management-reschedule') {
+          await rescheduleManagedAppointment();
+        }
+        if (action === 'cancel-management-appointment') {
+          await cancelManagedAppointment();
         }
       });
     });

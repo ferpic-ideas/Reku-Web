@@ -654,7 +654,10 @@ export const holdAppointmentOnGoogleCalendar = async (appointmentId) => {
   return { skipped: false, event_id: eventId };
 };
 
-export const syncAppointmentToGoogleCalendar = async (appointmentId) => {
+export const syncAppointmentToGoogleCalendar = async (
+  appointmentId,
+  { force = false } = {},
+) => {
   if (!googleIntegrationConfigured()) return { skipped: true, reason: "not_configured" };
   const appointment = await one(
     `
@@ -674,6 +677,7 @@ export const syncAppointmentToGoogleCalendar = async (appointmentId) => {
     return { skipped: true, reason: "not_confirmed" };
   }
   if (
+    !force &&
     appointment.google_sync_status === "synced" &&
     appointment.google_calendar_event_id &&
     appointment.google_meet_url

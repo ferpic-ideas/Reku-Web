@@ -35,6 +35,15 @@ export const config = {
   bootstrapAdminPassword: process.env.BOOTSTRAP_ADMIN_PASSWORD || "",
   bookingAccessCookieName:
     process.env.BOOKING_ACCESS_COOKIE_NAME || "reku_booking_access",
+  patientAppointmentSessionCookieName:
+    process.env.PATIENT_APPOINTMENT_SESSION_COOKIE_NAME ||
+    "reku_patient_appointment_session",
+  patientAppointmentLinkTtlDays: Number(
+    process.env.PATIENT_APPOINTMENT_LINK_TTL_DAYS || 365,
+  ),
+  patientAppointmentSessionTtlSeconds: Number(
+    process.env.PATIENT_APPOINTMENT_SESSION_TTL_SECONDS || 43_200,
+  ),
   professionalLinkTtlHours: Number(process.env.PROFESSIONAL_LINK_TTL_HOURS || 24),
   professionalSessionTtlSeconds: Number(
     process.env.PROFESSIONAL_SESSION_TTL_SECONDS || 43_200,
@@ -108,6 +117,8 @@ export const assertSafeStartup = () => {
   }
   if (
     config.professionalLinkTtlHours < 1 ||
+    config.patientAppointmentLinkTtlDays < 1 ||
+    config.patientAppointmentSessionTtlSeconds < 300 ||
     config.professionalInvitationTtlHours < 1 ||
     config.professionalSessionTtlSeconds < 300 ||
     config.mercadoPagoWebhookMaxAgeSeconds < 30

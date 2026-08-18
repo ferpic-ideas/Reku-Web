@@ -17,6 +17,7 @@ import { handleFormSubmission } from "./src/forms.mjs";
 import { handleHealth } from "./src/health.mjs";
 import { cleanupExpiredGoogleCalendarHolds } from "./src/google-calendar.mjs";
 import {
+  retryPendingPaymentNotifications,
   retryPendingGoogleAppointmentNotifications,
   sendUpcomingAppointmentFollowups,
 } from "./src/appointment-notifications.mjs";
@@ -36,6 +37,7 @@ await initDb();
 const runCalendarMaintenance = () =>
   Promise.all([
     cleanupExpiredGoogleCalendarHolds(),
+    retryPendingPaymentNotifications(),
     retryPendingGoogleAppointmentNotifications(),
     sendUpcomingAppointmentFollowups(),
   ]).catch((error) => {

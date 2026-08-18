@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { bookingAccessCookie } from "../src/booking-links.mjs";
 import { professionalSessionCookie } from "../src/professional-links.mjs";
+import { patientAppointmentSessionCookie } from "../src/patient-appointment-links.mjs";
 
 test("booking access is stored in a scoped HttpOnly cookie", () => {
   const cookie = bookingAccessCookie(
@@ -20,4 +21,15 @@ test("professional access uses a separate scoped HttpOnly cookie", () => {
   assert.match(cookie, /Path=\/api\/professional/);
   assert.match(cookie, /HttpOnly/);
   assert.match(cookie, /SameSite=Lax/);
+});
+
+test("patient appointment management uses a strict, scoped HttpOnly cookie", () => {
+  const cookie = patientAppointmentSessionCookie("patient-appointment-token");
+  assert.match(
+    cookie,
+    /^reku_patient_appointment_session=patient-appointment-token;/,
+  );
+  assert.match(cookie, /Path=\/api\/booking\/manage/);
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /SameSite=Strict/);
 });

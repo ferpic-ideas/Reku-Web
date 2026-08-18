@@ -11,6 +11,7 @@ import {
 } from "./mercado-pago.mjs";
 import {
   notifyConfirmedAppointment,
+  notifyPatientForPendingPayment,
   notifyPatientForCancellation,
 } from "./appointment-notifications.mjs";
 import {
@@ -39,10 +40,22 @@ import {
   removeClinicalDocuments,
   saveClinicalDocument,
 } from "./appointment-documents.mjs";
+import {
+  enforcePatientAppointmentOrigin,
+  exchangePatientAppointmentAccessLink,
+  patientAppointmentSessionCookie,
+  requirePatientAppointmentSession,
+} from "./patient-appointment-links.mjs";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
 const firstAvailableProfessionalId = "first_available";
+const settledPaymentStatuses = new Set([
+  "approved",
+  "paid_simulated",
+  "nomina",
+  "free",
+]);
 const isGoogleAvailabilityError = (error) =>
   ["GOOGLE_REAUTH_REQUIRED", "GOOGLE_API_ERROR"].includes(error?.message);
 
@@ -417,6 +430,7 @@ const computeSlots = async ({
   externalBusyRanges,
   preloadedService = null,
   selectionValidated = false,
+  excludeAppointmentId = null,
 }) => {
   const parsedDate = new Date(`${date}T00:00:00Z`);
   if (
@@ -472,12 +486,13 @@ const computeSlots = async ({
         FROM appointments
         WHERE professional_id = $1
           AND appointment_date = $2::date
+          AND ($3::bigint IS NULL OR id <> $3)
           AND (
             status = 'confirmed'
             OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '40 minutes')
           )
       `,
-      [professionalId, date],
+      [professionalId, date, excludeAppointmentId],
     ),
     externalBusyRanges
       ? Promise.resolve({ [date]: externalBusyRanges })
@@ -910,6 +925,7 @@ const createAppointment = async (payload, response, url, link) => {
         appointment.id,
       ],
     );
+    await notifyPatientForPendingPayment(appointment.id);
 
     await recordAudit("appointment.payment_preference_created", {
       detail: {
@@ -1000,6 +1016,352 @@ const appointmentSelectionFromRow = (row, link) => ({
   date: row.appointment_date,
   start_time: String(row.start_time || "").slice(0, 5),
 });
+
+export const patientAppointmentCapabilities = (appointment) => {
+  const settled = settledPaymentStatuses.has(String(appointment.payment_status || ""));
+  const future = Boolean(appointment.is_future);
+  return {
+    can_reschedule:
+      appointment.status === "confirmed" &&
+      settled &&
+      future &&
+      appointment.professional_available !== false,
+    can_cancel:
+      appointment.status === "pending_payment" && !settled && future,
+  };
+};
+
+const mapManagedAppointment = (row) => ({
+  id: Number(row.id),
+  patient_name: row.patient_name || "",
+  date: row.appointment_date,
+  start_time: String(row.start_time || "").slice(0, 5),
+  end_time: String(row.end_time || "").slice(0, 5),
+  status: row.status || "",
+  payment_status: row.payment_status || "",
+  payment_url: row.payment_init_point || "",
+  triage_url: row.triage_url || "",
+  service: {
+    id: Number(row.service_id),
+    name: row.service_name || "",
+    duration_minutes: Number(row.duration_minutes || 0),
+  },
+  professional: {
+    id: Number(row.professional_id),
+    name: row.professional_name || "",
+  },
+  reschedule_count: Number(row.reschedule_count || 0),
+  capabilities: patientAppointmentCapabilities(row),
+});
+
+const loadManagedAppointment = async (appointmentId) =>
+  one(
+    `
+      SELECT
+        appointment.id,
+        appointment.patient_name,
+        appointment.service_id,
+        appointment.professional_id,
+        to_char(appointment.appointment_date, 'YYYY-MM-DD') AS appointment_date,
+        to_char(appointment.start_time, 'HH24:MI') AS start_time,
+        to_char(appointment.end_time, 'HH24:MI') AS end_time,
+        appointment.status,
+        appointment.payment_status,
+        appointment.payment_init_point,
+        appointment.triage_url,
+        appointment.reschedule_count,
+        service.name AS service_name,
+        service.duration_minutes,
+        professional.name AS professional_name,
+        (professional.active = TRUE AND professional.deleted_at IS NULL) AS professional_available,
+        ((appointment.appointment_date + appointment.start_time) AT TIME ZONE $2) > NOW() AS is_future
+      FROM appointments appointment
+      INNER JOIN services service ON service.id = appointment.service_id
+      INNER JOIN professionals professional ON professional.id = appointment.professional_id
+      WHERE appointment.id = $1
+    `,
+    [appointmentId, config.googleCalendarTimeZone],
+  );
+
+const requireManagedAppointment = async (request) => {
+  const session = await requirePatientAppointmentSession(request);
+  const appointment = await loadManagedAppointment(session.appointment_id);
+  if (!appointment) {
+    const error = new Error("PATIENT_APPOINTMENT_NOT_FOUND");
+    error.statusCode = 404;
+    throw error;
+  }
+  return { session, appointment };
+};
+
+const exchangePatientManagementSession = async (request, response) => {
+  enforcePatientAppointmentOrigin(request);
+  const payload = await parseJsonBody(request);
+  const exchanged = await exchangePatientAppointmentAccessLink(
+    String(payload.token || "").trim(),
+  );
+  const appointment = await loadManagedAppointment(exchanged.appointment_id);
+  sendJson(
+    response,
+    200,
+    { ok: true, appointment: mapManagedAppointment(appointment) },
+    { "Set-Cookie": patientAppointmentSessionCookie(exchanged.token) },
+  );
+};
+
+const getPatientManagedAppointment = async (request, response) => {
+  const { appointment } = await requireManagedAppointment(request);
+  sendJson(response, 200, { appointment: mapManagedAppointment(appointment) });
+};
+
+const requireReschedulableAppointment = (appointment) => {
+  if (!patientAppointmentCapabilities(appointment).can_reschedule) {
+    const error = new Error("PATIENT_APPOINTMENT_RESCHEDULE_NOT_ALLOWED");
+    error.statusCode = 409;
+    throw error;
+  }
+};
+
+const listPatientManagementDays = async (request, url, response) => {
+  const { appointment } = await requireManagedAppointment(request);
+  requireReschedulableAppointment(appointment);
+  const month = String(url.searchParams.get("month") || "");
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    sendJson(response, 422, { error: "Ingresá un mes válido." });
+    return;
+  }
+  const [year, monthNumber] = month.split("-").map(Number);
+  const daysInMonth = new Date(year, monthNumber, 0).getDate();
+  const startDate = `${month}-01`;
+  const endDateExclusive =
+    monthNumber === 12
+      ? `${year + 1}-01-01`
+      : `${year}-${String(monthNumber + 1).padStart(2, "0")}-01`;
+  const [service, googleBusyByDate] = await Promise.all([
+    loadService(Number(appointment.service_id)),
+    getGoogleBusyRanges({
+      professionalId: Number(appointment.professional_id),
+      startDate,
+      endDateExclusive,
+    }),
+  ]);
+  const days = [];
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = `${month}-${String(day).padStart(2, "0")}`;
+    const { slots } = await computeSlots({
+      serviceId: Number(appointment.service_id),
+      professionalId: Number(appointment.professional_id),
+      date,
+      externalBusyRanges: googleBusyByDate[date] || [],
+      preloadedService: service,
+      selectionValidated: true,
+      excludeAppointmentId: Number(appointment.id),
+    });
+    if (slots.length) days.push({ date, slots_count: slots.length });
+  }
+  sendJson(response, 200, { days });
+};
+
+const listPatientManagementSlots = async (request, url, response) => {
+  const { appointment } = await requireManagedAppointment(request);
+  requireReschedulableAppointment(appointment);
+  const date = String(url.searchParams.get("date") || "");
+  const { slots } = await computeSlots({
+    serviceId: Number(appointment.service_id),
+    professionalId: Number(appointment.professional_id),
+    date,
+    excludeAppointmentId: Number(appointment.id),
+  });
+  sendJson(response, 200, { slots });
+};
+
+const reschedulePatientAppointment = async (request, response) => {
+  enforcePatientAppointmentOrigin(request);
+  const payload = await parseJsonBody(request);
+  const { appointment } = await requireManagedAppointment(request);
+  requireReschedulableAppointment(appointment);
+  const date = String(payload.date || "");
+  const startTime = String(payload.start_time || "");
+  const [startHours, startMinutes] = startTime.split(":").map(Number);
+  if (
+    !timePattern.test(startTime) ||
+    startHours < 0 ||
+    startHours > 23 ||
+    startMinutes < 0 ||
+    startMinutes > 59
+  ) {
+    sendJson(response, 422, { error: "Seleccioná un horario válido." });
+    return;
+  }
+  if (date === appointment.appointment_date && startTime === appointment.start_time) {
+    sendJson(response, 422, { error: "Elegí un día u horario diferente al actual." });
+    return;
+  }
+  const { service, slots } = await computeSlots({
+    serviceId: Number(appointment.service_id),
+    professionalId: Number(appointment.professional_id),
+    date,
+    excludeAppointmentId: Number(appointment.id),
+  });
+  if (!slots.includes(startTime)) {
+    sendJson(response, 409, { error: "Ese horario ya no está disponible." });
+    return;
+  }
+  const endTime = addMinutes(startTime, Number(service.duration_minutes));
+  await tx(async (client) => {
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
+      [appointment.professional_id, date],
+    );
+    const currentResult = await client.query(
+      `
+        SELECT
+          id,
+          status,
+          payment_status,
+          ((appointment_date + start_time) AT TIME ZONE $2) > NOW() AS is_future
+        FROM appointments
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [appointment.id, config.googleCalendarTimeZone],
+    );
+    const current = currentResult.rows[0];
+    if (!current || !patientAppointmentCapabilities({ ...current, professional_available: true }).can_reschedule) {
+      const error = new Error("PATIENT_APPOINTMENT_RESCHEDULE_NOT_ALLOWED");
+      error.statusCode = 409;
+      throw error;
+    }
+    const conflict = await client.query(
+      `
+        SELECT id
+        FROM appointments
+        WHERE professional_id = $1
+          AND appointment_date = $2::date
+          AND id <> $3
+          AND (
+            status = 'confirmed'
+            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '40 minutes')
+          )
+          AND start_time < $5::time
+          AND end_time > $4::time
+        FOR UPDATE
+      `,
+      [appointment.professional_id, date, appointment.id, startTime, endTime],
+    );
+    if (conflict.rows.length) {
+      const error = new Error("BOOKING_SLOT_TAKEN");
+      error.statusCode = 409;
+      throw error;
+    }
+    await client.query(
+      `
+        UPDATE appointments
+        SET appointment_date = $2::date,
+            start_time = $3::time,
+            end_time = $4::time,
+            rescheduled_at = NOW(),
+            reschedule_count = reschedule_count + 1,
+            patient_notified_at = NULL,
+            patient_notification_message_id = NULL,
+            patient_notification_error = NULL,
+            professional_notified_at = NULL,
+            professional_notification_message_id = NULL,
+            professional_notification_error = NULL,
+            patient_followup_notified_at = NULL,
+            patient_followup_notification_message_id = NULL,
+            patient_followup_notification_error = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [appointment.id, date, startTime, endTime],
+    );
+  });
+  const notification = await notifyConfirmedAppointment(appointment.id, {
+    forceGoogleSync: true,
+  });
+  await recordAudit("appointment.patient_rescheduled", {
+    detail: {
+      appointment_id: Number(appointment.id),
+      previous_date: appointment.appointment_date,
+      previous_start_time: appointment.start_time,
+      date,
+      start_time: startTime,
+      notification_pending: notification.patient?.skipped === true,
+    },
+  });
+  const refreshed = await loadManagedAppointment(appointment.id);
+  const patientEmailSent =
+    notification.patient?.ok === true && notification.patient?.skipped !== true;
+  sendJson(response, 200, {
+    ok: true,
+    message: patientEmailSent
+      ? "El turno fue reprogramado. Te enviamos la actualización por mail."
+      : "El turno fue reprogramado. La actualización por mail quedó pendiente de envío.",
+    appointment: mapManagedAppointment(refreshed),
+  });
+};
+
+const cancelPatientUnpaidAppointment = async (request, response) => {
+  enforcePatientAppointmentOrigin(request);
+  const { appointment } = await requireManagedAppointment(request);
+  if (!patientAppointmentCapabilities(appointment).can_cancel) {
+    const error = new Error("PATIENT_APPOINTMENT_CANCEL_NOT_ALLOWED");
+    error.statusCode = 409;
+    throw error;
+  }
+  await tx(async (client) => {
+    const result = await client.query(
+      `
+        SELECT
+          id,
+          status,
+          payment_status,
+          ((appointment_date + start_time) AT TIME ZONE $2) > NOW() AS is_future
+        FROM appointments
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [appointment.id, config.googleCalendarTimeZone],
+    );
+    const current = result.rows[0];
+    if (!current || !patientAppointmentCapabilities(current).can_cancel) {
+      const error = new Error("PATIENT_APPOINTMENT_CANCEL_NOT_ALLOWED");
+      error.statusCode = 409;
+      throw error;
+    }
+    await client.query(
+      `
+        UPDATE appointments
+        SET status = 'cancelled',
+            cancelled_at = NOW(),
+            cancellation_reason = 'Cancelado por el paciente desde el mail de gestión.',
+            refund_status = 'not_required',
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [appointment.id],
+    );
+  });
+  const [googleCalendar, notification] = await Promise.all([
+    cancelGoogleCalendarAppointment(appointment.id),
+    notifyPatientForCancellation(appointment.id),
+  ]);
+  await recordAudit("appointment.patient_cancelled_unpaid", {
+    detail: {
+      appointment_id: Number(appointment.id),
+      google_calendar_cancelled:
+        googleCalendar.reason === "not_synced" || Boolean(googleCalendar.ok),
+      patient_notified: Boolean(notification.ok),
+    },
+  });
+  const refreshed = await loadManagedAppointment(appointment.id);
+  sendJson(response, 200, {
+    ok: true,
+    message: "La reserva pendiente de pago fue cancelada.",
+    appointment: mapManagedAppointment(refreshed),
+  });
+};
 
 const assignAppointmentTriage = async (payload, response, link) => {
   const appointmentId = Number(payload.appointment_id);
@@ -1302,6 +1664,31 @@ export const handleBookingApi = async (request, response, url) => {
       return true;
     }
 
+    if (pathname === "/api/booking/manage/session" && request.method === "POST") {
+      await exchangePatientManagementSession(request, response);
+      return true;
+    }
+    if (pathname === "/api/booking/manage/appointment" && request.method === "GET") {
+      await getPatientManagedAppointment(request, response);
+      return true;
+    }
+    if (pathname === "/api/booking/manage/days" && request.method === "GET") {
+      await listPatientManagementDays(request, url, response);
+      return true;
+    }
+    if (pathname === "/api/booking/manage/slots" && request.method === "GET") {
+      await listPatientManagementSlots(request, url, response);
+      return true;
+    }
+    if (pathname === "/api/booking/manage/reschedule" && request.method === "POST") {
+      await reschedulePatientAppointment(request, response);
+      return true;
+    }
+    if (pathname === "/api/booking/manage/cancel" && request.method === "POST") {
+      await cancelPatientUnpaidAppointment(request, response);
+      return true;
+    }
+
     const appointmentDocumentsMatch = pathname.match(
       /^\/api\/booking\/appointments\/(\d+)\/documents$/,
     );
@@ -1392,6 +1779,35 @@ export const handleBookingApi = async (request, response, url) => {
     }
     if (error.message === "BOOKING_SLOT_TAKEN") {
       sendJson(response, 409, { error: "Ese horario ya no está disponible." });
+      return true;
+    }
+    if (
+      error.message === "PATIENT_APPOINTMENT_LINK_INVALID" ||
+      error.message === "PATIENT_APPOINTMENT_SESSION_INVALID"
+    ) {
+      sendJson(response, 401, {
+        error: "El acceso privado al turno venció o no es válido. Abrí nuevamente el enlace del mail.",
+      });
+      return true;
+    }
+    if (error.message === "PATIENT_APPOINTMENT_ORIGIN_INVALID") {
+      sendJson(response, 403, { error: "No pudimos validar el origen de la solicitud." });
+      return true;
+    }
+    if (error.message === "PATIENT_APPOINTMENT_NOT_FOUND") {
+      sendJson(response, 404, { error: "Turno no encontrado." });
+      return true;
+    }
+    if (error.message === "PATIENT_APPOINTMENT_RESCHEDULE_NOT_ALLOWED") {
+      sendJson(response, 409, {
+        error: "Este turno no se puede reprogramar desde el mail.",
+      });
+      return true;
+    }
+    if (error.message === "PATIENT_APPOINTMENT_CANCEL_NOT_ALLOWED") {
+      sendJson(response, 409, {
+        error: "Solo podés cancelar desde el mail mientras el pago siga pendiente.",
+      });
       return true;
     }
     if (error.message === "PAYLOAD_TOO_LARGE") {
