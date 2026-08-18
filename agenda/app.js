@@ -37,6 +37,9 @@
     paymentNotice: '',
     retryPaymentUrl: '',
     paymentSubmitting: false,
+    triageUrl: '',
+    triageLoading: false,
+    triageError: '',
   };
 
   const escapeHtml = (value) =>
@@ -151,6 +154,9 @@
       }
       state.loading = false;
       render();
+      if (payload.appointment?.status === 'confirmed') {
+        await loadTriage();
+      }
       return true;
     } catch (error) {
       state.error = error.message;
@@ -374,6 +380,7 @@
       }
       state.appointment = payload.appointment;
       state.step = 6;
+      await loadTriage();
     } catch (error) {
       state.paymentNotice = error.message;
     } finally {
@@ -381,6 +388,26 @@
         state.paymentSubmitting = false;
         render();
       }
+    }
+  }
+
+  async function loadTriage() {
+    if (state.appointment?.status !== 'confirmed' || !state.appointment?.id) return;
+    state.triageLoading = true;
+    state.triageError = '';
+    render();
+    try {
+      const payload = await api('/api/booking/triage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appointment_id: state.appointment.id }),
+      });
+      state.triageUrl = payload.url || '';
+    } catch (error) {
+      state.triageError = error.message;
+    } finally {
+      state.triageLoading = false;
+      render();
     }
   }
 
@@ -689,6 +716,18 @@
           }
           ${professionalName ? `<p><strong>Profesional:</strong> ${escapeHtml(professionalName)}</p>` : ''}
           ${serviceName ? `<p><strong>Práctica:</strong> ${escapeHtml(serviceName)}</p>` : ''}
+          ${
+            isPaid && state.triageUrl
+              ? `
+                <div class="triage-card">
+                  <h3>Último paso: cuestionario previo</h3>
+                  <p>Completalo antes de la consulta para que tu fisio pueda preparar mejor la atención.</p>
+                  <a class="primary-button" href="${escapeHtml(state.triageUrl)}" target="_blank" rel="noopener noreferrer">Completar cuestionario</a>
+                  <p class="triage-note">También vas a recibir este enlace por mail.</p>
+                </div>
+              `
+              : ''
+          }
           ${
             isPaid
               ? ''

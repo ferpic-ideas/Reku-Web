@@ -345,6 +345,13 @@ export const initDb = async () => {
       patient_notified_at TIMESTAMPTZ,
       patient_notification_message_id TEXT,
       patient_notification_error TEXT,
+      triage_url TEXT,
+      triage_assigned_at TIMESTAMPTZ,
+      triage_assignment_attempted_at TIMESTAMPTZ,
+      triage_assignment_error TEXT,
+      patient_followup_notified_at TIMESTAMPTZ,
+      patient_followup_notification_message_id TEXT,
+      patient_followup_notification_error TEXT,
       cancelled_at TIMESTAMPTZ,
       cancelled_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
       cancellation_reason TEXT,
@@ -377,7 +384,14 @@ export const initDb = async () => {
       ADD COLUMN IF NOT EXISTS professional_notification_error TEXT,
       ADD COLUMN IF NOT EXISTS patient_notified_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS patient_notification_message_id TEXT,
-      ADD COLUMN IF NOT EXISTS patient_notification_error TEXT;
+      ADD COLUMN IF NOT EXISTS patient_notification_error TEXT,
+      ADD COLUMN IF NOT EXISTS triage_url TEXT,
+      ADD COLUMN IF NOT EXISTS triage_assigned_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS triage_assignment_attempted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS triage_assignment_error TEXT,
+      ADD COLUMN IF NOT EXISTS patient_followup_notified_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS patient_followup_notification_message_id TEXT,
+      ADD COLUMN IF NOT EXISTS patient_followup_notification_error TEXT;
 
     UPDATE appointments a
       SET patient_name = CASE
@@ -428,6 +442,12 @@ export const initDb = async () => {
     CREATE INDEX IF NOT EXISTS appointments_payment_id_idx
       ON appointments (payment_id)
       WHERE payment_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS appointments_triage_pending_idx
+      ON appointments (updated_at)
+      WHERE status = 'confirmed' AND triage_url IS NULL;
+    CREATE INDEX IF NOT EXISTS appointments_followup_pending_idx
+      ON appointments (appointment_date, start_time)
+      WHERE status = 'confirmed' AND patient_followup_notified_at IS NULL;
     CREATE INDEX IF NOT EXISTS appointments_payment_reference_idx
       ON appointments (payment_external_reference)
       WHERE payment_external_reference IS NOT NULL;

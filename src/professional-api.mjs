@@ -582,6 +582,11 @@ const mapAppointment = (row) => ({
   google_calendar_event_url: row.google_calendar_event_url || "",
   google_sync_status: row.google_sync_status || "not_connected",
   google_sync_error: row.google_sync_error || "",
+  triage_status: row.triage_url
+    ? "assigned"
+    : row.triage_assignment_error
+      ? "failed"
+      : "pending",
 });
 
 const listProfessionalAppointments = async (
@@ -608,6 +613,8 @@ const listProfessionalAppointments = async (
         a.google_calendar_event_url,
         a.google_sync_status,
         a.google_sync_error,
+        a.triage_url,
+        a.triage_assignment_error,
         s.name AS service_name
       FROM appointments a
       INNER JOIN services s ON s.id = a.service_id

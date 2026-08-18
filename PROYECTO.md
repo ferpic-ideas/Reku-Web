@@ -137,6 +137,11 @@ Funciones actuales:
 - Dashboard con metricas de contactos, altas, turnos, facturacion, servicios,
   profesionales y bloqueos.
 - CRUD de servicios y profesionales.
+- El alta de un profesional crea en la misma operación su usuario de rol
+  `professional`. Al editar fichas legadas sin cuenta activa, el admin exige crear
+  la clave antes de guardar; nombre y mail de ambas entidades quedan sincronizados.
+- Las cuentas profesionales se administran desde Profesionales, no desde el alta
+  genérica de Usuarios.
 - Bloqueo de horarios por profesional.
 - Probar agenda con link firmado de 48h.
 - Configuración de Mercado Pago y auditoría sólo para usuarios autorizados.
@@ -222,6 +227,8 @@ Flujo de reserva:
 5. El backend crea un turno `pending_payment` y una preferencia de Checkout Pro.
 6. Mercado Pago redirige de vuelta a `/agenda/`.
 7. El backend consulta el pago y confirma el turno sólo si el estado es `approved`.
+8. Con el turno confirmado, el backend solicita una única URL de triaje a ReHub,
+   la muestra como último paso y la incluye en los mails al paciente.
 
 Estados relevantes:
 
@@ -251,6 +258,16 @@ El mail no se envia cuando el turno esta `pending_payment`; se dispara al confir
 un pago `approved` por webhook/retorno de Mercado Pago o al crear un turno sin
 costo. `appointments.professional_notified_at` evita duplicados si llegan webhook
 y retorno casi al mismo tiempo.
+
+El paciente recibe el enlace del cuestionario ReHub en el mail de confirmación.
+Un proceso periódico envía además un recordatorio aproximadamente 24 horas antes
+del turno, indicando que debe completarlo antes de la consulta con el fisio. La URL
+se guarda una sola vez por turno confirmado; los reintentos reutilizan la misma.
+Aunque la guía muestra una cadena JSON directa, el endpoint TEST validado requiere
+el sobre `{ "data": "<hex_cifrado>" }` como body de la petición.
+La asignación es best effort: un fallo de ReHub no cambia el estado del turno ni
+interrumpe la reserva. En ese caso se omite el enlace en pantalla y mails, y el
+turno muestra una alerta interna para administración y el profesional.
 
 El profesional puede cancelar un turno propio desde `/profesional/`. Reku registra
 el motivo, elimina el evento de Google con `sendUpdates=all`, envía además su mail
@@ -308,6 +325,11 @@ Variables clave:
 - `GOOGLE_INTEGRATION_ENCRYPTION_KEY`
 - `GOOGLE_CALENDAR_TIME_ZONE`
 - `GOOGLE_CALENDAR_REQUIRED`
+- `REHUB_BASE_URL`
+- `REHUB_CLIENT_ID`
+- `REHUB_PUBLIC_KEY_BASE64` o `REHUB_PUBLIC_KEY_PATH`
+- `REHUB_TRIAGE_LANG`
+- `REHUB_TIMEOUT_MS`
 - `CONTACT_TO_EMAIL`
 - `PATIENT_INTAKE_TO_EMAIL`
 - `EMAIL_PROVIDER`

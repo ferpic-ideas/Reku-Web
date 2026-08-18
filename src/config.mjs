@@ -52,6 +52,15 @@ export const config = {
   googleCalendarTimeZone:
     process.env.GOOGLE_CALENDAR_TIME_ZONE || "America/Argentina/Buenos_Aires",
   googleCalendarRequired: process.env.GOOGLE_CALENDAR_REQUIRED === "true",
+  rehubBaseUrl: (
+    process.env.REHUB_BASE_URL ||
+    "https://uxc2aw5mv8.execute-api.eu-west-1.amazonaws.com/dev2"
+  ).replace(/\/+$/, ""),
+  rehubClientId: (process.env.REHUB_CLIENT_ID || "").trim(),
+  rehubPublicKeyBase64: (process.env.REHUB_PUBLIC_KEY_BASE64 || "").trim(),
+  rehubPublicKeyPath: (process.env.REHUB_PUBLIC_KEY_PATH || "").trim(),
+  rehubTriageLang: (process.env.REHUB_TRIAGE_LANG || "es").trim(),
+  rehubTimeoutMs: Number(process.env.REHUB_TIMEOUT_MS || 10_000),
   contactToEmail: process.env.CONTACT_TO_EMAIL || "hola@reku.io",
   patientIntakeToEmail:
     process.env.PATIENT_INTAKE_TO_EMAIL || "altas-pacientes@reku.io",
@@ -126,6 +135,22 @@ export const assertSafeStartup = () => {
     throw new Error(
       "GOOGLE_CALENDAR_REQUIRED needs Google OAuth client credentials",
     );
+  }
+  const rehubKeyConfigured = Boolean(
+    config.rehubPublicKeyBase64 || config.rehubPublicKeyPath,
+  );
+  if (Boolean(config.rehubClientId) !== rehubKeyConfigured) {
+    throw new Error(
+      "REHUB_CLIENT_ID and a ReHub public key must be configured together",
+    );
+  }
+  if (config.rehubPublicKeyBase64 && config.rehubPublicKeyPath) {
+    throw new Error(
+      "Configure only one of REHUB_PUBLIC_KEY_BASE64 or REHUB_PUBLIC_KEY_PATH",
+    );
+  }
+  if (config.rehubTimeoutMs < 1_000 || config.rehubTimeoutMs > 30_000) {
+    throw new Error("REHUB_TIMEOUT_MS must be between 1000 and 30000");
   }
 };
 

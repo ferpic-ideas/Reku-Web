@@ -31,6 +31,7 @@ import {
   getGoogleBusyRanges,
   holdAppointmentOnGoogleCalendar,
 } from "./google-calendar.mjs";
+import { ensureAppointmentTriage } from "./appointment-triage.mjs";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
@@ -823,6 +824,18 @@ const appointmentSelectionFromRow = (row, link) => ({
   start_time: String(row.start_time || "").slice(0, 5),
 });
 
+const assignAppointmentTriage = async (payload, response, link) => {
+  const appointmentId = Number(payload.appointment_id);
+  if (!Number.isInteger(appointmentId) || appointmentId < 1) {
+    sendJson(response, 422, { error: "Turno inválido." });
+    return;
+  }
+  const triage = await ensureAppointmentTriage(appointmentId, {
+    bookingAccessLinkId: link.id,
+  });
+  sendJson(response, 200, { ok: true, url: triage.url });
+};
+
 const refreshPaymentStatus = async (url, response, link) => {
   const appointmentId = Number(url.searchParams.get("appointment_id"));
   const paymentId = String(
@@ -1049,6 +1062,10 @@ export const handleBookingApi = async (request, response, url) => {
       await createAppointment(payload, response, url, link);
       return true;
     }
+    if (pathname === "/api/booking/triage" && request.method === "POST") {
+      await assignAppointmentTriage(payload, response, link);
+      return true;
+    }
 
     return false;
   } catch (error) {
@@ -1106,6 +1123,25 @@ export const handleBookingApi = async (request, response, url) => {
     }
     if (error.message === "DB_UNAVAILABLE") {
       sendJson(response, 503, { error: "La agenda no está disponible." });
+      return true;
+    }
+    if (error.message === "TRIAGE_APPOINTMENT_NOT_AVAILABLE") {
+      sendJson(response, 409, {
+        error: "El cuestionario se habilita cuando el turno queda confirmado.",
+      });
+      return true;
+    }
+    if (error.message === "REHUB_NOT_CONFIGURED") {
+      sendJson(response, 503, {
+        error: "El cuestionario todavía no está disponible.",
+      });
+      return true;
+    }
+    if (String(error.message || "").startsWith("REHUB_")) {
+      sendJson(response, 502, {
+        error:
+          "No pudimos preparar el cuestionario ahora. Probá nuevamente en unos minutos.",
+      });
       return true;
     }
     if (error.message === "RATE_LIMITED") {

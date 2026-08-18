@@ -272,7 +272,7 @@
                       ${item.google_meet_url ? `<a href="${escapeHtml(item.google_meet_url)}" target="_blank" rel="noopener">Abrir Meet</a><br />` : ''}
                       ${
                       item.status === 'confirmed'
-                        ? `Confirmado${item.google_sync_status === 'failed' ? ' · Google pendiente' : ''}`
+                        ? `Confirmado${item.google_sync_status === 'failed' ? ' · Google pendiente' : ''}${item.triage_status === 'failed' ? ' · Cuestionario no disponible' : ''}`
                         : item.status === 'cancelled'
                           ? `Cancelado${item.refund_status === 'approved' ? ' · reembolsado' : item.refund_status === 'failed' ? ' · devolución pendiente' : ''}`
                           : 'Pendiente de pago'

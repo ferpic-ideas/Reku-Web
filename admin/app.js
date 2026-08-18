@@ -716,28 +716,10 @@
               Rol
               <select name="role" ${state.user.can_manage_system ? '' : 'disabled'}>
                 <option value="user" selected>User</option>
-                ${state.user.can_manage_system ? '<option value="professional">Profesional</option><option value="admin">Admin</option>' : ''}
+                ${state.user.can_manage_system ? '<option value="admin">Admin</option>' : ''}
               </select>
             </label>
-            ${
-              state.user.can_manage_system
-                ? `
-                  <label>
-                    Ficha profesional
-                    <select name="professional_id">
-                      <option value="">Seleccionar cuando el rol sea Profesional</option>
-                      ${state.professionals
-                        .filter((professional) => professional.active)
-                        .map(
-                          (professional) =>
-                            `<option value="${professional.id}">${escapeHtml(professional.name)}</option>`,
-                        )
-                        .join('')}
-                    </select>
-                  </label>
-                `
-                : ''
-            }
+            <p class="field-help">Las cuentas de acceso de profesionales se crean y administran desde el módulo Profesionales.</p>
             <div class="modal-actions">
               <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
               <button type="submit" class="primary-button">Crear usuario</button>
@@ -821,6 +803,7 @@
               ${appointment.google_sync_status ? detailRow('Google Calendar', appointment.google_sync_status) : ''}
               ${appointment.google_meet_url ? detailCopyRow('Google Meet', appointment.google_meet_url) : ''}
               ${appointment.google_sync_error ? detailRow('Error de Google', appointment.google_sync_error) : ''}
+              ${detailRow('Cuestionario previo', appointment.triage_status === 'assigned' ? 'Enlace generado' : appointment.triage_status === 'failed' ? 'Alerta: no se pudo obtener de ReHub' : 'Pendiente')}
               ${detailRow('Alta paciente', appointment.patient_intake_id ? `#${appointment.patient_intake_id}` : 'Sin alta asociada')}
             </div>
           </div>
@@ -1125,6 +1108,8 @@
         phone: '',
         photo_url: '',
         active: true,
+        has_user: false,
+        user_email: '',
         services: [],
         availability: [],
       }
@@ -1191,6 +1176,8 @@
 
   function renderProfessionalFormFields() {
     const item = professionalFormValues();
+    const needsAccount = !item.has_user;
+    const isEditing = Boolean(state.editingProfessionalId);
     return `
       <div class="grid-two">
         <label>
@@ -1200,7 +1187,35 @@
         <label>
           Mail
           <input name="email" type="email" value="${escapeHtml(item.email)}" required />
+          <span class="field-help">Este mail también será el usuario para ingresar al portal profesional.</span>
         </label>
+        <div class="professional-account-box span-two ${needsAccount && isEditing ? 'warning' : ''}">
+          <div>
+            <strong>Cuenta de acceso profesional</strong>
+            <p>
+              ${
+                item.has_user
+                  ? `Cuenta activa: ${escapeHtml(item.user_email || item.email)}`
+                  : isEditing
+                    ? 'Este profesional todavía no tiene una cuenta activa. Para guardar los cambios, tenés que crearla o reactivarla ahora.'
+                    : 'La cuenta se creará junto con la ficha profesional.'
+              }
+            </p>
+          </div>
+          <label>
+            ${item.has_user ? 'Nueva clave (opcional)' : 'Clave de acceso'}
+            <input
+              name="account_password"
+              type="password"
+              autocomplete="new-password"
+              minlength="10"
+              ${needsAccount ? 'required' : ''}
+            />
+            <span class="field-help">
+              ${item.has_user ? 'Dejala vacía para conservar la clave actual.' : 'Mínimo 10 caracteres.'}
+            </span>
+          </label>
+        </div>
         <label>
           Matrícula
           <input name="license_number" value="${escapeHtml(item.license_number || '')}" maxlength="120" />
@@ -1261,6 +1276,7 @@
               <tr>
                 <th>Profesional</th>
                 <th>Mail</th>
+                <th>Cuenta</th>
                 <th>Servicios</th>
                 <th>Horarios</th>
                 <th>Estado</th>
@@ -1271,7 +1287,7 @@
               ${
                 state.professionals.length
                   ? state.professionals.map(renderProfessionalRow).join('')
-                  : '<tr><td colspan="6">No hay profesionales cargados.</td></tr>'
+                  : '<tr><td colspan="7">No hay profesionales cargados.</td></tr>'
               }
             </tbody>
           </table>
@@ -1290,6 +1306,11 @@
           </div>
         </td>
         <td>${escapeHtml(professional.email)}</td>
+        <td>
+          <span class="account-status ${professional.has_user ? 'active' : 'missing'}">
+            ${professional.has_user ? 'Activa' : 'Pendiente'}
+          </span>
+        </td>
         <td>${(professional.services || []).map((service) => escapeHtml(service.name)).join(', ') || 'Sin servicios'}</td>
         <td>${renderAvailabilitySummary(professional.availability)}</td>
         <td>${professional.active ? 'Activo' : 'Inactivo'}</td>
@@ -3277,10 +3298,6 @@
           email: form.email.value,
           password: form.password.value,
           role: state.user.can_manage_system ? form.role.value : 'user',
-          professional_id:
-            state.user.can_manage_system && form.role.value === 'professional'
-              ? form.professional_id.value
-              : null,
         },
       });
       state.dialog = null;

@@ -474,6 +474,43 @@ button {
   background: #f59e0b;
 }
 
+.triage-card {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid #ded8ff;
+  border-radius: 16px;
+  background: #f7f5ff;
+}
+
+.triage-card h3 {
+  margin: 0 0 8px;
+  color: var(--navy);
+  font-size: 20px;
+}
+
+.triage-card p {
+  margin: 0 0 16px;
+}
+
+.triage-card .primary-button,
+.triage-card .secondary-button {
+  width: 100%;
+}
+
+.triage-card .triage-error {
+  color: var(--danger);
+}
+
+.triage-card .triage-loading,
+.triage-card .triage-note {
+  color: var(--muted);
+}
+
+.triage-card .triage-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
 @media (min-width: 740px) {
   .booking-shell {
     padding: 42px 32px 56px;

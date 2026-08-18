@@ -48,6 +48,10 @@ import {
   requireAdminApiPermission,
 } from "./authorization.mjs";
 import { revokeProfessionalAccess } from "./professional-links.mjs";
+import {
+  syncProfessionalUser,
+  validateProfessionalPassword,
+} from "./professional-users.mjs";
 
 const canDeleteRecords = (user) => hasPermission(user, "records.delete");
 const canManageSystem = (user) => hasPermission(user, "users.write");
@@ -411,7 +415,6 @@ const createUser = async (request, response, user) => {
   const name = String(payload.name || "").trim();
   const password = String(payload.password || "");
   const requestedRole = normalizeUserRole(payload.role);
-  const requestedProfessionalId = Number(payload.professional_id || 0);
 
   if (!emailPattern.test(email)) {
     sendJson(response, 422, { error: "Ingresá un email válido." });
@@ -421,48 +424,23 @@ const createUser = async (request, response, user) => {
     sendJson(response, 422, { error: "La clave debe tener al menos 10 caracteres." });
     return;
   }
-  if (["admin", "professional"].includes(requestedRole) && !canManageSystem(user)) {
+  if (requestedRole === "professional") {
+    sendJson(response, 422, {
+      error: "Las cuentas profesionales se crean y administran desde Profesionales.",
+    });
+    return;
+  }
+  if (requestedRole === "admin" && !canManageSystem(user)) {
     sendJson(response, 403, { error: "Solo un admin puede crear ese tipo de usuario." });
     return;
   }
 
   const role = canManageSystem(user) ? requestedRole : "user";
-  const professionalId = role === "professional" ? requestedProfessionalId : null;
-  if (role === "professional") {
-    if (!Number.isInteger(professionalId) || professionalId < 1) {
-      sendJson(response, 422, { error: "Seleccioná la ficha del profesional." });
-      return;
-    }
-    const professional = await one(
-      `
-        SELECT p.id, u.email AS linked_user_email
-        FROM professionals p
-        LEFT JOIN users u ON u.professional_id = p.id
-        WHERE p.id = $1
-          AND p.active = TRUE
-          AND p.deleted_at IS NULL
-      `,
-      [professionalId],
-    );
-    if (!professional) {
-      sendJson(response, 422, { error: "La ficha profesional no está disponible." });
-      return;
-    }
-    if (
-      professional.linked_user_email &&
-      professional.linked_user_email.toLowerCase() !== email
-    ) {
-      sendJson(response, 409, {
-        error: "Esa ficha ya está vinculada a otra cuenta profesional.",
-      });
-      return;
-    }
-  }
   const safeName = name || email.split("@")[0];
   const passwordHash = await hashPassword(password);
   const existing = await one(
     `
-      SELECT id, is_active
+      SELECT id, role, professional_id, is_active
       FROM users
       WHERE lower(email) = lower($1)
     `,
@@ -470,6 +448,12 @@ const createUser = async (request, response, user) => {
   );
 
   let result;
+  if (existing?.role === "professional" || existing?.professional_id) {
+    sendJson(response, 409, {
+      error: "Esa cuenta profesional se administra desde Profesionales.",
+    });
+    return;
+  }
   if (existing?.is_active) {
     sendJson(response, 409, { error: "Ya existe un usuario con ese email." });
     return;
@@ -481,23 +465,23 @@ const createUser = async (request, response, user) => {
         SET name = $1,
             password_hash = $2,
             role = $3,
-            professional_id = $4,
+            professional_id = NULL,
             is_active = TRUE,
             session_version = session_version + 1,
             updated_at = NOW()
-        WHERE id = $5
+        WHERE id = $4
         RETURNING id, email, name, role, professional_id, is_active, last_login_at, created_at
       `,
-      [safeName, passwordHash, role, professionalId, existing.id],
+      [safeName, passwordHash, role, existing.id],
     );
   } else {
     result = await one(
       `
-        INSERT INTO users (email, name, password_hash, role, professional_id)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO users (email, name, password_hash, role)
+        VALUES ($1, $2, $3, $4)
         RETURNING id, email, name, role, professional_id, is_active, last_login_at, created_at
       `,
-      [email, safeName, passwordHash, role, professionalId],
+      [email, safeName, passwordHash, role],
     );
   }
 
@@ -1296,6 +1280,12 @@ const mapProfessional = (row) => ({
   phone: row.phone || "",
   services: row.services || [],
   availability: row.availability || [],
+  has_user: Boolean(
+    row.user_id && row.user_role === "professional" && row.user_is_active,
+  ),
+  user_id: row.user_id ? Number(row.user_id) : null,
+  user_email: row.user_email || "",
+  user_is_active: Boolean(row.user_is_active),
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -1303,6 +1293,10 @@ const mapProfessional = (row) => ({
 const professionalSelect = `
   SELECT
     p.*,
+    pu.id AS user_id,
+    pu.email AS user_email,
+    pu.role AS user_role,
+    pu.is_active AS user_is_active,
     COALESCE(
       (
         SELECT json_agg(json_build_object('id', s.id, 'name', s.name) ORDER BY s.name)
@@ -1329,6 +1323,7 @@ const professionalSelect = `
       '[]'::json
     ) AS availability
   FROM professionals p
+  LEFT JOIN users pu ON pu.professional_id = p.id
 `;
 
 const listProfessionals = async (response) => {
@@ -1394,6 +1389,7 @@ const professionalPayloadFromMultipart = async (request) => {
     ...new Set(parseJsonArray(fields.service_ids).map((value) => parsePositiveInteger(value))),
   ];
   const availability = normalizeAvailability(fields.availability);
+  const password = String(fields.account_password || "");
 
   if (!name) {
     const error = new Error("PROFESSIONAL_NAME_REQUIRED");
@@ -1428,6 +1424,7 @@ const professionalPayloadFromMultipart = async (request) => {
       availability,
       active: fields.active !== "false",
       remove_photo: fields.remove_photo === "true",
+      password,
     },
     files,
   };
@@ -1435,8 +1432,10 @@ const professionalPayloadFromMultipart = async (request) => {
 
 const createProfessional = async (request, response, user) => {
   const payload = await professionalPayloadFromMultipart(request);
+  const password = validateProfessionalPassword(payload.fields.password, { required: true });
+  const passwordHash = await hashPassword(password);
   const photoPath = await saveProfessionalPhoto(payload.files.photo);
-  const professionalId = await tx(async (client) => {
+  const created = await tx(async (client) => {
     const result = await client.query(
       `
         INSERT INTO professionals
@@ -1462,13 +1461,25 @@ const createProfessional = async (request, response, user) => {
       payload.fields.serviceIds,
       payload.fields.availability,
     );
-    return id;
+    const account = await syncProfessionalUser(client, {
+      professionalId: id,
+      name: payload.fields.name,
+      email: payload.fields.email,
+      passwordHash,
+    });
+    return { professionalId: id, account };
   });
   await recordAudit("professional.created", {
     actorUserId: user.id,
-    detail: { professional_id: professionalId, email: payload.fields.email },
+    detail: {
+      professional_id: created.professionalId,
+      professional_user_id: Number(created.account.user.id),
+      email: payload.fields.email,
+    },
   });
-  sendJson(response, 201, { professional: await getProfessionalMapped(professionalId) });
+  sendJson(response, 201, {
+    professional: await getProfessionalMapped(created.professionalId),
+  });
 };
 
 const updateProfessional = async (request, response, user, id) => {
@@ -1479,8 +1490,12 @@ const updateProfessional = async (request, response, user, id) => {
   }
 
   const payload = await professionalPayloadFromMultipart(request);
+  const password = validateProfessionalPassword(payload.fields.password, {
+    required: !current.has_user,
+  });
+  const passwordHash = password ? await hashPassword(password) : null;
   const photoPath = await saveProfessionalPhoto(payload.files.photo);
-  await tx(async (client) => {
+  const account = await tx(async (client) => {
     await client.query(
       `
         UPDATE professionals
@@ -1513,10 +1528,20 @@ const updateProfessional = async (request, response, user, id) => {
       payload.fields.serviceIds,
       payload.fields.availability,
     );
+    return syncProfessionalUser(client, {
+      professionalId: id,
+      name: payload.fields.name,
+      email: payload.fields.email,
+      passwordHash,
+    });
   });
   await recordAudit("professional.updated", {
     actorUserId: user.id,
-    detail: { professional_id: id },
+    detail: {
+      professional_id: id,
+      professional_user_id: Number(account.user.id),
+      account_action: account.action,
+    },
   });
   sendJson(response, 200, { professional: await getProfessionalMapped(id) });
 };
@@ -1671,6 +1696,11 @@ const mapAppointment = (row) => ({
   google_meet_url: row.google_meet_url || "",
   google_sync_status: row.google_sync_status || "not_connected",
   google_sync_error: row.google_sync_error || "",
+  triage_status: row.triage_url
+    ? "assigned"
+    : row.triage_assignment_error
+      ? "failed"
+      : "pending",
   created_at: row.created_at,
 });
 
@@ -2178,6 +2208,24 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (error.message === "PROFESSIONAL_AVAILABILITY_REQUIRED") {
       sendJson(response, 422, { error: "Cargá al menos un día y horario de atención." });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_PASSWORD_REQUIRED") {
+      sendJson(response, 422, {
+        error: "Creá una clave de al menos 10 caracteres para la cuenta profesional.",
+      });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_PASSWORD_INVALID") {
+      sendJson(response, 422, {
+        error: "La clave de la cuenta profesional debe tener al menos 10 caracteres.",
+      });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_EMAIL_IN_USE") {
+      sendJson(response, 409, {
+        error: "Ese mail ya pertenece a otra cuenta. Usá un mail distinto.",
+      });
       return true;
     }
     if (error.message === "SYSTEM_ADMIN_REQUIRED") {
