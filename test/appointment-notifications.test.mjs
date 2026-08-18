@@ -5,6 +5,8 @@ import {
   patientConfirmationText,
   patientFollowupHtml,
   patientFollowupText,
+  patientTriageReminderHtml,
+  patientTriageReminderText,
 } from "../src/appointment-notifications.mjs";
 
 const appointment = {
@@ -13,6 +15,7 @@ const appointment = {
   end_time: "11:00",
   service_name: "Evaluación",
   professional_name: "Fisio Reku",
+  patient_name: "Paciente Reku",
   google_meet_url: "",
 };
 
@@ -45,3 +48,20 @@ test("patient emails continue normally without mentioning triage after an assign
   }
 });
 
+test("manual triage reminders include the assigned questionnaire and safe fallback copy", () => {
+  const withTriage = {
+    ...appointment,
+    patient_name: "Paciente <Reku>",
+    triage_url: "https://patient-dev2.rehub.cloud/opentriage/reminder-example",
+  };
+
+  const text = patientTriageReminderText({ appointment: withTriage });
+  const html = patientTriageReminderHtml({ appointment: withTriage });
+
+  assert.match(text, /reminder-example/);
+  assert.match(text, /Si todavía no completaste/i);
+  assert.match(html, /reminder-example/);
+  assert.match(html, /Si ya lo completaste, podés ignorar/i);
+  assert.doesNotMatch(html, /Paciente <Reku>/);
+  assert.match(html, /Paciente &lt;Reku&gt;/);
+});

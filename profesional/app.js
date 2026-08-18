@@ -31,6 +31,9 @@
     google: { available: false, connected: false, status: 'not_configured' },
     patientSearch: '',
     selectedPatientId: null,
+    patientDetailMessage: '',
+    patientDetailMessageType: '',
+    sendingTriageReminderId: null,
     invitationToken: new URLSearchParams(window.location.hash.slice(1)).get('invite') || '',
     status: '',
     statusType: '',
@@ -48,6 +51,17 @@
     if (!value) return '';
     const [year, month, day] = String(value).slice(0, 10).split('-');
     return `${day}/${month}/${year}`;
+  };
+
+  const formatDateTime = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return new Intl.DateTimeFormat('es-AR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+      timeZone: 'America/Argentina/Buenos_Aires',
+    }).format(date);
   };
 
   const today = () => {
@@ -383,6 +397,9 @@
 
   function renderPatientDetails(patient) {
     if (!patient) return '';
+    const canRemindTriage =
+      patient.triage_status === 'assigned' && Boolean(patient.next_appointment?.id);
+    const reminderSentAt = patient.next_appointment?.triage_reminder_sent_at;
     return `
       <div class="modal-backdrop" role="presentation">
         <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="patient-details-title">
@@ -403,8 +420,18 @@
             <div><dt>Importe</dt><dd>${patient.payment?.amount ? escapeHtml(new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(patient.payment.amount)) : '—'}</dd></div>
             <div><dt>Último turno registrado</dt><dd>${patient.latest_appointment_date ? escapeHtml(formatDate(patient.latest_appointment_date)) : '—'}</dd></div>
           </dl>
-          <p class="details-note">Reku muestra si el enlace de triaje fue asignado. La confirmación de que el paciente lo completó todavía no está disponible.</p>
-          <div class="form-actions"><button class="secondary-button" data-action="close-patient-details" type="button">Cerrar</button></div>
+          <div class="details-note">
+            <strong>Seguimiento del triaje</strong>
+            <span>Reku sabe que el enlace fue asignado, pero ReHub todavía no informa automáticamente si el paciente lo completó.</span>
+            ${reminderSentAt ? `<span>Último recordatorio enviado: ${escapeHtml(formatDateTime(reminderSentAt))}.</span>` : ''}
+          </div>
+          ${state.patientDetailMessage ? `<div class="status-message ${escapeHtml(state.patientDetailMessageType)}">${escapeHtml(state.patientDetailMessage)}</div>` : ''}
+          <div class="form-actions patient-detail-actions">
+            <button class="secondary-button" data-action="close-patient-details" type="button">Cerrar</button>
+            ${canRemindTriage
+              ? `<button class="primary-button" data-action="remind-triage" data-id="${patient.next_appointment.id}" type="button" ${state.sendingTriageReminderId === patient.next_appointment.id ? 'disabled' : ''}>${state.sendingTriageReminderId === patient.next_appointment.id ? 'Enviando…' : 'Recordar cuestionario'}</button>`
+              : ''}
+          </div>
         </section>
       </div>
     `;
@@ -662,15 +689,56 @@
     app.querySelectorAll('[data-action="patient-details"]').forEach((button) => {
       button.addEventListener('click', () => {
         state.selectedPatientId = Number(button.dataset.id);
+        state.patientDetailMessage = '';
+        state.patientDetailMessageType = '';
         render();
       });
     });
     app.querySelectorAll('[data-action="close-patient-details"]').forEach((button) => {
       button.addEventListener('click', () => {
         state.selectedPatientId = null;
+        state.patientDetailMessage = '';
+        state.patientDetailMessageType = '';
         render();
       });
     });
+    app.querySelectorAll('[data-action="remind-triage"]').forEach((button) => {
+      button.addEventListener('click', () => handleTriageReminder(Number(button.dataset.id)));
+    });
+  }
+
+  async function handleTriageReminder(appointmentId) {
+    if (
+      !window.confirm(
+        '¿Enviar un mail al paciente para recordarle que complete el cuestionario?',
+      )
+    ) {
+      return;
+    }
+    state.sendingTriageReminderId = appointmentId;
+    state.patientDetailMessage = '';
+    render();
+    try {
+      const result = await api(
+        `/api/professional/appointments/${appointmentId}/triage-reminder`,
+        { method: 'POST' },
+      );
+      const patient = state.patients.find(
+        (item) => Number(item.next_appointment?.id) === appointmentId,
+      );
+      if (patient?.next_appointment) {
+        patient.next_appointment.triage_reminder_sent_at = result.triage_reminder_sent_at;
+        patient.next_appointment.triage_reminder_count = result.triage_reminder_count;
+      }
+      state.patientDetailMessage = result.message || 'Recordatorio enviado.';
+      state.patientDetailMessageType = 'ok';
+    } catch (error) {
+      state.patientDetailMessage = error.message;
+      state.patientDetailMessageType = 'error';
+    } finally {
+      state.sendingTriageReminderId = null;
+      render();
+    }
   }
 
   async function handleInvitation(event) {

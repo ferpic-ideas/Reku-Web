@@ -675,12 +675,22 @@ td a {
 }
 
 .details-note {
+  display: grid;
+  gap: 5px;
   margin: 16px 0 0;
   border-radius: 10px;
   padding: 11px 13px;
   color: var(--muted);
   background: var(--soft);
   font-size: 13px;
+}
+
+.details-note strong {
+  color: var(--ink);
+}
+
+.patient-detail-actions {
+  margin-top: 18px;
 }
 
 .search-form {

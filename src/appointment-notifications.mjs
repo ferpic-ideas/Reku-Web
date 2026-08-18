@@ -149,6 +149,40 @@ export const patientFollowupHtml = ({ appointment }) => `
   </div>
 `;
 
+export const patientTriageReminderText = ({ appointment }) =>
+  [
+    "Recordatorio: completá tu cuestionario previo",
+    "",
+    `Hola ${appointment.patient_name || ""},`,
+    "",
+    "Si todavía no completaste el cuestionario previo, hacelo antes de tu consulta para que tu fisio pueda preparar mejor la atención.",
+    "",
+    `Fecha: ${formatDate(appointment.appointment_date)}`,
+    `Horario: ${appointment.start_time} a ${appointment.end_time}`,
+    `Servicio: ${appointment.service_name}`,
+    `Profesional: ${appointment.professional_name}`,
+    "",
+    appointment.triage_url,
+  ].join("\n");
+
+export const patientTriageReminderHtml = ({ appointment }) => `
+  <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
+    <h1 style="font-size:24px;margin:0 0 16px">Completá tu cuestionario previo</h1>
+    <p>Hola ${escapeHtml(appointment.patient_name || "")},</p>
+    <p>Si todavía no lo completaste, hacelo antes de tu consulta para que tu fisio pueda preparar mejor la atención.</p>
+    <table cellpadding="6" cellspacing="0" style="border-collapse:collapse">
+      <tr><td><strong>Fecha</strong></td><td>${escapeHtml(formatDate(appointment.appointment_date))}</td></tr>
+      <tr><td><strong>Horario</strong></td><td>${escapeHtml(appointment.start_time)} a ${escapeHtml(appointment.end_time)}</td></tr>
+      <tr><td><strong>Servicio</strong></td><td>${escapeHtml(appointment.service_name)}</td></tr>
+      <tr><td><strong>Profesional</strong></td><td>${escapeHtml(appointment.professional_name)}</td></tr>
+    </table>
+    <p style="margin-top:24px">
+      <a href="${escapeHtml(appointment.triage_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">Completar cuestionario</a>
+    </p>
+    <p style="color:#64738a;font-size:13px">Si ya lo completaste, podés ignorar este mensaje.</p>
+  </div>
+`;
+
 const patientCancellationText = ({ appointment }) =>
   [
     "Tu turno en Reku fue cancelado",
@@ -461,6 +495,137 @@ export const notifyPatientAppointmentFollowup = async (appointmentId) => {
       detail: { appointment_id: Number(appointment.id), error: error.message },
     });
     return { ok: false, error: error.message };
+  }
+};
+
+const triageReminderError = (message, statusCode) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const claimManualTriageReminder = async (appointmentId, professionalId) => {
+  const result = await query(
+    `
+      UPDATE appointments appointment
+      SET triage_reminder_last_attempted_at = NOW(),
+          triage_reminder_error = NULL,
+          updated_at = NOW()
+      FROM professionals professional,
+           services service
+      WHERE appointment.id = $1
+        AND appointment.professional_id = $2
+        AND appointment.professional_id = professional.id
+        AND appointment.service_id = service.id
+        AND appointment.status = 'confirmed'
+        AND NULLIF(appointment.patient_email, '') IS NOT NULL
+        AND NULLIF(appointment.triage_url, '') IS NOT NULL
+        AND ((appointment.appointment_date + appointment.start_time) AT TIME ZONE $3) > NOW()
+        AND (
+          appointment.triage_reminder_last_attempted_at IS NULL
+          OR appointment.triage_reminder_last_attempted_at < NOW() - INTERVAL '5 minutes'
+        )
+      RETURNING
+        appointment.id,
+        to_char(appointment.appointment_date, 'YYYY-MM-DD') AS appointment_date,
+        to_char(appointment.start_time, 'HH24:MI') AS start_time,
+        to_char(appointment.end_time, 'HH24:MI') AS end_time,
+        appointment.patient_name,
+        appointment.patient_email,
+        appointment.triage_url,
+        professional.name AS professional_name,
+        service.name AS service_name
+    `,
+    [appointmentId, professionalId, config.googleCalendarTimeZone],
+  );
+  if (result.rows[0]) return result.rows[0];
+
+  const existing = await query(
+    `
+      SELECT
+        id,
+        status,
+        patient_email,
+        triage_url,
+        triage_reminder_last_attempted_at,
+        ((appointment_date + start_time) AT TIME ZONE $3) > NOW() AS is_future
+      FROM appointments
+      WHERE id = $1 AND professional_id = $2
+    `,
+    [appointmentId, professionalId, config.googleCalendarTimeZone],
+  );
+  const row = existing.rows[0];
+  if (!row) throw triageReminderError("TRIAGE_REMINDER_NOT_FOUND", 404);
+  if (
+    row.status !== "confirmed" ||
+    !row.patient_email ||
+    !row.triage_url ||
+    !row.is_future
+  ) {
+    throw triageReminderError("TRIAGE_REMINDER_NOT_AVAILABLE", 409);
+  }
+  throw triageReminderError("TRIAGE_REMINDER_RATE_LIMITED", 429);
+};
+
+export const notifyPatientTriageReminder = async (
+  appointmentId,
+  professionalId,
+  { actorUserId = null } = {},
+) => {
+  const appointment = await claimManualTriageReminder(appointmentId, professionalId);
+  try {
+    const result = await sendEmail({
+      formName: "recordatorio-triaje-paciente",
+      to: appointment.patient_email,
+      subject: `Completá tu cuestionario antes del turno del ${formatDate(appointment.appointment_date)}`,
+      text: patientTriageReminderText({ appointment }),
+      html: patientTriageReminderHtml({ appointment }),
+    });
+    const updated = await query(
+      `
+        UPDATE appointments
+        SET triage_reminder_sent_at = NOW(),
+            triage_reminder_message_id = $2,
+            triage_reminder_error = NULL,
+            triage_reminder_count = triage_reminder_count + 1,
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING triage_reminder_sent_at, triage_reminder_count
+      `,
+      [appointment.id, result?.id || ""],
+    );
+    await recordAudit("appointment.triage_reminder_sent", {
+      actorUserId,
+      detail: {
+        appointment_id: Number(appointment.id),
+        professional_id: Number(professionalId),
+        message_id: result?.id || "",
+      },
+    });
+    return {
+      ok: true,
+      email: appointment.patient_email,
+      sent_at: updated.rows[0]?.triage_reminder_sent_at || new Date().toISOString(),
+      count: Number(updated.rows[0]?.triage_reminder_count || 1),
+    };
+  } catch (error) {
+    await query(
+      `
+        UPDATE appointments
+        SET triage_reminder_error = $2, updated_at = NOW()
+        WHERE id = $1
+      `,
+      [appointment.id, String(error.message || "EMAIL_SEND_FAILED").slice(0, 500)],
+    );
+    await recordAudit("appointment.triage_reminder_failed", {
+      actorUserId,
+      detail: {
+        appointment_id: Number(appointment.id),
+        professional_id: Number(professionalId),
+        error: String(error.message || "EMAIL_SEND_FAILED").slice(0, 120),
+      },
+    });
+    throw error;
   }
 };
 

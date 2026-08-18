@@ -17,7 +17,10 @@ import {
 } from "./professional-links.mjs";
 import { parseMultipartForm, saveProfessionalPhoto } from "./uploads.mjs";
 import { createMercadoPagoFullRefund } from "./mercado-pago.mjs";
-import { notifyPatientForCancellation } from "./appointment-notifications.mjs";
+import {
+  notifyPatientForCancellation,
+  notifyPatientTriageReminder,
+} from "./appointment-notifications.mjs";
 import {
   cancelGoogleCalendarAppointment,
   createGoogleOAuthAuthorization,
@@ -641,12 +644,15 @@ const listPatients = async (url, response, account) => {
         patient.full_name,
         patient.email,
         patient.phone,
+        next_appointment.id AS next_appointment_id,
         next_appointment.appointment_date AS next_appointment_date,
         next_appointment.start_time AS next_start_time,
         next_appointment.end_time AS next_end_time,
         next_appointment.service_name AS next_service_name,
         next_appointment.triage_url AS next_triage_url,
         next_appointment.triage_assignment_error AS next_triage_error,
+        next_appointment.triage_reminder_sent_at AS next_triage_reminder_sent_at,
+        next_appointment.triage_reminder_count AS next_triage_reminder_count,
         COALESCE(next_appointment.agreement_name, latest_appointment.agreement_name, '') AS source_name,
         COALESCE(next_appointment.agreement_type, latest_appointment.agreement_type, '') AS source_type,
         COALESCE(next_appointment.payment_status, latest_appointment.payment_status, '') AS payment_status,
@@ -656,11 +662,14 @@ const listPatients = async (url, response, account) => {
       FROM patients patient
       LEFT JOIN LATERAL (
         SELECT
+          appointment.id,
           appointment.appointment_date,
           appointment.start_time,
           appointment.end_time,
           appointment.triage_url,
           appointment.triage_assignment_error,
+          appointment.triage_reminder_sent_at,
+          appointment.triage_reminder_count,
           appointment.agreement_name_snapshot AS agreement_name,
           appointment.agreement_type_snapshot AS agreement_type,
           appointment.payment_status,
@@ -730,10 +739,13 @@ const listPatients = async (url, response, account) => {
       phone: row.phone || "",
       next_appointment: row.next_appointment_date
         ? {
+            id: Number(row.next_appointment_id),
             date: row.next_appointment_date,
             start_time: String(row.next_start_time || "").slice(0, 5),
             end_time: String(row.next_end_time || "").slice(0, 5),
             service_name: row.next_service_name || "",
+            triage_reminder_sent_at: row.next_triage_reminder_sent_at || null,
+            triage_reminder_count: Number(row.next_triage_reminder_count || 0),
           }
         : null,
       practice: row.next_service_name || row.latest_service_name || "",
@@ -780,6 +792,8 @@ const mapAppointment = (row) => ({
     : row.triage_assignment_error
       ? "failed"
       : "pending",
+  triage_reminder_sent_at: row.triage_reminder_sent_at || null,
+  triage_reminder_count: Number(row.triage_reminder_count || 0),
 });
 
 const listProfessionalAppointments = async (
@@ -808,6 +822,8 @@ const listProfessionalAppointments = async (
         a.google_sync_error,
         a.triage_url,
         a.triage_assignment_error,
+        a.triage_reminder_sent_at,
+        a.triage_reminder_count,
         s.name AS service_name
       FROM appointments a
       INNER JOIN services s ON s.id = a.service_id
@@ -962,6 +978,20 @@ const cancelAppointment = async (request, response, account, appointmentId) => {
     },
     notification,
     google_calendar: googleCancellation,
+  });
+};
+
+const sendTriageReminder = async (response, account, appointmentId) => {
+  const result = await notifyPatientTriageReminder(
+    appointmentId,
+    account.user.professional_id,
+    { actorUserId: account.user.id },
+  );
+  sendJson(response, 200, {
+    ok: true,
+    message: `Recordatorio enviado a ${result.email}.`,
+    triage_reminder_sent_at: result.sent_at,
+    triage_reminder_count: result.count,
   });
 };
 
@@ -1140,6 +1170,17 @@ export const handleProfessionalApi = async (request, response, url) => {
       );
       return true;
     }
+    const appointmentTriageReminderMatch = pathname.match(
+      /^\/api\/professional\/appointments\/(\d+)\/triage-reminder$/,
+    );
+    if (appointmentTriageReminderMatch && request.method === "POST") {
+      await sendTriageReminder(
+        response,
+        account,
+        Number(appointmentTriageReminderMatch[1]),
+      );
+      return true;
+    }
 
     return false;
   } catch (error) {
@@ -1192,6 +1233,30 @@ export const handleProfessionalApi = async (request, response, url) => {
     }
     if (error.message === "APPOINTMENT_NOT_CANCELLABLE") {
       sendJson(response, 409, { error: "Ese turno ya no se puede cancelar." });
+      return true;
+    }
+    if (error.message === "TRIAGE_REMINDER_NOT_FOUND") {
+      sendJson(response, 404, { error: "No encontramos ese turno." });
+      return true;
+    }
+    if (error.message === "TRIAGE_REMINDER_NOT_AVAILABLE") {
+      sendJson(response, 409, {
+        error: "El recordatorio sólo está disponible para turnos futuros con cuestionario asignado.",
+      });
+      return true;
+    }
+    if (error.message === "TRIAGE_REMINDER_RATE_LIMITED") {
+      sendJson(response, 429, {
+        error: "El recordatorio ya fue solicitado. Esperá unos minutos antes de reenviarlo.",
+      });
+      return true;
+    }
+    if (
+      ["EMAIL_SEND_FAILED", "EMAIL_CONFIGURATION_MISSING"].includes(error.message)
+    ) {
+      sendJson(response, 502, {
+        error: "No se pudo enviar el recordatorio. Probá nuevamente en unos minutos.",
+      });
       return true;
     }
     if (error.message === "GOOGLE_NOT_CONFIGURED") {
