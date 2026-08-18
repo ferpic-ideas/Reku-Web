@@ -305,6 +305,10 @@
         <path d="M15 12H3" />
         <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
       `,
+      mail: `
+        <rect width="20" height="16" x="2" y="4" rx="2" />
+        <path d="m22 7-8.97 5.7a2 2 0 0 1-2.06 0L2 7" />
+      `,
       trash: `
         <path d="M3 6h18" />
         <path d="M8 6V4h8v2" />
@@ -897,6 +901,62 @@
       `;
     }
 
+    if (state.dialog.type === 'professional-create-choice') {
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-panel" role="dialog" aria-modal="true">
+            <div class="modal-header">
+              <div>
+                <h2>Nuevo profesional</h2>
+                <p class="muted">Elegí cómo querés darlo de alta.</p>
+              </div>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            <div class="professional-create-options">
+              <button type="button" class="professional-create-option" data-action="create-professional-manual">
+                <strong>Crearlo manualmente</strong>
+                <span>Cargás la ficha, prácticas, horarios y clave de acceso.</span>
+              </button>
+              <button type="button" class="professional-create-option" data-action="invite-professional">
+                <strong>Invitar por mail</strong>
+                <span>Cargás nombre y email; el profesional configura el resto.</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (state.dialog.type === 'professional-invite-form') {
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel" id="professional-invite-form">
+            <div class="modal-header">
+              <div>
+                <h2>Invitar profesional</h2>
+                <p class="muted">Va a recibir un enlace para crear su clave y configurar su ficha.</p>
+              </div>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            <div class="grid-two">
+              <label>
+                Nombre
+                <input name="name" autocomplete="name" required />
+              </label>
+              <label>
+                Email
+                <input name="email" type="email" autocomplete="email" required />
+              </label>
+              <div class="form-actions span-two">
+                <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
+                <button type="submit" class="primary-button">Enviar invitación</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      `;
+    }
+
     if (state.dialog.type === 'schedule-block-form') {
       return `
         <div class="modal-backdrop">
@@ -1192,7 +1252,7 @@
 
   function renderProfessionalFormFields() {
     const item = professionalFormValues();
-    const needsAccount = !item.has_user;
+    const needsAccount = !item.has_user && !item.invitation_pending;
     const isEditing = Boolean(state.editingProfessionalId);
     return `
       <div class="grid-two">
@@ -1211,6 +1271,8 @@
               ${
                 item.has_user
                   ? `Cuenta activa: ${escapeHtml(item.user_email || item.email)}`
+                  : item.invitation_pending
+                    ? `Invitación pendiente para ${escapeHtml(item.user_email || item.email)}. Podés guardar los datos sin crearle una clave manual.`
                   : isEditing
                     ? 'Este profesional todavía no tiene una cuenta activa. Para guardar los cambios, tenés que crearla o reactivarla ahora.'
                     : 'La cuenta se creará junto con la ficha profesional.'
@@ -1218,7 +1280,7 @@
             </p>
           </div>
           <label>
-            ${item.has_user ? 'Nueva clave (opcional)' : 'Clave de acceso'}
+            ${item.has_user || item.invitation_pending ? 'Nueva clave (opcional)' : 'Clave de acceso'}
             <input
               name="account_password"
               type="password"
@@ -1227,7 +1289,11 @@
               ${needsAccount ? 'required' : ''}
             />
             <span class="field-help">
-              ${item.has_user ? 'Dejala vacía para conservar la clave actual.' : 'Mínimo 8 caracteres.'}
+              ${item.has_user
+                ? 'Dejala vacía para conservar la clave actual.'
+                : item.invitation_pending
+                  ? 'Dejala vacía para que el profesional la cree desde su invitación.'
+                  : 'Mínimo 8 caracteres.'}
             </span>
           </label>
         </div>
@@ -1336,6 +1402,11 @@
         <td>${professional.active ? 'Activo' : 'Inactivo'}</td>
         <td>
           <div class="table-actions">
+            ${
+              can('professionals.write') && !professional.has_user
+                ? `<button type="button" class="table-icon-button" data-action="invite-existing-professional" data-id="${professional.id}" aria-label="${professional.invitation_pending ? 'Reenviar invitación' : 'Enviar invitación'}" title="${professional.invitation_pending ? 'Reenviar invitación' : 'Enviar invitación'}">${actionIcon('mail')}</button>`
+                : ''
+            }
             ${
               can('professionals.write')
                 ? `<button type="button" class="table-icon-button" data-action="edit-professional" data-id="${professional.id}" aria-label="Editar profesional" title="Editar profesional">${actionIcon('edit')}</button>`
@@ -2659,6 +2730,7 @@
     document.getElementById('nomina-csv-form')?.addEventListener('submit', handleNominaCsvSubmit);
     document.getElementById('service-form')?.addEventListener('submit', handleServiceSubmit);
     document.getElementById('professional-form')?.addEventListener('submit', handleProfessionalSubmit);
+    document.getElementById('professional-invite-form')?.addEventListener('submit', handleProfessionalInviteSubmit);
     document.getElementById('schedule-block-form')?.addEventListener('submit', handleScheduleBlockSubmit);
     document.getElementById('mercado-pago-form')?.addEventListener('submit', handleMercadoPagoSubmit);
     document.getElementById('user-form')?.addEventListener('submit', handleUserSubmit);
@@ -2992,8 +3064,31 @@
       }
       if (action === 'new-professional') {
         state.editingProfessionalId = null;
+        state.dialog = { type: 'professional-create-choice' };
+        render();
+        return;
+      }
+      if (action === 'create-professional-manual') {
+        state.editingProfessionalId = null;
         state.dialog = { type: 'professional-form' };
         render();
+        return;
+      }
+      if (action === 'invite-professional') {
+        state.editingProfessionalId = null;
+        state.dialog = { type: 'professional-invite-form' };
+        render();
+        return;
+      }
+      if (action === 'invite-existing-professional') {
+        const result = await api(`/api/admin/professionals/${id}/invite`, { method: 'POST' });
+        await loadData();
+        setStatus(
+          result.invitation_sent
+            ? 'Invitación enviada.'
+            : 'La invitación quedó creada, pero el mail no pudo enviarse. Podés reintentarlo.',
+          result.invitation_sent ? 'ok' : 'error',
+        );
         return;
       }
       if (action === 'edit-professional') {
@@ -3249,6 +3344,27 @@
       state.dialog = null;
       await loadData();
       setStatus('Profesional guardado.', 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  async function handleProfessionalInviteSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      const result = await api('/api/admin/professionals/invite', {
+        method: 'POST',
+        body: { name: form.name.value, email: form.email.value },
+      });
+      state.dialog = null;
+      await loadData();
+      setStatus(
+        result.invitation_sent
+          ? 'Profesional creado e invitación enviada.'
+          : 'El profesional quedó creado, pero el mail no pudo enviarse. Podés reintentarlo desde el ícono de mail.',
+        result.invitation_sent ? 'ok' : 'error',
+      );
     } catch (error) {
       setStatus(error.message, 'error');
     }

@@ -699,6 +699,15 @@ a:focus-visible {
     color 150ms ease;
 }
 
+button {
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
 .primary-button {
   color: #ffffff;
   background: #18213f;
@@ -999,6 +1008,44 @@ tr:hover td {
   background: transparent;
   cursor: pointer;
   font-weight: 800;
+}
+
+.link-button:hover {
+  color: #087889;
+  text-decoration: underline;
+}
+
+.professional-create-options {
+  display: grid;
+  gap: 12px;
+}
+
+.professional-create-option {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  color: #18213f;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.professional-create-option:hover {
+  border-color: #9cd4dc;
+  background: #eef9fb;
+  box-shadow: 0 8px 22px rgb(15 97 109 / 10%);
+}
+
+.professional-create-option strong {
+  font-size: 16px;
+}
+
+.professional-create-option span {
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .availability-editor {

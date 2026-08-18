@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  createPendingProfessionalUser,
   syncProfessionalUser,
   validateProfessionalPassword,
 } from "../src/professional-users.mjs";
@@ -27,6 +28,65 @@ test("professional account password is mandatory for a new or missing account", 
   );
   assert.equal(validateProfessionalPassword("12345678"), "12345678");
   assert.equal(validateProfessionalPassword(""), "");
+});
+
+test("an email invitation reserves an inactive professional account", async () => {
+  const client = fakeClient(
+    { rows: [] },
+    {
+      rows: [
+        {
+          id: "55",
+          email: "invite@example.com",
+          name: "Profesional invitado",
+          role: "professional",
+          professional_id: "18",
+          is_active: false,
+        },
+      ],
+    },
+  );
+
+  const user = await createPendingProfessionalUser(client, {
+    professionalId: 18,
+    name: "Profesional invitado",
+    email: "INVITE@example.com",
+    passwordHash: "unusable-placeholder",
+  });
+
+  assert.equal(user.is_active, false);
+  assert.match(client.calls[1].sql, /is_active\)/);
+  assert.deepEqual(client.calls[1].parameters, [
+    "invite@example.com",
+    "Profesional invitado",
+    "unusable-placeholder",
+    18,
+  ]);
+});
+
+test("an invitation cannot replace an active account", async () => {
+  const client = fakeClient({
+    rows: [
+      {
+        id: "55",
+        email: "invite@example.com",
+        role: "professional",
+        professional_id: "18",
+        is_active: true,
+      },
+    ],
+  });
+
+  await assert.rejects(
+    () =>
+      createPendingProfessionalUser(client, {
+        professionalId: 18,
+        name: "Profesional invitado",
+        email: "invite@example.com",
+        passwordHash: "unusable-placeholder",
+      }),
+    { message: "PROFESSIONAL_EMAIL_IN_USE" },
+  );
 });
 
 test("creating a professional also inserts its professional user", async () => {

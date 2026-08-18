@@ -41,6 +41,9 @@ export const config = {
   ),
   professionalSessionCookieName:
     process.env.PROFESSIONAL_SESSION_COOKIE_NAME || "reku_professional_session",
+  professionalInvitationTtlHours: Number(
+    process.env.PROFESSIONAL_INVITATION_TTL_HOURS || 72,
+  ),
   mercadoPagoWebhookMaxAgeSeconds: Number(
     process.env.MP_WEBHOOK_MAX_AGE_SECONDS || 300,
   ),
@@ -105,6 +108,7 @@ export const assertSafeStartup = () => {
   }
   if (
     config.professionalLinkTtlHours < 1 ||
+    config.professionalInvitationTtlHours < 1 ||
     config.professionalSessionTtlSeconds < 300 ||
     config.mercadoPagoWebhookMaxAgeSeconds < 30
   ) {

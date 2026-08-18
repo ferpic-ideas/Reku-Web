@@ -7,6 +7,7 @@ import {
   tx,
 } from "./db.mjs";
 import QRCode from "qrcode";
+import { randomBytes } from "node:crypto";
 import { getClientIp, readBody, sendJson, withSecurityHeaders } from "./http.mjs";
 import { parseNominaCsv, serializeCsv } from "./csv.mjs";
 import { sendEmail } from "./email.mjs";
@@ -49,9 +50,14 @@ import {
 } from "./authorization.mjs";
 import { revokeProfessionalAccess } from "./professional-links.mjs";
 import {
+  createPendingProfessionalUser,
   syncProfessionalUser,
   validateProfessionalPassword,
 } from "./professional-users.mjs";
+import {
+  createProfessionalInvitation,
+  sendProfessionalInvitation,
+} from "./professional-invitations.mjs";
 
 const canDeleteRecords = (user) => hasPermission(user, "records.delete");
 const canManageSystem = (user) => hasPermission(user, "users.write");
@@ -1286,6 +1292,10 @@ const mapProfessional = (row) => ({
   user_id: row.user_id ? Number(row.user_id) : null,
   user_email: row.user_email || "",
   user_is_active: Boolean(row.user_is_active),
+  invitation_pending: Boolean(row.invitation_id),
+  invitation_expires_at: row.invitation_expires_at || null,
+  invitation_sent_at: row.invitation_sent_at || null,
+  invitation_email_error: row.invitation_email_error || "",
   calendar_connected: row.google_calendar_status === "active",
   calendar_status: row.google_calendar_status || "not_connected",
   created_at: row.created_at,
@@ -1300,6 +1310,10 @@ const professionalSelect = `
     pu.role AS user_role,
     pu.is_active AS user_is_active,
     pgc.status AS google_calendar_status,
+    pending_invitation.id AS invitation_id,
+    pending_invitation.expires_at AS invitation_expires_at,
+    pending_invitation.sent_at AS invitation_sent_at,
+    pending_invitation.email_error AS invitation_email_error,
     COALESCE(
       (
         SELECT json_agg(json_build_object('id', s.id, 'name', s.name) ORDER BY s.name)
@@ -1328,6 +1342,16 @@ const professionalSelect = `
   FROM professionals p
   LEFT JOIN users pu ON pu.professional_id = p.id
   LEFT JOIN professional_google_connections pgc ON pgc.professional_id = p.id
+  LEFT JOIN LATERAL (
+    SELECT invitation.id, invitation.expires_at, invitation.sent_at, invitation.email_error
+    FROM professional_invitations invitation
+    WHERE invitation.professional_id = p.id
+      AND invitation.accepted_at IS NULL
+      AND invitation.revoked_at IS NULL
+      AND invitation.expires_at > NOW()
+    ORDER BY invitation.created_at DESC
+    LIMIT 1
+  ) pending_invitation ON TRUE
 `;
 
 const listProfessionals = async (response) => {
@@ -1486,6 +1510,135 @@ const createProfessional = async (request, response, user) => {
   });
 };
 
+const invitationPayload = async (request) => {
+  const payload = await parseJsonBody(request);
+  const name = String(payload.name || "").trim().slice(0, 180);
+  const email = String(payload.email || "").trim().toLowerCase();
+  if (!name) {
+    const error = new Error("PROFESSIONAL_NAME_REQUIRED");
+    error.statusCode = 422;
+    throw error;
+  }
+  if (!emailPattern.test(email)) {
+    const error = new Error("PROFESSIONAL_EMAIL_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+  return { name, email };
+};
+
+const prepareProfessionalInvitation = async ({ professional, actorUserId }) => {
+  const placeholderPasswordHash = await hashPassword(randomBytes(48).toString("base64url"));
+  return tx(async (client) => {
+    const account = await createPendingProfessionalUser(client, {
+      professionalId: professional.id,
+      name: professional.name,
+      email: professional.email,
+      passwordHash: placeholderPasswordHash,
+    });
+    const invitation = await createProfessionalInvitation(client, {
+      professionalId: professional.id,
+      userId: account.id,
+      email: professional.email,
+      createdByUserId: actorUserId,
+    });
+    return { account, invitation };
+  });
+};
+
+const inviteProfessional = async (request, response, user) => {
+  const payload = await invitationPayload(request);
+  const result = await tx(async (client) => {
+    const professionalResult = await client.query(
+      `
+        INSERT INTO professionals (name, email, active)
+        VALUES ($1, $2, TRUE)
+        RETURNING id, name, email
+      `,
+      [payload.name, payload.email],
+    );
+    const professional = professionalResult.rows[0];
+    const placeholderPasswordHash = await hashPassword(
+      randomBytes(48).toString("base64url"),
+    );
+    const account = await createPendingProfessionalUser(client, {
+      professionalId: professional.id,
+      name: professional.name,
+      email: professional.email,
+      passwordHash: placeholderPasswordHash,
+    });
+    const invitation = await createProfessionalInvitation(client, {
+      professionalId: professional.id,
+      userId: account.id,
+      email: professional.email,
+      createdByUserId: user.id,
+    });
+    return { professional, account, invitation };
+  });
+  const delivery = await sendProfessionalInvitation({
+    invitationId: result.invitation.id,
+    professionalId: Number(result.professional.id),
+    name: result.professional.name,
+    email: result.professional.email,
+    url: result.invitation.url,
+  });
+  await recordAudit("professional.invited", {
+    actorUserId: user.id,
+    detail: {
+      professional_id: Number(result.professional.id),
+      professional_user_id: Number(result.account.id),
+      email: result.professional.email,
+      email_sent: delivery.sent,
+    },
+  });
+  sendJson(response, 201, {
+    professional: await getProfessionalMapped(result.professional.id),
+    invitation_sent: delivery.sent,
+  });
+};
+
+const resendProfessionalInvitation = async (response, user, id) => {
+  const professional = await one(
+    `
+      SELECT id, name, email
+      FROM professionals
+      WHERE id = $1 AND deleted_at IS NULL
+    `,
+    [id],
+  );
+  if (!professional) {
+    sendJson(response, 404, { error: "Profesional no encontrado." });
+    return;
+  }
+  const activeAccount = await one(
+    "SELECT id FROM users WHERE professional_id = $1 AND is_active = TRUE",
+    [id],
+  );
+  if (activeAccount) {
+    sendJson(response, 409, { error: "La cuenta profesional ya está activa." });
+    return;
+  }
+  const result = await prepareProfessionalInvitation({
+    professional,
+    actorUserId: user.id,
+  });
+  const delivery = await sendProfessionalInvitation({
+    invitationId: result.invitation.id,
+    professionalId: Number(professional.id),
+    name: professional.name,
+    email: professional.email,
+    url: result.invitation.url,
+  });
+  await recordAudit("professional.invitation.resent", {
+    actorUserId: user.id,
+    detail: { professional_id: id, email: professional.email, email_sent: delivery.sent },
+  });
+  sendJson(response, 200, {
+    professional: await getProfessionalMapped(id),
+    invitation_sent: delivery.sent,
+  });
+};
+
 const updateProfessional = async (request, response, user, id) => {
   const current = await getProfessionalMapped(id);
   if (!current) {
@@ -1495,9 +1648,13 @@ const updateProfessional = async (request, response, user, id) => {
 
   const payload = await professionalPayloadFromMultipart(request);
   const password = validateProfessionalPassword(payload.fields.password, {
-    required: !current.has_user,
+    required: !current.has_user && !current.invitation_pending,
   });
   const passwordHash = password ? await hashPassword(password) : null;
+  const pendingPasswordHash =
+    current.invitation_pending && !passwordHash
+      ? await hashPassword(randomBytes(48).toString("base64url"))
+      : null;
   const photoPath = await saveProfessionalPhoto(payload.files.photo);
   const account = await tx(async (client) => {
     await client.query(
@@ -1532,12 +1689,44 @@ const updateProfessional = async (request, response, user, id) => {
       payload.fields.serviceIds,
       payload.fields.availability,
     );
-    return syncProfessionalUser(client, {
+    if (current.invitation_pending && !passwordHash) {
+      const pendingAccount = await createPendingProfessionalUser(client, {
+        professionalId: id,
+        name: payload.fields.name,
+        email: payload.fields.email,
+        passwordHash: pendingPasswordHash,
+      });
+      await client.query(
+        `
+          UPDATE professional_invitations
+          SET email = $1, updated_at = NOW()
+          WHERE professional_id = $2
+            AND accepted_at IS NULL
+            AND revoked_at IS NULL
+        `,
+        [payload.fields.email, id],
+      );
+      return { user: pendingAccount, action: "invitation_pending" };
+    }
+    const syncedAccount = await syncProfessionalUser(client, {
       professionalId: id,
       name: payload.fields.name,
       email: payload.fields.email,
       passwordHash,
     });
+    if (current.invitation_pending) {
+      await client.query(
+        `
+          UPDATE professional_invitations
+          SET revoked_at = NOW(), updated_at = NOW()
+          WHERE professional_id = $1
+            AND accepted_at IS NULL
+            AND revoked_at IS NULL
+        `,
+        [id],
+      );
+    }
+    return syncedAccount;
   });
   await recordAudit("professional.updated", {
     actorUserId: user.id,
@@ -2043,6 +2232,10 @@ export const handleAdminApi = async (request, response, url) => {
       await createProfessional(request, response, user);
       return true;
     }
+    if (pathname === "/api/admin/professionals/invite" && request.method === "POST") {
+      await inviteProfessional(request, response, user);
+      return true;
+    }
     const professionalMatch = pathname.match(/^\/api\/admin\/professionals\/(\d+)$/);
     if (professionalMatch && request.method === "PUT") {
       await updateProfessional(request, response, user, Number(professionalMatch[1]));
@@ -2055,6 +2248,17 @@ export const handleAdminApi = async (request, response, url) => {
     const professionalRevokeMatch = pathname.match(
       /^\/api\/admin\/professionals\/(\d+)\/revoke-access$/,
     );
+    const professionalInviteMatch = pathname.match(
+      /^\/api\/admin\/professionals\/(\d+)\/invite$/,
+    );
+    if (professionalInviteMatch && request.method === "POST") {
+      await resendProfessionalInvitation(
+        response,
+        user,
+        Number(professionalInviteMatch[1]),
+      );
+      return true;
+    }
     if (professionalRevokeMatch && request.method === "POST") {
       await revokeProfessionalLinksAndSessions(
         response,

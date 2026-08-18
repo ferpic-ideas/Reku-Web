@@ -43,8 +43,14 @@ const routeRules = [
   ["DELETE", /^\/api\/admin\/services\/\d+$/, "services.delete"],
   ["GET", /^\/api\/admin\/professionals$/, "professionals.read"],
   ["POST", /^\/api\/admin\/professionals$/, "professionals.write"],
+  ["POST", /^\/api\/admin\/professionals\/invite$/, "professionals.write"],
   ["PUT", /^\/api\/admin\/professionals\/\d+$/, "professionals.write"],
   ["DELETE", /^\/api\/admin\/professionals\/\d+$/, "professionals.delete"],
+  [
+    "POST",
+    /^\/api\/admin\/professionals\/\d+\/invite$/,
+    "professionals.write",
+  ],
   [
     "POST",
     /^\/api\/admin\/professionals\/\d+\/revoke-access$/,

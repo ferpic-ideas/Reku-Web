@@ -21,6 +21,73 @@ export const validateProfessionalPassword = (value, { required = false } = {}) =
 const accountMatchesProfessional = (account, professionalId) =>
   Number(account?.professional_id) === Number(professionalId);
 
+export const createPendingProfessionalUser = async (
+  client,
+  { professionalId, name, email, passwordHash },
+) => {
+  const normalizedEmail = String(email || "").toLowerCase();
+  const accounts = await client.query(
+    `
+      SELECT id, email, role, professional_id, is_active
+      FROM users
+      WHERE professional_id = $1
+         OR lower(email) = lower($2)
+      ORDER BY id
+      FOR UPDATE
+    `,
+    [professionalId, normalizedEmail],
+  );
+  const linkedAccount = accounts.rows.find((account) =>
+    accountMatchesProfessional(account, professionalId),
+  );
+  const emailOwner = accounts.rows.find(
+    (account) => String(account.email || "").toLowerCase() === normalizedEmail,
+  );
+
+  if (linkedAccount?.is_active || (emailOwner?.is_active && emailOwner !== linkedAccount)) {
+    throw professionalAccountError("PROFESSIONAL_EMAIL_IN_USE", 409);
+  }
+  if (linkedAccount && emailOwner && Number(linkedAccount.id) !== Number(emailOwner.id)) {
+    throw professionalAccountError("PROFESSIONAL_EMAIL_IN_USE", 409);
+  }
+  if (emailOwner?.professional_id && !accountMatchesProfessional(emailOwner, professionalId)) {
+    throw professionalAccountError("PROFESSIONAL_EMAIL_IN_USE", 409);
+  }
+
+  const reusable = linkedAccount || emailOwner;
+  if (reusable) {
+    const result = await client.query(
+      `
+        UPDATE users
+        SET email = $1,
+            name = $2,
+            password_hash = $3,
+            role = 'professional',
+            professional_id = $4,
+            permissions = ARRAY[]::TEXT[],
+            is_active = FALSE,
+            session_version = session_version + 1,
+            updated_at = NOW()
+        WHERE id = $5
+        RETURNING id, email, name, role, professional_id, is_active
+      `,
+      [normalizedEmail, name, passwordHash, professionalId, reusable.id],
+    );
+    return result.rows[0];
+  }
+
+  const result = await client.query(
+    `
+      INSERT INTO users
+        (email, name, password_hash, role, professional_id, permissions, is_active)
+      VALUES ($1, $2, $3, 'professional', $4, ARRAY[]::TEXT[], FALSE)
+      RETURNING id, email, name, role, professional_id, is_active
+    `,
+    [normalizedEmail, name, passwordHash, professionalId],
+  );
+  return result.rows[0];
+};
+
 export const syncProfessionalUser = async (
   client,
   { professionalId, name, email, passwordHash = null },

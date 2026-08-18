@@ -21,6 +21,7 @@
     loading: true,
     user: null,
     profile: null,
+    services: [],
     active: 'overview',
     csrf: '',
     appointments: [],
@@ -29,6 +30,8 @@
     blocks: [],
     google: { available: false, connected: false, status: 'not_configured' },
     patientSearch: '',
+    selectedPatientId: null,
+    invitationToken: new URLSearchParams(window.location.hash.slice(1)).get('invite') || '',
     status: '',
     statusType: '',
   };
@@ -106,6 +109,7 @@
       api('/api/professional/integrations/google'),
     ]);
     state.profile = profile.profile;
+    state.services = profile.services || [];
     state.availability = availability.availability || [];
     state.blocks = blocks.schedule_blocks || [];
     state.patients = patients.patients || [];
@@ -167,6 +171,41 @@
       </main>
     `;
     document.getElementById('login-form').addEventListener('submit', handleLogin);
+  }
+
+  function renderInvitation() {
+    app.className = '';
+    app.innerHTML = `
+      <main class="login-shell">
+        <section class="login-story">
+          <img src="/images/logo-reku.svg" alt="Reku" />
+          <div>
+            <h1>Tu espacio profesional empieza acá.</h1>
+            <p>Activá tu cuenta y después completá tus prácticas, horarios y conexión con Google Calendar.</p>
+          </div>
+        </section>
+        <section class="login-panel">
+          <form id="invitation-form" class="login-form form-stack">
+            <div>
+              <h2>Activar cuenta</h2>
+              <p>Elegí la contraseña que vas a usar para ingresar al portal.</p>
+            </div>
+            <label>
+              Contraseña
+              <input name="password" type="password" minlength="8" autocomplete="new-password" required />
+              <span class="field-help">Mínimo 8 caracteres.</span>
+            </label>
+            <label>
+              Repetir contraseña
+              <input name="password_confirmation" type="password" minlength="8" autocomplete="new-password" required />
+            </label>
+            <button class="primary-button" type="submit">Activar y entrar</button>
+            ${renderStatus()}
+          </form>
+        </section>
+      </main>
+    `;
+    document.getElementById('invitation-form').addEventListener('submit', handleInvitation);
   }
 
   function renderSidebar() {
@@ -303,16 +342,80 @@
       <section class="panel">
         <div class="panel-header">
           <h2>Agenda</h2>
-          <span class="badge">Reembolso automático para pagos aprobados</span>
         </div>
         ${renderAppointmentsTable(items)}
       </section>
     `;
   }
 
-  function renderPatients() {
+  const paymentStatusLabel = (value) =>
+    ({
+      approved: 'Pagado',
+      paid_simulated: 'Pagado',
+      free: 'Sin costo',
+      nomina: 'Cubierto por acuerdo',
+      pending: 'Pago pendiente',
+      in_process: 'Pago en proceso',
+      authorized: 'Pago autorizado',
+      rejected: 'Pago rechazado',
+      cancelled: 'Pago cancelado',
+      refunded: 'Reembolsado',
+      charged_back: 'Contracargo',
+    })[value] || 'Sin información';
+
+  const patientSourceLabel = (patient) => {
+    if (String(patient.source?.type || '').toLowerCase() === 'nomina') {
+      return patient.source?.name ? `Acuerdo · ${patient.source.name}` : 'Acuerdo';
+    }
+    if (patient.source?.type || patient.payment?.status) {
+      return `Pago · ${paymentStatusLabel(patient.payment?.status)}`;
+    }
+    return 'Sin información';
+  };
+
+  const triageLabel = (status) =>
+    ({
+      assigned: 'Enlace enviado',
+      failed: 'No disponible',
+      pending: 'Pendiente',
+      not_applicable: 'Sin próximo turno',
+    })[status] || 'Sin información';
+
+  function renderPatientDetails(patient) {
+    if (!patient) return '';
     return `
-      ${pageHeader('Pacientes', 'Directorio global de contacto. No incluye datos clínicos, de pago o nómina.')}
+      <div class="modal-backdrop" role="presentation">
+        <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="patient-details-title">
+          <div class="modal-header">
+            <div>
+              <span class="eyebrow">Paciente</span>
+              <h2 id="patient-details-title">${escapeHtml(patient.name || 'Sin nombre')}</h2>
+            </div>
+            <button class="icon-button" data-action="close-patient-details" type="button" aria-label="Cerrar detalles" title="Cerrar">×</button>
+          </div>
+          <dl class="patient-details-grid">
+            <div><dt>Email</dt><dd>${patient.email ? `<a href="mailto:${escapeHtml(patient.email)}">${escapeHtml(patient.email)}</a>` : '—'}</dd></div>
+            <div><dt>Teléfono</dt><dd>${patient.phone ? `<a href="tel:${escapeHtml(patient.phone)}">${escapeHtml(patient.phone)}</a>` : '—'}</dd></div>
+            <div><dt>Próximo turno</dt><dd>${patient.next_appointment ? `${escapeHtml(formatDate(patient.next_appointment.date))} · ${escapeHtml(patient.next_appointment.start_time)}–${escapeHtml(patient.next_appointment.end_time)}` : 'Sin próximo turno'}</dd></div>
+            <div><dt>Práctica</dt><dd>${escapeHtml(patient.practice || 'Sin información')}</dd></div>
+            <div><dt>Triaje</dt><dd>${escapeHtml(triageLabel(patient.triage_status))}</dd></div>
+            <div><dt>Origen</dt><dd>${escapeHtml(patientSourceLabel(patient))}</dd></div>
+            <div><dt>Importe</dt><dd>${patient.payment?.amount ? escapeHtml(new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(patient.payment.amount)) : '—'}</dd></div>
+            <div><dt>Último turno registrado</dt><dd>${patient.latest_appointment_date ? escapeHtml(formatDate(patient.latest_appointment_date)) : '—'}</dd></div>
+          </dl>
+          <p class="details-note">Reku muestra si el enlace de triaje fue asignado. La confirmación de que el paciente lo completó todavía no está disponible.</p>
+          <div class="form-actions"><button class="secondary-button" data-action="close-patient-details" type="button">Cerrar</button></div>
+        </section>
+      </div>
+    `;
+  }
+
+  function renderPatients() {
+    const selectedPatient = state.patients.find(
+      (patient) => Number(patient.id) === Number(state.selectedPatientId),
+    );
+    return `
+      ${pageHeader('Pacientes', 'Contacto, próxima atención y situación administrativa de cada paciente.')}
       <section class="panel">
         <div class="panel-header">
           <h2>Directorio</h2>
@@ -326,15 +429,23 @@
             ? `
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Paciente</th><th>Email</th><th>Teléfono</th></tr></thead>
+                  <thead><tr><th>Paciente</th><th>Contacto</th><th>Próximo turno</th><th>Práctica</th><th>Triaje</th><th>Origen</th><th></th></tr></thead>
                   <tbody>
                     ${state.patients
                       .map(
                         (patient) => `
                           <tr>
                             <td><strong>${escapeHtml(patient.name || 'Sin nombre')}</strong></td>
-                            <td>${patient.email ? `<a href="mailto:${escapeHtml(patient.email)}">${escapeHtml(patient.email)}</a>` : '—'}</td>
-                            <td>${patient.phone ? `<a href="tel:${escapeHtml(patient.phone)}">${escapeHtml(patient.phone)}</a>` : '—'}</td>
+                            <td>
+                              ${patient.email ? `<a href="mailto:${escapeHtml(patient.email)}">${escapeHtml(patient.email)}</a><br />` : ''}
+                              ${patient.phone ? `<a href="tel:${escapeHtml(patient.phone)}">${escapeHtml(patient.phone)}</a>` : ''}
+                              ${!patient.email && !patient.phone ? '—' : ''}
+                            </td>
+                            <td>${patient.next_appointment ? `<strong>${escapeHtml(formatDate(patient.next_appointment.date))}</strong><br />${escapeHtml(patient.next_appointment.start_time)}–${escapeHtml(patient.next_appointment.end_time)}` : 'Sin próximo turno'}</td>
+                            <td>${escapeHtml(patient.practice || '—')}</td>
+                            <td><span class="patient-status ${escapeHtml(patient.triage_status)}">${escapeHtml(triageLabel(patient.triage_status))}</span></td>
+                            <td>${escapeHtml(patientSourceLabel(patient))}</td>
+                            <td><button class="secondary-button compact-button" data-action="patient-details" data-id="${patient.id}" type="button">Detalles</button></td>
                           </tr>
                         `,
                       )
@@ -346,6 +457,7 @@
             : '<div class="empty-state">No encontramos pacientes.</div>'
         }
       </section>
+      ${renderPatientDetails(selectedPatient)}
     `;
   }
 
@@ -360,7 +472,7 @@
         <input data-field="start_time" type="time" value="${escapeHtml(range.start_time)}" />
         <span>a</span>
         <input data-field="end_time" type="time" value="${escapeHtml(range.end_time)}" />
-        <button class="icon-button" data-action="remove-range" type="button" aria-label="Quitar horario">−</button>
+        <button class="icon-button remove-range-button" data-action="remove-range" type="button" aria-label="Quitar horario" title="Quitar horario">−</button>
       </div>
     `;
   }
@@ -448,12 +560,25 @@
         <label>Especialidad<input name="specialty" value="${escapeHtml(profile.specialty || '')}" maxlength="160" /></label>
         <label>Teléfono<input name="phone" value="${escapeHtml(profile.phone || '')}" maxlength="80" autocomplete="tel" /></label>
         <label class="span-two">Bio<textarea name="bio" rows="5" maxlength="2000">${escapeHtml(profile.bio || '')}</textarea></label>
+        <fieldset class="service-selector span-two">
+          <legend>Prácticas que atendés</legend>
+          <div class="service-options">
+            ${state.services.length
+              ? state.services.map((service) => `
+                  <label class="check-row">
+                    <input name="service_ids" type="checkbox" value="${service.id}" ${service.selected ? 'checked' : ''} />
+                    ${escapeHtml(service.name)}
+                  </label>
+                `).join('')
+              : '<p class="muted">No hay prácticas disponibles.</p>'}
+          </div>
+        </fieldset>
         <div class="form-actions span-two"><button class="primary-button" type="submit">Guardar perfil</button></div>
       </form>
       <form id="password-form" class="panel form-grid">
         <div class="span-two"><h2>Cambiar contraseña</h2></div>
         <label>Contraseña actual<input name="current_password" type="password" autocomplete="current-password" required /></label>
-        <label>Nueva contraseña<input name="new_password" type="password" minlength="10" autocomplete="new-password" required /></label>
+        <label>Nueva contraseña<input name="new_password" type="password" minlength="8" autocomplete="new-password" required /></label>
         <div class="form-actions span-two"><button class="secondary-button" type="submit">Actualizar contraseña</button></div>
       </form>
     `;
@@ -482,7 +607,8 @@
 
   function render() {
     if (state.loading) return;
-    if (!state.user) renderLogin();
+    if (state.invitationToken) renderInvitation();
+    else if (!state.user) renderLogin();
     else renderPortal();
   }
 
@@ -533,6 +659,45 @@
         handleCancelAppointment(button.dataset.id, button.dataset.reason),
       );
     });
+    app.querySelectorAll('[data-action="patient-details"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.selectedPatientId = Number(button.dataset.id);
+        render();
+      });
+    });
+    app.querySelectorAll('[data-action="close-patient-details"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.selectedPatientId = null;
+        render();
+      });
+    });
+  }
+
+  async function handleInvitation(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (form.password.value !== form.password_confirmation.value) {
+      setStatus('Las contraseñas no coinciden.', 'error');
+      return;
+    }
+    try {
+      const payload = await api('/api/professional/invitations/accept', {
+        method: 'POST',
+        body: { token: state.invitationToken, password: form.password.value },
+      });
+      state.user = payload.user;
+      state.profile = payload.professional;
+      state.csrf = payload.csrf_token;
+      state.invitationToken = '';
+      state.active = 'profile';
+      state.status = 'Cuenta activada. Completá tus datos y prácticas para empezar.';
+      state.statusType = 'ok';
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+      await loadData();
+      render();
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
   }
 
   async function handleLogin(event) {
@@ -567,10 +732,18 @@
   async function handleProfile(event) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    data.set(
+      'service_ids',
+      JSON.stringify(
+        Array.from(event.currentTarget.querySelectorAll('input[name="service_ids"]:checked'))
+          .map((input) => input.value),
+      ),
+    );
     data.set('remove_photo', event.currentTarget.remove_photo?.checked ? 'true' : 'false');
     try {
       const payload = await api('/api/professional/profile', { method: 'PUT', body: data });
       state.profile = payload.profile;
+      state.services = payload.services || state.services;
       setStatus('Perfil actualizado.', 'ok');
     } catch (error) {
       setStatus(error.message, 'error');
@@ -738,5 +911,10 @@
     [state.status, state.statusType] = messages[googleReturn] || messages.error;
     window.history.replaceState({}, '', '/profesional/');
   }
-  loadSession();
+  if (state.invitationToken) {
+    state.loading = false;
+    render();
+  } else {
+    loadSession();
+  }
 })();
