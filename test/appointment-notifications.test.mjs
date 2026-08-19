@@ -77,6 +77,26 @@ test("24-hour reminder keeps management and triage access", () => {
   }
 });
 
+test("patient emails gate Meet behind Reku and never expose Google's URL", () => {
+  const withMeet = {
+    ...appointment,
+    google_meet_url: "https://meet.google.com/private-raw-url",
+  };
+
+  for (const content of [
+    patientConfirmationText({ appointment: withMeet, manageUrl }),
+    patientConfirmationHtml({ appointment: withMeet, manageUrl }),
+    patientFollowupText({ appointment: withMeet, manageUrl }),
+    patientFollowupHtml({ appointment: withMeet, manageUrl }),
+  ]) {
+    assert.match(content, /acceso.*videollamada/i);
+    assert.match(content, /10 minutos antes/i);
+    assert.match(content, /15 minutos después/i);
+    assert.match(content, /manage=private-token/);
+    assert.doesNotMatch(content, /meet\.google\.com\/private-raw-url/);
+  }
+});
+
 test("patient emails include the triage URL when it was assigned", () => {
   const withTriage = {
     ...appointment,

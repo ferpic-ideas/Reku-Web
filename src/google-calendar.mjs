@@ -757,7 +757,8 @@ export const syncAppointmentToGoogleCalendar = async (
       dateTime: `${appointment.appointment_date_text}T${appointment.end_time_text}:00`,
       timeZone: config.googleCalendarTimeZone,
     },
-    attendees: appointment.patient_email ? [{ email: appointment.patient_email }] : [],
+    // The patient receives Reku's time-gated access instead of Google's raw Meet URL.
+    attendees: [],
     conferenceData: {
       createRequest: {
         requestId: `reku-appointment-${appointmentId}`,
@@ -770,7 +771,7 @@ export const syncAppointmentToGoogleCalendar = async (
   try {
     event = await calendarRequest(
       connection,
-      `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events?conferenceDataVersion=1&sendUpdates=all`,
+      `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events?conferenceDataVersion=1&sendUpdates=none`,
       {
         method: "POST",
         body: JSON.stringify({
@@ -783,7 +784,7 @@ export const syncAppointmentToGoogleCalendar = async (
     if (error.googleStatus === 409) {
       event = await calendarRequest(
         connection,
-        `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events/${encodeURIComponent(eventId)}?conferenceDataVersion=1&sendUpdates=all`,
+        `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events/${encodeURIComponent(eventId)}?conferenceDataVersion=1&sendUpdates=none`,
         { method: "PATCH", body: JSON.stringify(confirmedEvent) },
       );
     } else {
@@ -805,6 +806,33 @@ export const syncAppointmentToGoogleCalendar = async (
       await new Promise((resolve) => setTimeout(resolve, 350));
       event = await getCalendarEvent(connection, eventId);
       meetUrl = meetUrlFromEvent(event);
+    }
+  }
+  if (meetUrl) {
+    const duplicate = await one(
+      `
+        SELECT id
+        FROM appointments
+        WHERE google_meet_url = $1
+          AND id <> $2
+        LIMIT 1
+      `,
+      [meetUrl, appointmentId],
+    );
+    if (duplicate) {
+      await query(
+        `
+          UPDATE appointments
+          SET google_sync_status = 'failed',
+              google_sync_error = 'Google devolvió una videollamada asignada a otro turno.',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [appointmentId],
+      );
+      const error = new Error("GOOGLE_MEET_DUPLICATE");
+      error.conflictingAppointmentId = Number(duplicate.id);
+      throw error;
     }
   }
   const syncStatus = meetUrl ? "synced" : "pending";

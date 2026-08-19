@@ -44,6 +44,12 @@ export const config = {
   patientAppointmentSessionTtlSeconds: Number(
     process.env.PATIENT_APPOINTMENT_SESSION_TTL_SECONDS || 43_200,
   ),
+  patientMeetEarlyMinutes: Number(
+    process.env.PATIENT_MEET_EARLY_MINUTES || 10,
+  ),
+  patientMeetLateMinutes: Number(
+    process.env.PATIENT_MEET_LATE_MINUTES || 15,
+  ),
   professionalLinkTtlHours: Number(process.env.PROFESSIONAL_LINK_TTL_HOURS || 24),
   professionalSessionTtlSeconds: Number(
     process.env.PROFESSIONAL_SESSION_TTL_SECONDS || 43_200,
@@ -119,6 +125,12 @@ export const assertSafeStartup = () => {
     config.professionalLinkTtlHours < 1 ||
     config.patientAppointmentLinkTtlDays < 1 ||
     config.patientAppointmentSessionTtlSeconds < 300 ||
+    !Number.isFinite(config.patientMeetEarlyMinutes) ||
+    config.patientMeetEarlyMinutes < 0 ||
+    config.patientMeetEarlyMinutes > 120 ||
+    !Number.isFinite(config.patientMeetLateMinutes) ||
+    config.patientMeetLateMinutes < 0 ||
+    config.patientMeetLateMinutes > 120 ||
     config.professionalInvitationTtlHours < 1 ||
     config.professionalSessionTtlSeconds < 300 ||
     config.mercadoPagoWebhookMaxAgeSeconds < 30

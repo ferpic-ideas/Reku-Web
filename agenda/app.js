@@ -106,6 +106,28 @@
       maximumFractionDigits: 0,
     }).format(Number(value || 0));
 
+  const friendlyDate = (value) => {
+    const date = new Date(`${value}T12:00:00`);
+    if (!Number.isFinite(date.getTime())) return String(value || '');
+    return new Intl.DateTimeFormat('es-AR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(date);
+  };
+
+  const localTime = (value, timeZone) => {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+    return new Intl.DateTimeFormat('es-AR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      ...(timeZone ? { timeZone } : {}),
+    }).format(date);
+  };
+
   const monthKey = (date) =>
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
@@ -156,6 +178,33 @@
     const date = payload.appointment?.date;
     if (date) state.management.month = new Date(`${date}T12:00:00`);
     state.step = 8;
+  }
+
+  let managementMeetRefreshTimer = 0;
+
+  function scheduleManagementMeetRefresh() {
+    if (managementMeetRefreshTimer && typeof window.clearTimeout === 'function') {
+      window.clearTimeout(managementMeetRefreshTimer);
+    }
+    managementMeetRefreshTimer = 0;
+    const meet = state.step === 8 ? state.management.appointment?.meet : null;
+    const target =
+      meet?.state === 'upcoming'
+        ? meet.available_from
+        : meet?.state === 'available'
+          ? meet.available_until
+          : '';
+    if (!target || typeof window.setTimeout !== 'function') return;
+    const remaining = new Date(target).getTime() - Date.now();
+    const delay = Math.max(1_000, Math.min(30_000, remaining + 1_000));
+    managementMeetRefreshTimer = window.setTimeout(async () => {
+      try {
+        await loadManagedAppointment();
+        render();
+      } catch {
+        scheduleManagementMeetRefresh();
+      }
+    }, delay);
   }
 
   async function loadManagement() {
@@ -1117,6 +1166,30 @@
     const appointment = management.appointment;
     if (!appointment) return '<div class="empty-card">No pudimos cargar el turno.</div>';
     const capabilities = appointment.capabilities || {};
+    const meet = appointment.meet || {};
+    const appointmentSchedule = `Tu turno es el ${friendlyDate(appointment.date)} de ${appointment.start_time} a ${appointment.end_time}.`;
+    const meetCard = appointment.status === 'confirmed'
+      ? `<div class="management-meet-card ${escapeHtml(meet.state || 'not_configured')}">
+          <div>
+            <span class="optional-label">Videollamada</span>
+            <h3>Acceso a Google Meet</h3>
+            ${
+              meet.state === 'available'
+                ? `<p>El acceso está habilitado ahora. Permanecerá disponible hasta las ${escapeHtml(localTime(meet.available_until, meet.time_zone))}.</p>`
+                : meet.state === 'upcoming'
+                  ? `<p>La videollamada todavía no está disponible. ${escapeHtml(appointmentSchedule)} Podés ingresar desde las ${escapeHtml(localTime(meet.available_from, meet.time_zone))}.</p>`
+                  : meet.state === 'finished'
+                    ? `<p>El acceso a la videollamada ya finalizó. ${escapeHtml(appointmentSchedule)}</p>`
+                    : `<p>La videollamada todavía no fue habilitada. ${escapeHtml(appointmentSchedule)}</p>`
+            }
+          </div>
+          ${
+            meet.state === 'available'
+              ? '<a class="primary-button meet-access-button" href="/api/booking/manage/meet" target="_blank" rel="noopener noreferrer">Entrar a Google Meet</a>'
+              : '<button type="button" class="secondary-button meet-access-button" disabled>Entrar a Google Meet</button>'
+          }
+        </div>`
+      : '';
     return `
       <section class="management-shell">
         <div class="management-access-note">
@@ -1131,6 +1204,7 @@
           <p><strong>Fecha:</strong> ${escapeHtml(appointment.date)}</p>
           <p><strong>Hora:</strong> ${escapeHtml(appointment.start_time)} a ${escapeHtml(appointment.end_time)}</p>
           <p><strong>Profesional:</strong> ${escapeHtml(appointment.professional.name)}</p>
+          ${meetCard}
           <div class="management-actions">
             ${appointment.payment_url && appointment.status === 'pending_payment' ? `<a class="primary-button" href="${escapeHtml(appointment.payment_url)}">Completar pago</a>` : ''}
             ${capabilities.can_reschedule ? '<button type="button" class="secondary-button" data-action="open-management-reschedule">Mover turno</button>' : ''}
@@ -1187,6 +1261,7 @@
     }[state.step]();
     app.innerHTML = `${renderHeader()}${content}`;
     bindEvents();
+    scheduleManagementMeetRefresh();
   }
 
   function bindEvents() {

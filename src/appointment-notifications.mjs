@@ -16,6 +16,9 @@ const formatDate = (value) => {
 
 const isRescheduled = (appointment) => Number(appointment.reschedule_count || 0) > 0;
 
+const patientMeetWindowText = () =>
+  `Por seguridad, el acceso a la videollamada se habilita ${config.patientMeetEarlyMinutes} minutos antes del turno y permanece disponible hasta ${config.patientMeetLateMinutes} minutos después de su finalización.`;
+
 const appointmentText = ({ appointment, link }) =>
   [
     isRescheduled(appointment)
@@ -74,8 +77,9 @@ export const patientConfirmationText = ({ appointment, manageUrl = "" }) =>
     `Horario: ${appointment.start_time} a ${appointment.end_time}`,
     `Servicio: ${appointment.service_name}`,
     `Profesional: ${appointment.professional_name}`,
-    appointment.google_meet_url
-      ? `Videollamada: ${appointment.google_meet_url}`
+    appointment.google_meet_url ? patientMeetWindowText() : "",
+    appointment.google_meet_url && manageUrl
+      ? `Acceder a la videollamada desde Reku: ${manageUrl}`
       : "",
     ...(manageUrl
       ? [
@@ -112,8 +116,8 @@ export const patientConfirmationHtml = ({ appointment, manageUrl = "" }) => `
       <tr><td><strong>Profesional</strong></td><td>${escapeHtml(appointment.professional_name)}</td></tr>
     </table>
     ${
-      appointment.google_meet_url
-        ? `<p style="margin-top:20px"><a href="${escapeHtml(appointment.google_meet_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">Entrar a Google Meet</a></p>`
+      appointment.google_meet_url && manageUrl
+        ? `<div style="margin-top:20px;padding:18px;border-radius:12px;background:#eef9fb"><h2 style="font-size:18px;margin:0 0 8px">Videollamada protegida</h2><p style="margin:0 0 14px">${escapeHtml(patientMeetWindowText())}</p><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Acceder a la videollamada</a></div>`
         : ""
     }
     ${
@@ -183,6 +187,10 @@ export const patientFollowupText = ({ appointment, manageUrl = "" }) =>
     `Horario: ${appointment.start_time} a ${appointment.end_time}`,
     `Servicio: ${appointment.service_name}`,
     `Profesional: ${appointment.professional_name}`,
+    appointment.google_meet_url ? patientMeetWindowText() : "",
+    appointment.google_meet_url && manageUrl
+      ? `Acceder a la videollamada desde Reku: ${manageUrl}`
+      : "",
     ...(manageUrl
       ? [
           "",
@@ -209,6 +217,11 @@ export const patientFollowupHtml = ({ appointment, manageUrl = "" }) => `
       <tr><td><strong>Servicio</strong></td><td>${escapeHtml(appointment.service_name)}</td></tr>
       <tr><td><strong>Profesional</strong></td><td>${escapeHtml(appointment.professional_name)}</td></tr>
     </table>
+    ${
+      appointment.google_meet_url && manageUrl
+        ? `<div style="margin-top:20px;padding:18px;border-radius:12px;background:#eef9fb"><h2 style="font-size:18px;margin:0 0 8px">Acceso a la videollamada</h2><p style="margin:0 0 14px">${escapeHtml(patientMeetWindowText())}</p><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Acceder desde Reku</a></div>`
+        : ""
+    }
     ${manageUrl ? `<p style="margin-top:20px"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Gestionar mi turno</a></p>` : ""}
     ${
       appointment.triage_url
@@ -596,6 +609,7 @@ const claimPatientFollowup = async (appointmentId) => {
         to_char(a.end_time, 'HH24:MI') AS end_time,
         a.patient_email,
         a.triage_url,
+        a.google_meet_url,
         a.reschedule_count,
         p.name AS professional_name,
         s.name AS service_name

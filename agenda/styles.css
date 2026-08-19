@@ -676,6 +676,40 @@ button {
   margin-top: 10px;
 }
 
+.management-meet-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+  padding: 18px;
+  border: 1px solid #d7e3e8;
+  border-radius: 16px;
+  background: #f6fbfc;
+}
+
+.management-meet-card.available {
+  border-color: #a8dfc3;
+  background: #edfbf4;
+}
+
+.management-meet-card h3 {
+  margin: 5px 0 6px;
+  color: var(--navy);
+  font-size: 19px;
+}
+
+.management-meet-card p {
+  max-width: 520px;
+  color: var(--muted);
+}
+
+.meet-access-button {
+  flex: 0 0 auto !important;
+  min-width: 190px;
+}
+
 .management-actions .primary-button,
 .management-actions .secondary-button,
 .danger-outline-button {

@@ -1,5 +1,11 @@
 import { one, query, recordAudit, tx } from "./db.mjs";
-import { getClientIp, parseCookies, readBody, sendJson } from "./http.mjs";
+import {
+  getClientIp,
+  parseCookies,
+  readBody,
+  sendJson,
+  sendRedirect,
+} from "./http.mjs";
 import { hashToken } from "./security.mjs";
 import {
   appointmentIdFromExternalReference,
@@ -1031,6 +1037,44 @@ export const patientAppointmentCapabilities = (appointment) => {
   };
 };
 
+export const patientMeetAccess = (
+  appointment,
+  {
+    now = Date.now(),
+    earlyMinutes = config.patientMeetEarlyMinutes,
+    lateMinutes = config.patientMeetLateMinutes,
+  } = {},
+) => {
+  const startsAt = new Date(appointment.starts_at || "");
+  const endsAt = new Date(appointment.ends_at || "");
+  const hasValidSchedule =
+    Number.isFinite(startsAt.getTime()) && Number.isFinite(endsAt.getTime());
+  const availableFrom = hasValidSchedule
+    ? new Date(startsAt.getTime() - earlyMinutes * 60_000)
+    : null;
+  const availableUntil = hasValidSchedule
+    ? new Date(endsAt.getTime() + lateMinutes * 60_000)
+    : null;
+  let state = "not_configured";
+
+  if (appointment.status !== "confirmed") state = "unavailable";
+  else if (!appointment.google_meet_url) state = "not_configured";
+  else if (!hasValidSchedule) state = "unavailable";
+  else if (now < availableFrom.getTime()) state = "upcoming";
+  else if (now <= availableUntil.getTime()) state = "available";
+  else state = "finished";
+
+  return {
+    available: state === "available",
+    state,
+    available_from: availableFrom?.toISOString() || null,
+    available_until: availableUntil?.toISOString() || null,
+    early_minutes: earlyMinutes,
+    late_minutes: lateMinutes,
+    time_zone: config.googleCalendarTimeZone,
+  };
+};
+
 const mapManagedAppointment = (row) => ({
   id: Number(row.id),
   patient_name: row.patient_name || "",
@@ -1052,6 +1096,7 @@ const mapManagedAppointment = (row) => ({
   },
   reschedule_count: Number(row.reschedule_count || 0),
   capabilities: patientAppointmentCapabilities(row),
+  meet: patientMeetAccess(row),
 });
 
 const loadManagedAppointment = async (appointmentId) =>
@@ -1069,12 +1114,15 @@ const loadManagedAppointment = async (appointmentId) =>
         appointment.payment_status,
         appointment.payment_init_point,
         appointment.triage_url,
+        appointment.google_meet_url,
         appointment.reschedule_count,
         service.name AS service_name,
         service.duration_minutes,
         professional.name AS professional_name,
         (professional.active = TRUE AND professional.deleted_at IS NULL) AS professional_available,
-        ((appointment.appointment_date + appointment.start_time) AT TIME ZONE $2) > NOW() AS is_future
+        ((appointment.appointment_date + appointment.start_time) AT TIME ZONE $2) > NOW() AS is_future,
+        ((appointment.appointment_date + appointment.start_time) AT TIME ZONE $2) AS starts_at,
+        ((appointment.appointment_date + appointment.end_time) AT TIME ZONE $2) AS ends_at
       FROM appointments appointment
       INNER JOIN services service ON service.id = appointment.service_id
       INNER JOIN professionals professional ON professional.id = appointment.professional_id
@@ -1112,6 +1160,47 @@ const exchangePatientManagementSession = async (request, response) => {
 const getPatientManagedAppointment = async (request, response) => {
   const { appointment } = await requireManagedAppointment(request);
   sendJson(response, 200, { appointment: mapManagedAppointment(appointment) });
+};
+
+const patientMeetUnavailableMessage = (appointment, access) => {
+  const [year, month, day] = String(appointment.appointment_date || "").split("-");
+  const date = year && month && day ? `${day}/${month}/${year}` : appointment.appointment_date;
+  const schedule = `Tu turno es el ${date} de ${appointment.start_time} a ${appointment.end_time}.`;
+  if (access.state === "upcoming") {
+    const availableTime = new Intl.DateTimeFormat("es-AR", {
+      timeZone: config.googleCalendarTimeZone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date(access.available_from));
+    return `La videollamada todavía no está disponible. ${schedule} Podés ingresar desde las ${availableTime}.`;
+  }
+  if (access.state === "finished") {
+    return `El acceso a la videollamada ya finalizó. ${schedule}`;
+  }
+  if (access.state === "not_configured") {
+    return `La videollamada todavía no fue habilitada. ${schedule}`;
+  }
+  return `La videollamada no está disponible para este turno. ${schedule}`;
+};
+
+const enterPatientManagedMeet = async (request, response) => {
+  const { session, appointment } = await requireManagedAppointment(request);
+  const access = patientMeetAccess(appointment);
+  if (!access.available) {
+    sendJson(response, 409, {
+      error: patientMeetUnavailableMessage(appointment, access),
+      appointment: mapManagedAppointment(appointment),
+    });
+    return;
+  }
+  await recordAudit("appointment.patient_meet_accessed", {
+    detail: {
+      appointment_id: Number(appointment.id),
+      patient_appointment_session_id: Number(session.id),
+    },
+  });
+  sendRedirect(response, appointment.google_meet_url);
 };
 
 const requireReschedulableAppointment = (appointment) => {
@@ -1670,6 +1759,10 @@ export const handleBookingApi = async (request, response, url) => {
     }
     if (pathname === "/api/booking/manage/appointment" && request.method === "GET") {
       await getPatientManagedAppointment(request, response);
+      return true;
+    }
+    if (pathname === "/api/booking/manage/meet" && request.method === "GET") {
+      await enterPatientManagedMeet(request, response);
       return true;
     }
     if (pathname === "/api/booking/manage/days" && request.method === "GET") {
