@@ -135,7 +135,7 @@ test("congreso COKIBA page exposes the requested fields and closing message", as
   );
 });
 
-test("admin exposes a searchable COKIBA tab and CSV download", async () => {
+test("admin exposes searchable, downloadable and deletable COKIBA contacts", async () => {
   const adminApp = await readFile(
     new URL("../admin/app.js", import.meta.url),
     "utf8",
@@ -145,5 +145,7 @@ test("admin exposes a searchable COKIBA tab and CSV download", async () => {
   assert.match(adminApp, /id="congress-text-filter"/);
   assert.match(adminApp, /\/api\/admin\/congress-registrations/);
   assert.match(adminApp, /\/api\/admin\/congress-registrations\.csv/);
+  assert.match(adminApp, /data-action="delete-congress-registration"/);
+  assert.match(adminApp, /\/api\/admin\/congress-registrations\/\$\{id\}/);
   assert.match(adminApp, /Descargar CSV/);
 });

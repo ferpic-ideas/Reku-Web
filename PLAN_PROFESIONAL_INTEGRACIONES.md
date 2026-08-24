@@ -190,7 +190,7 @@ Todas las mutaciones autenticadas exigen CSRF. Los callbacks OAuth validan `stat
 
 - Alcance de pacientes, perfil, cancelaciones y modelo económico cerrado.
 - Pendiente: crear proyectos separados de Google para prueba y producción.
-- Pendiente: revisar las URLs públicas de privacidad, términos y soporte para el consentimiento de Google.
+- Completado: páginas públicas de privacidad y términos, soporte visible y divulgación contextual previa a conectar Google Calendar.
 
 ### Fase 1: base de seguridad e identidad — implementada
 

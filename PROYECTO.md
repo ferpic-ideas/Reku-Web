@@ -315,6 +315,8 @@ Variables clave:
 - `UPLOAD_MAX_BYTES`
 - `CSV_UPLOAD_MAX_BYTES`
 - `BOOKING_ACCESS_COOKIE_NAME`
+- `BOOKING_EMAIL_VERIFICATION_ENABLED` (actualmente `false`; permite reactivar la
+  verificación antes de continuar a la agenda)
 - `PROFESSIONAL_LINK_TTL_HOURS`
 - `PROFESSIONAL_SESSION_TTL_SECONDS`
 - `PROFESSIONAL_SESSION_COOKIE_NAME`

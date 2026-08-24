@@ -8,7 +8,7 @@ const flushAsyncWork = async () => {
   await new Promise((resolve) => setImmediate(resolve));
 };
 
-test("email verification keeps only intake marked as completed", async () => {
+test("intake continues directly to services when email verification is disabled", async () => {
   const source = await readFile(
     new URL("../agenda/app.js", import.meta.url),
     "utf8",
@@ -72,7 +72,41 @@ test("email verification keeps only intake marked as completed", async () => {
       });
     }
     if (path === "/api/booking/intake") {
-      return jsonResponse({ ok: true }, 202);
+      return jsonResponse(
+        {
+          ok: true,
+          verification_required: false,
+          patient: {
+            name: "Test Reku",
+            email: "test@example.com",
+            phone: "1111111111",
+          },
+          agreement: {
+            id: 1,
+            name: "Demo",
+            slug: "demo",
+            type: "Pago",
+          },
+        },
+        201,
+      );
+    }
+    if (path === "/api/booking/services") {
+      return jsonResponse({
+        patient: {
+          name: "Test Reku",
+          email: "test@example.com",
+          phone: "1111111111",
+        },
+        agreement: {
+          id: 1,
+          name: "Demo",
+          slug: "demo",
+          type: "Pago",
+        },
+        payment_required: true,
+        services: [],
+      });
     }
     throw new Error(`Unexpected request: ${path}`);
   };
@@ -123,6 +157,6 @@ test("email verification keeps only intake marked as completed", async () => {
   for (const pendingStep of [2, 3, 4, 5]) {
     assert.match(stepper, new RegExp(`<span>${pendingStep}</span>`));
   }
-  assert.match(html, /Todavía no reservamos ningún turno/);
-  assert.match(html, /elegir servicio, profesional, fecha y horario/);
+  assert.match(html, /Elegí tu servicio/);
+  assert.doesNotMatch(html, /Revisá tu mail/);
 });

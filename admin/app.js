@@ -2648,10 +2648,11 @@
                 <th>Tecnología</th>
                 <th>Comentario</th>
                 <th>Estado envío</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${items.length ? items.map(renderCongressContactRow).join('') : '<tr><td colspan="9">No hay registros del Congreso COKIBA.</td></tr>'}
+              ${items.length ? items.map(renderCongressContactRow).join('') : '<tr><td colspan="10">No hay registros del Congreso COKIBA.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -2681,6 +2682,19 @@
                 ? '<span class="pill">Enviado</span>'
                 : '<span class="muted">Pendiente</span>'
           }
+        </td>
+        <td>
+          <div class="table-actions">
+            <button
+              type="button"
+              class="danger-button"
+              data-action="delete-congress-registration"
+              data-id="${item.id}"
+              ${state.user.can_delete_records ? '' : 'disabled'}
+            >
+              Eliminar
+            </button>
+          </div>
         </td>
       </tr>
     `;
@@ -3396,6 +3410,17 @@
         render();
         return;
       }
+      if (action === 'delete-congress-registration') {
+        state.dialog = {
+          type: 'confirm-delete',
+          target: 'congress-registration',
+          id,
+          title: 'Eliminar contacto de COKIBA',
+          message: 'Esta acción elimina el registro de contacto de COKIBA.',
+        };
+        render();
+        return;
+      }
       if (action === 'delete-nomina') {
         state.dialog = {
           type: 'confirm-delete',
@@ -3888,6 +3913,7 @@
       agreement: `/api/admin/agreements/${id}`,
       patient: `/api/admin/patient-intakes/${id}`,
       contact: `/api/admin/contacts/${id}`,
+      'congress-registration': `/api/admin/congress-registrations/${id}`,
       nomina: `/api/admin/nomina/${id}`,
       service: `/api/admin/services/${id}`,
       professional: `/api/admin/professionals/${id}`,
@@ -3899,6 +3925,7 @@
       agreement: 'Acuerdo eliminado.',
       patient: 'Alta eliminada.',
       contact: 'Contacto eliminado.',
+      'congress-registration': 'Contacto de COKIBA eliminado.',
       nomina: 'Registro eliminado.',
       service: 'Servicio eliminado.',
       professional: 'Profesional eliminado.',

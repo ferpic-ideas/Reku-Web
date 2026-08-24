@@ -35,6 +35,8 @@ export const config = {
   bootstrapAdminPassword: process.env.BOOTSTRAP_ADMIN_PASSWORD || "",
   bookingAccessCookieName:
     process.env.BOOKING_ACCESS_COOKIE_NAME || "reku_booking_access",
+  bookingEmailVerificationEnabled:
+    process.env.BOOKING_EMAIL_VERIFICATION_ENABLED === "true",
   patientAppointmentSessionCookieName:
     process.env.PATIENT_APPOINTMENT_SESSION_COOKIE_NAME ||
     "reku_patient_appointment_session",

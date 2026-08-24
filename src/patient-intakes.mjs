@@ -301,9 +301,16 @@ export const sendPatientIntakeNotifications = async ({
   return results;
 };
 
-export const savePatientIntakeAndNotify = async ({ submission, agreement, sourcePath }) => {
+export const savePatientIntakeAndNotify = async ({
+  submission,
+  agreement,
+  sourcePath,
+  requireEmailVerification = true,
+}) => {
   const saved = await insertPatientIntake(submission, agreement, sourcePath);
-  const verification = await createPatientIntakeVerification({ recordId: saved.id });
+  const verification = requireEmailVerification
+    ? await createPatientIntakeVerification({ recordId: saved.id })
+    : null;
   const notifications = await sendPatientIntakeNotifications({
     submission,
     agreement,

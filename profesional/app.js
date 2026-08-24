@@ -181,6 +181,10 @@
               <input name="password" type="password" autocomplete="current-password" required />
             </label>
             <button class="primary-button" type="submit">Entrar al portal</button>
+            <div class="portal-legal-links" aria-label="Información legal">
+              <a href="/privacidad/">Privacidad</a>
+              <a href="/terminos/">Términos</a>
+            </div>
             ${renderStatus()}
           </form>
         </section>
@@ -216,6 +220,10 @@
               <input name="password_confirmation" type="password" minlength="8" autocomplete="new-password" required />
             </label>
             <button class="primary-button" type="submit">Activar y entrar</button>
+            <div class="portal-legal-links" aria-label="Información legal">
+              <a href="/privacidad/">Privacidad</a>
+              <a href="/terminos/">Términos</a>
+            </div>
             ${renderStatus()}
           </form>
         </section>
@@ -243,6 +251,10 @@
           <strong>${escapeHtml(state.profile?.name || state.user?.name || 'Profesional')}</strong>
           <span>${escapeHtml(state.user?.email || '')}</span>
           <button id="logout-button" class="logout-button" type="button">Cerrar sesión</button>
+          <div class="sidebar-legal-links">
+            <a href="/privacidad/">Privacidad</a>
+            <a href="/terminos/">Términos</a>
+          </div>
         </div>
       </aside>
     `;
@@ -293,6 +305,15 @@
           <div>
             <h2>Google Calendar y Meet</h2>
             <p class="muted">${escapeHtml(googleDescription)}</p>
+            ${
+              google.available
+                ? `<div class="google-data-notice">
+                    <strong>Cómo usa Reku tu información de Google</strong>
+                    <p>Al conectar tu cuenta, Reku consulta únicamente los bloques libre/ocupado de tu calendario principal y puede crear, actualizar o eliminar eventos de turnos con Google Meet e invitación al paciente. Guarda el email de la cuenta, identificadores de conexión y tokens cifrados. Los datos obtenidos de Google no se venden ni se usan para publicidad o entrenamiento de modelos de IA. Podés revocar el acceso desde este panel.</p>
+                    <a href="/privacidad/#google">Ver Política de Privacidad</a>
+                  </div>`
+                : ''
+            }
           </div>
           ${googleAction}
         </div>

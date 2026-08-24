@@ -122,6 +122,26 @@ button:disabled {
   color: var(--muted);
 }
 
+.portal-legal-links {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  font-size: 13px;
+}
+
+.portal-legal-links a,
+.sidebar-legal-links a {
+  text-decoration: none;
+}
+
+.portal-legal-links a {
+  color: var(--muted);
+}
+
+.portal-legal-links a:hover {
+  color: var(--brand-dark);
+}
+
 label {
   display: grid;
   gap: 8px;
@@ -296,6 +316,21 @@ select:focus {
   color: #d8d0ff;
 }
 
+.sidebar-legal-links {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.sidebar-legal-links a {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+}
+
+.sidebar-legal-links a:hover {
+  color: #d8d0ff;
+}
+
 .portal-main {
   min-height: 100vh;
   margin-left: 250px;
@@ -399,6 +434,37 @@ select:focus {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
+}
+
+.integration-card > div {
+  min-width: 0;
+}
+
+.google-data-notice {
+  max-width: 780px;
+  margin-top: 16px;
+  border: 1px solid #d8d0ff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  color: #3e4963;
+  background: #f7f5ff;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.google-data-notice strong {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--ink);
+}
+
+.google-data-notice p {
+  margin: 0 0 7px;
+}
+
+.google-data-notice a {
+  color: var(--brand-dark);
+  font-weight: 700;
 }
 
 .badge {

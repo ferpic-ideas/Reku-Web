@@ -2777,6 +2777,18 @@ export const handleAdminApi = async (request, response, url) => {
       await downloadCongressRegistrationsCsv(response);
       return true;
     }
+    const congressRegistrationMatch = pathname.match(
+      /^\/api\/admin\/congress-registrations\/(\d+)$/,
+    );
+    if (congressRegistrationMatch && request.method === "DELETE") {
+      await deleteRecord(
+        response,
+        user,
+        "congreso_cokiba_registrations",
+        Number(congressRegistrationMatch[1]),
+      );
+      return true;
+    }
 
     if (pathname === "/api/admin/nomina" && request.method === "GET") {
       await listNomina(url, response);

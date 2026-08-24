@@ -26,6 +26,7 @@ import {
 } from "./rate-limit.mjs";
 import {
   buildPatientIntakeSubmission,
+  createPatientBookingLink,
   loadPatientIntakeAgreement,
   redeemPatientIntakeVerification,
   savePatientIntakeAndNotify,
@@ -106,6 +107,31 @@ const currentDateInCalendarTimeZone = () => {
 const rangesOverlap = (startA, endA, startB, endB) =>
   timeToMinutes(startA) < timeToMinutes(endB) &&
   timeToMinutes(startB) < timeToMinutes(endA);
+
+export const buildAvailableSlots = ({
+  availabilityRanges,
+  busyRanges,
+  durationMinutes,
+}) => {
+  const slots = [];
+  for (const range of availabilityRanges) {
+    const rangeStart = timeToMinutes(range.start_time);
+    const rangeEnd = timeToMinutes(range.end_time);
+    for (
+      let start = rangeStart;
+      start + durationMinutes <= rangeEnd;
+      start += durationMinutes
+    ) {
+      const startTime = minutesToTime(start);
+      const endTime = minutesToTime(start + durationMinutes);
+      const overlaps = busyRanges.some((busy) =>
+        rangesOverlap(startTime, endTime, busy.start_time, busy.end_time),
+      );
+      if (!overlaps) slots.push(startTime);
+    }
+  }
+  return slots;
+};
 
 const readToken = (request, url, payload = {}) =>
   String(
@@ -264,9 +290,33 @@ const createIntakeAccess = async (request, payload, response) => {
     submission,
     agreement,
     sourcePath,
+    requireEmailVerification: config.bookingEmailVerificationEnabled,
   });
 
-  await recordAudit("patient_intake.created_pending_verification", {
+  if (config.bookingEmailVerificationEnabled) {
+    await recordAudit("patient_intake.created_pending_verification", {
+      detail: {
+        patient_intake_id: result.recordId,
+        email: submission.values.email,
+        agreement_slug: agreement.slug,
+        source: "/agenda/",
+      },
+    });
+
+    sendJson(response, 202, {
+      ok: true,
+      verification_required: true,
+      message: "Revisá tu mail para confirmar la dirección y continuar con la reserva.",
+    });
+    return;
+  }
+
+  const bookingLink = await createPatientBookingLink({
+    recordId: result.recordId,
+    submission,
+    agreement,
+  });
+  await recordAudit("patient_intake.created_with_direct_booking_access", {
     detail: {
       patient_intake_id: result.recordId,
       email: submission.values.email,
@@ -275,10 +325,26 @@ const createIntakeAccess = async (request, payload, response) => {
     },
   });
 
-  sendJson(response, 202, {
-    ok: true,
-    message: "Revisá tu mail para confirmar la dirección y continuar con la reserva.",
-  });
+  sendJson(
+    response,
+    201,
+    {
+      ok: true,
+      verification_required: false,
+      booking_expires_at: bookingLink.expires_at,
+      patient: {
+        name: [submission.values.nombre, submission.values.apellido]
+          .filter(Boolean)
+          .join(" "),
+        email: submission.values.email,
+        phone: submission.values.telefono,
+      },
+      agreement: mapAgreement(agreement),
+    },
+    {
+      "Set-Cookie": bookingAccessCookie(bookingLink.token, bookingLink.expires_at),
+    },
+  );
 };
 
 const verifyIntakeAccess = async (payload, response) => {
@@ -513,26 +579,16 @@ export const computeSlots = async ({
         }),
   ]);
 
-  const duration = Number(service.duration_minutes);
   const busyRanges = [
     ...blocks.rows,
     ...appointments.rows,
     ...(googleBusyByDate[date] || []),
   ];
-  const slots = [];
-
-  for (const range of availability.rows) {
-    const rangeStart = timeToMinutes(range.start_time);
-    const rangeEnd = timeToMinutes(range.end_time);
-    for (let start = rangeStart; start + duration <= rangeEnd; start += duration) {
-      const startTime = minutesToTime(start);
-      const endTime = minutesToTime(start + duration);
-      const overlaps = busyRanges.some((busy) =>
-        rangesOverlap(startTime, endTime, busy.start_time, busy.end_time),
-      );
-      if (!overlaps) slots.push(startTime);
-    }
-  }
+  const slots = buildAvailableSlots({
+    availabilityRanges: availability.rows,
+    busyRanges,
+    durationMinutes: Number(service.duration_minutes),
+  });
 
   return { service, slots };
 };

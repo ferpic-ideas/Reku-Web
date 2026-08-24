@@ -360,7 +360,7 @@
     render();
 
     try {
-      await api('/api/booking/intake', {
+      const payload = await api('/api/booking/intake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -368,6 +368,14 @@
           ...state.intakeValues,
         }),
       });
+      if (payload.verification_required === false) {
+        state.patient = payload.patient || null;
+        state.agreement = payload.agreement || state.agreement;
+        state.paymentRequired = state.agreement?.type !== 'Nomina';
+        state.step = 2;
+        await loadServices();
+        return;
+      }
       state.loading = false;
       state.step = 7;
       render();

@@ -23,9 +23,12 @@ cuenta institucional de Reku. En cada proyecto:
    personales de los profesionales del piloto.
 
 La publicación para usuarios que no sean testers puede requerir la verificación
-de Google. Antes de solicitarla, Reku necesita URLs públicas definitivas de
-política de privacidad, términos y soporte que expliquen el uso y la eliminación
-de datos de Google.
+de Google. Antes de solicitarla, confirmar que estén desplegadas las URLs públicas
+definitivas que explican el uso y la eliminación de datos de Google:
+
+- `https://www.reku.io/privacidad/`
+- `https://www.reku.io/terminos/`
+- soporte: `hola@reku.io`
 
 ## 2. Cliente OAuth web
 
