@@ -91,6 +91,14 @@ test("admin route policy fails closed for missing and unknown routes", () => {
     "appointments.write",
   );
   assert.equal(
+    requiredPermissionForRequest("GET", "/api/admin/appointment-documents/12"),
+    "appointments.read",
+  );
+  assert.equal(
+    requiredPermissionForRequest("HEAD", "/api/admin/appointment-documents/12"),
+    "appointments.read",
+  );
+  assert.equal(
     requiredPermissionForRequest(
       "POST",
       "/api/admin/professionals/12/revoke-access",

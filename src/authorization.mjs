@@ -60,6 +60,8 @@ const routeRules = [
   ["POST", /^\/api\/admin\/schedule-blocks$/, "schedule_blocks.write"],
   ["DELETE", /^\/api\/admin\/schedule-blocks\/\d+$/, "schedule_blocks.delete"],
   ["GET", /^\/api\/admin\/appointments$/, "appointments.read"],
+  ["GET", /^\/api\/admin\/appointment-documents\/\d+$/, "appointments.read"],
+  ["HEAD", /^\/api\/admin\/appointment-documents\/\d+$/, "appointments.read"],
   ["GET", /^\/api\/admin\/appointments\/\d+\/slots$/, "appointments.write"],
   ["PUT", /^\/api\/admin\/appointments\/\d+$/, "appointments.write"],
   ["POST", /^\/api\/admin\/appointments\/\d+\/cancel$/, "appointments.write"],

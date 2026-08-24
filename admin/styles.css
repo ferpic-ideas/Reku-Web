@@ -8,6 +8,7 @@
   --sidebar-bg: #18213f;
   --sidebar-hover-bg: #283357;
   --accent: #42a8b8;
+  --accent-dark: #247b89;
   --accent-soft: #e7f6f8;
   --border: #d8e1e7;
   --danger: #b42318;
@@ -1141,6 +1142,82 @@ tr:hover td {
   border-top: 1px solid var(--border);
 }
 
+.appointment-documents-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #cfeaf0;
+  border-radius: 8px;
+  background: #f5fbfc;
+}
+
+.appointment-documents-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.appointment-documents-header span:first-child {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.appointment-documents-header h3 {
+  margin: 4px 0 0;
+  font-size: 16px;
+}
+
+.appointment-document-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.appointment-document-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.appointment-document-list li > div {
+  min-width: 0;
+}
+
+.appointment-document-list strong,
+.appointment-document-list span {
+  display: block;
+}
+
+.appointment-document-list strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appointment-document-list li span,
+.appointment-documents-empty {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.appointment-document-list a {
+  flex: 0 0 auto;
+  color: var(--accent-dark);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .appointment-current-summary {
   display: grid;
   gap: 5px;
@@ -1375,5 +1452,10 @@ code {
 
   .mini-button {
     width: 100%;
+  }
+
+  .appointment-document-list li {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

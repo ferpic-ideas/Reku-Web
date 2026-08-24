@@ -69,8 +69,20 @@ ser independiente de `SESSION_SECRET`. Los access/refresh tokens se guardan
 cifrados con AES-256-GCM.
 
 Mantener `GOOGLE_CALENDAR_REQUIRED=false` durante el piloto. Al cambiarlo a
-`true`, sólo aparecen como reservables los profesionales con una conexión Google
-activa.
+`true`, sólo aparecen como reservables los profesionales que hayan conectado una
+cuenta Google. Si esa conexión queda temporalmente en estado de error, el
+profesional sigue siendo reservable usando exclusivamente la disponibilidad
+interna de Reku: horarios, bloqueos y turnos vigentes. Las conexiones revocadas o
+nunca realizadas continúan excluidas.
+
+La consulta `freeBusy` y la creación del bloqueo previo a un pago son de mejor
+esfuerzo. Si Google no responde, la reserva y el pago continúan con la agenda
+interna, se registra el evento de auditoría correspondiente y la sincronización
+queda marcada como fallida para su posterior reintento. Cuando Google responde,
+sus eventos ocupados siguen quitándose normalmente de la oferta de turnos.
+Los mails de confirmación al paciente y al profesional tampoco se bloquean por
+una falla de Google; el acceso privado del paciente muestra el Meet cuando la
+sincronización logra completarse.
 
 ## 4. Prueba de aceptación
 

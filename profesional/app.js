@@ -16,6 +16,10 @@
     ['availability', 'Horarios'],
     ['profile', 'Mi perfil'],
   ];
+  const appointmentsPollIntervalMs = 5 * 60 * 1000;
+  let appointmentsPollTimer = null;
+  let appointmentsRefreshPromise = null;
+  let meetWindowTimer = null;
   const state = {
     loading: true,
     user: null,
@@ -24,6 +28,8 @@
     active: 'overview',
     csrf: '',
     appointments: [],
+    appointmentsRefreshing: false,
+    appointmentSearch: '',
     patients: [],
     availability: [],
     blocks: [],
@@ -33,12 +39,14 @@
     google: { available: false, connected: false, status: 'not_configured' },
     patientSearch: '',
     selectedPatientId: null,
+    selectedAppointmentId: null,
     patientDetailMessage: '',
     patientDetailMessageType: '',
     sendingTriageReminderId: null,
     invitationToken: new URLSearchParams(window.location.hash.slice(1)).get('invite') || '',
     status: '',
     statusType: '',
+    actionModal: null,
   };
 
   const escapeHtml = (value) =>
@@ -65,6 +73,47 @@
       timeZone: 'America/Argentina/Buenos_Aires',
     }).format(date);
   };
+
+  const normalizeSearchText = (value) =>
+    String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+  const appointmentTime = (appointment, field) => {
+    const value = new Date(`${appointment.date}T${appointment[field]}:00-03:00`).getTime();
+    return Number.isFinite(value) ? value : null;
+  };
+
+  const isFutureAppointment = (appointment) => {
+    const startsAt = appointmentTime(appointment, 'start_time');
+    return startsAt !== null && startsAt > Date.now();
+  };
+
+  function meetAccess(appointment) {
+    if (appointment.status !== 'confirmed' || !appointment.google_meet_url) {
+      return { visible: false, available: false };
+    }
+    const startsAt = appointmentTime(appointment, 'start_time');
+    const endsAt = appointmentTime(appointment, 'end_time');
+    if (startsAt === null || endsAt === null) return { visible: false, available: false };
+    const availableFrom = startsAt - 20 * 60 * 1000;
+    const now = Date.now();
+    if (now > endsAt) return { visible: false, available: false };
+    return {
+      visible: true,
+      available: now >= availableFrom,
+      availableFrom,
+    };
+  }
+
+  const eyeIcon = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"></path>
+      <circle cx="12" cy="12" r="2.6"></circle>
+    </svg>
+  `;
 
   const today = () => {
     const parts = Object.fromEntries(
@@ -131,6 +180,95 @@
     state.patients = patients.patients || [];
     state.appointments = appointments.appointments || [];
     state.google = google.google || state.google;
+  }
+
+  function stopAppointmentsPolling() {
+    if (appointmentsPollTimer === null) return;
+    window.clearTimeout(appointmentsPollTimer);
+    appointmentsPollTimer = null;
+  }
+
+  function shouldPollAppointments() {
+    return Boolean(
+      state.user &&
+        state.active === 'appointments' &&
+        document.visibilityState !== 'hidden',
+    );
+  }
+
+  function syncAppointmentsPolling() {
+    if (!shouldPollAppointments()) {
+      stopAppointmentsPolling();
+      return;
+    }
+    if (appointmentsPollTimer !== null) return;
+    appointmentsPollTimer = window.setTimeout(async () => {
+      appointmentsPollTimer = null;
+      if (shouldPollAppointments()) await refreshAppointments();
+      syncAppointmentsPolling();
+    }, appointmentsPollIntervalMs);
+  }
+
+  function syncMeetWindowRefresh() {
+    if (meetWindowTimer !== null) {
+      window.clearTimeout(meetWindowTimer);
+      meetWindowTimer = null;
+    }
+    if (!state.user || !['overview', 'appointments'].includes(state.active)) return;
+    const now = Date.now();
+    const transitions = state.appointments.flatMap((appointment) => {
+      if (appointment.status !== 'confirmed' || !appointment.google_meet_url) return [];
+      const startsAt = appointmentTime(appointment, 'start_time');
+      const endsAt = appointmentTime(appointment, 'end_time');
+      if (startsAt === null || endsAt === null || endsAt < now) return [];
+      const availableFrom = startsAt - 20 * 60 * 1000;
+      return [availableFrom > now ? availableFrom : endsAt + 1];
+    });
+    if (!transitions.length) return;
+    const nextTransition = Math.min(...transitions);
+    meetWindowTimer = window.setTimeout(() => {
+      meetWindowTimer = null;
+      render();
+    }, Math.max(0, nextTransition - now));
+  }
+
+  async function refreshAppointments({ showError = false } = {}) {
+    if (!state.user) return;
+    if (appointmentsRefreshPromise) return appointmentsRefreshPromise;
+
+    state.appointmentsRefreshing = true;
+    if (state.active === 'appointments') render();
+    appointmentsRefreshPromise = (async () => {
+      try {
+        const payload = await api('/api/professional/appointments');
+        state.appointments = payload.appointments || [];
+      } catch (error) {
+        if (error.status === 401) {
+          state.user = null;
+          state.csrf = '';
+          state.status = 'Tu sesión venció. Volvé a ingresar.';
+          state.statusType = 'error';
+          stopAppointmentsPolling();
+        } else if (showError) {
+          state.status = error.message;
+          state.statusType = 'error';
+        }
+      } finally {
+        state.appointmentsRefreshing = false;
+        appointmentsRefreshPromise = null;
+        if (!state.user || state.active === 'appointments') render();
+      }
+    })();
+    return appointmentsRefreshPromise;
+  }
+
+  async function activateModule(moduleId) {
+    state.active = moduleId;
+    state.status = '';
+    render();
+    if (moduleId === 'appointments') {
+      await refreshAppointments({ showError: true });
+    }
   }
 
   async function loadSession() {
@@ -278,6 +416,42 @@
       .sort((a, b) => `${a.date}${a.start_time}`.localeCompare(`${b.date}${b.start_time}`));
   }
 
+  function renderMeetAccess(appointment) {
+    const access = meetAccess(appointment);
+    if (!access.visible) return '';
+    if (access.available) {
+      return `<a href="${escapeHtml(appointment.google_meet_url)}" target="_blank" rel="noopener">Abrir Meet</a><br />`;
+    }
+    const availableFrom = new Intl.DateTimeFormat('es-AR', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(access.availableFrom));
+    return `<span class="meet-link-disabled" title="Se habilita 20 minutos antes">Abrir Meet</span><small class="meet-availability">Disponible desde las ${escapeHtml(availableFrom)}</small>`;
+  }
+
+  function renderAppointmentActions(item) {
+    const canCancel = item.status === 'confirmed' && isFutureAppointment(item);
+    return `
+      <div class="appointment-actions">
+        <button class="appointment-icon-button" data-action="appointment-patient-details" data-id="${item.id}" type="button" aria-label="Ver información del paciente" title="Ver información del paciente">
+          ${eyeIcon}
+        </button>
+        ${
+          canCancel
+            ? `<button class="appointment-icon-button danger" data-action="cancel-appointment" data-id="${item.id}" type="button" aria-label="Cancelar turno" title="Cancelar turno">×</button>`
+            : ''
+        }
+        ${
+          item.status === 'cancelled' && item.refund_status === 'failed'
+            ? `<button class="secondary-button compact-button" data-action="retry-refund" data-id="${item.id}" data-reason="${escapeHtml(item.cancellation_reason || 'Cancelado por el profesional')}" type="button">Reintentar devolución</button>`
+            : ''
+        }
+      </div>
+    `;
+  }
+
   function renderOverview() {
     const upcoming = upcomingAppointments();
     const google = state.google || {};
@@ -345,7 +519,7 @@
                       ${item.patient_phone ? `<a href="tel:${escapeHtml(item.patient_phone)}">${escapeHtml(item.patient_phone)}</a>` : ''}
                     </td>
                     <td>
-                      ${item.google_meet_url ? `<a href="${escapeHtml(item.google_meet_url)}" target="_blank" rel="noopener">Abrir Meet</a><br />` : ''}
+                      ${renderMeetAccess(item)}
                       ${
                       item.status === 'confirmed'
                         ? `Confirmado${item.google_sync_status === 'failed' ? ' · Google pendiente' : ''}${item.triage_status === 'failed' ? ' · Cuestionario no disponible' : ''}`
@@ -353,13 +527,7 @@
                           ? `Cancelado${item.refund_status === 'approved' ? ' · reembolsado' : item.refund_status === 'failed' ? ' · devolución pendiente' : ''}`
                           : 'Pendiente de pago'
                     }</td>
-                    <td>${
-                      item.status === 'confirmed' && item.date >= today()
-                        ? `<button class="danger-button" data-action="cancel-appointment" data-id="${item.id}" type="button">Cancelar</button>`
-                        : item.status === 'cancelled' && item.refund_status === 'failed'
-                          ? `<button class="secondary-button" data-action="retry-refund" data-id="${item.id}" data-reason="${escapeHtml(item.cancellation_reason || 'Cancelado por el profesional')}" type="button">Reintentar devolución</button>`
-                          : ''
-                    }</td>
+                    <td>${renderAppointmentActions(item)}</td>
                   </tr>
                 `,
               )
@@ -371,16 +539,32 @@
   }
 
   function renderAppointments() {
-    const items = [...state.appointments].sort((a, b) =>
-      `${b.date}${b.start_time}`.localeCompare(`${a.date}${a.start_time}`),
-    );
+    const search = normalizeSearchText(state.appointmentSearch);
+    const items = state.appointments
+      .filter((item) => !search || normalizeSearchText(item.patient_name).includes(search))
+      .sort((a, b) =>
+        `${b.date}${b.start_time}`.localeCompare(`${a.date}${a.start_time}`),
+      );
     return `
       ${pageHeader('Turnos', 'Próximos e históricos vinculados a tu ficha profesional.')}
       <section class="panel">
         <div class="panel-header">
           <h2>Agenda</h2>
+          <div class="appointments-panel-tools">
+            <span class="appointments-refresh-status">
+              ${state.appointmentsRefreshing ? 'Actualizando…' : 'Actualización automática cada 5 min'}
+            </span>
+            <form id="appointment-search-form" class="search-form appointment-search-form">
+              <input name="q" value="${escapeHtml(state.appointmentSearch)}" placeholder="Buscar por nombre" aria-label="Buscar turno por nombre del paciente" />
+              <button class="secondary-button" type="submit">Buscar</button>
+            </form>
+          </div>
         </div>
-        ${renderAppointmentsTable(items)}
+        ${
+          items.length
+            ? renderAppointmentsTable(items)
+            : `<div class="empty-state">${search ? 'No encontramos turnos para ese paciente.' : 'No hay turnos para mostrar.'}</div>`
+        }
       </section>
     `;
   }
@@ -418,12 +602,82 @@
       not_applicable: 'Sin próximo turno',
     })[status] || 'Sin información';
 
+  function selectedPatientDetails() {
+    if (state.selectedPatientId !== null) {
+      return state.patients.find(
+        (patient) => Number(patient.id) === Number(state.selectedPatientId),
+      );
+    }
+    if (state.selectedAppointmentId === null) return null;
+    const appointment = state.appointments.find(
+      (item) => Number(item.id) === Number(state.selectedAppointmentId),
+    );
+    if (!appointment) return null;
+    const patient = state.patients.find(
+      (item) =>
+        (appointment.patient_id && Number(item.id) === Number(appointment.patient_id)) ||
+        (appointment.patient_email &&
+          normalizeSearchText(item.email) === normalizeSearchText(appointment.patient_email)),
+    );
+    const detailAppointment = {
+      id: appointment.id,
+      date: appointment.date,
+      start_time: appointment.start_time,
+      end_time: appointment.end_time,
+      status: appointment.status,
+      documents: appointment.documents || [],
+      triage_reminder_sent_at: appointment.triage_reminder_sent_at || null,
+    };
+    if (patient) {
+      return {
+        ...patient,
+        detail_appointment: detailAppointment,
+        practice: appointment.service_name || patient.practice,
+        triage_status: appointment.triage_status,
+        payment: {
+          status: appointment.payment_status || '',
+          amount: Number(appointment.amount || 0),
+        },
+      };
+    }
+    const hasUpcomingAppointment =
+      appointment.status === 'confirmed' && isFutureAppointment(appointment);
+    return {
+      id: null,
+      name: appointment.patient_name || 'Paciente',
+      email: appointment.patient_email || '',
+      phone: appointment.patient_phone || '',
+      detail_appointment: detailAppointment,
+      next_appointment: hasUpcomingAppointment
+        ? {
+            id: appointment.id,
+            date: appointment.date,
+            start_time: appointment.start_time,
+            end_time: appointment.end_time,
+            documents: appointment.documents || [],
+          }
+        : null,
+      practice: appointment.service_name || '',
+      triage_status: hasUpcomingAppointment ? appointment.triage_status : 'not_applicable',
+      source: { type: '', name: '' },
+      payment: {
+        status: appointment.payment_status || '',
+        amount: Number(appointment.amount || 0),
+      },
+      latest_appointment_date: appointment.date,
+    };
+  }
+
   function renderPatientDetails(patient) {
     if (!patient) return '';
-    const documents = patient.next_appointment?.documents || [];
+    const detailAppointment = patient.detail_appointment || patient.next_appointment;
+    const documents = detailAppointment?.documents || [];
     const canRemindTriage =
-      patient.triage_status === 'assigned' && Boolean(patient.next_appointment?.id);
-    const reminderSentAt = patient.next_appointment?.triage_reminder_sent_at;
+      patient.triage_status === 'assigned' &&
+      detailAppointment?.status !== 'cancelled' &&
+      (!patient.detail_appointment || isFutureAppointment(detailAppointment)) &&
+      Boolean(detailAppointment?.id);
+    const reminderSentAt = detailAppointment?.triage_reminder_sent_at;
     return `
       <div class="modal-backdrop" role="presentation">
         <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="patient-details-title">
@@ -437,7 +691,7 @@
           <dl class="patient-details-grid">
             <div><dt>Email</dt><dd>${patient.email ? `<a href="mailto:${escapeHtml(patient.email)}">${escapeHtml(patient.email)}</a>` : '—'}</dd></div>
             <div><dt>Teléfono</dt><dd>${patient.phone ? `<a href="tel:${escapeHtml(patient.phone)}">${escapeHtml(patient.phone)}</a>` : '—'}</dd></div>
-            <div><dt>Próximo turno</dt><dd>${patient.next_appointment ? `${escapeHtml(formatDate(patient.next_appointment.date))} · ${escapeHtml(patient.next_appointment.start_time)}–${escapeHtml(patient.next_appointment.end_time)}` : 'Sin próximo turno'}</dd></div>
+            <div><dt>${patient.detail_appointment ? 'Turno seleccionado' : 'Próximo turno'}</dt><dd>${detailAppointment ? `${escapeHtml(formatDate(detailAppointment.date))} · ${escapeHtml(detailAppointment.start_time)}–${escapeHtml(detailAppointment.end_time)}` : 'Sin próximo turno'}</dd></div>
             <div><dt>Práctica</dt><dd>${escapeHtml(patient.practice || 'Sin información')}</dd></div>
             <div><dt>Triaje</dt><dd>${escapeHtml(triageLabel(patient.triage_status))}</dd></div>
             <div><dt>Origen</dt><dd>${escapeHtml(patientSourceLabel(patient))}</dd></div>
@@ -445,7 +699,7 @@
             <div><dt>Último turno registrado</dt><dd>${patient.latest_appointment_date ? escapeHtml(formatDate(patient.latest_appointment_date)) : '—'}</dd></div>
           </dl>
           <div class="patient-documents">
-            <strong>Documentación del próximo turno</strong>
+            <strong>Documentación ${patient.detail_appointment ? 'del turno' : 'del próximo turno'}</strong>
             ${
               documents.length
                 ? `<ul>${documents
@@ -465,7 +719,7 @@
           <div class="form-actions patient-detail-actions">
             <button class="secondary-button" data-action="close-patient-details" type="button">Cerrar</button>
             ${canRemindTriage
-              ? `<button class="primary-button" data-action="remind-triage" data-id="${patient.next_appointment.id}" type="button" ${state.sendingTriageReminderId === patient.next_appointment.id ? 'disabled' : ''}>${state.sendingTriageReminderId === patient.next_appointment.id ? 'Enviando…' : 'Recordar cuestionario'}</button>`
+              ? `<button class="primary-button" data-action="remind-triage" data-id="${detailAppointment.id}" type="button" ${state.sendingTriageReminderId === detailAppointment.id ? 'disabled' : ''}>${state.sendingTriageReminderId === detailAppointment.id ? 'Enviando…' : 'Recordar cuestionario'}</button>`
               : ''}
           </div>
         </section>
@@ -473,10 +727,71 @@
     `;
   }
 
+  function renderActionModal() {
+    const modal = state.actionModal;
+    if (!modal) return '';
+    const content = {
+      'cancel-appointment': {
+        eyebrow: 'Turnos',
+        title: modal.retry ? 'Reintentar devolución' : 'Cancelar turno',
+        message: modal.retry
+          ? 'Se volverá a solicitar la devolución correspondiente a este turno cancelado.'
+          : 'El paciente recibirá un aviso y, si pagó por Mercado Pago, se solicitará el reembolso total.',
+        confirm: modal.retry ? 'Reintentar devolución' : 'Cancelar turno',
+        dangerous: true,
+      },
+      'triage-reminder': {
+        eyebrow: 'Paciente',
+        title: 'Enviar recordatorio',
+        message: '¿Querés enviarle un mail al paciente para recordarle que complete el cuestionario?',
+        confirm: 'Enviar recordatorio',
+      },
+      'delete-block': {
+        eyebrow: 'Horarios',
+        title: 'Quitar bloqueo',
+        message: 'Este horario volverá a quedar disponible según tu configuración habitual.',
+        confirm: 'Quitar bloqueo',
+        dangerous: true,
+      },
+      'disconnect-google': {
+        eyebrow: 'Google Calendar',
+        title: 'Desconectar calendario',
+        message: 'Reku dejará de consultar tu disponibilidad y de sincronizar nuevos turnos con esta cuenta.',
+        confirm: 'Desconectar',
+        dangerous: true,
+      },
+    }[modal.type];
+    if (!content) return '';
+    const needsReason = modal.type === 'cancel-appointment' && !modal.retry;
+    return `
+      <div class="modal-backdrop action-modal-backdrop" data-action="close-action-modal" role="presentation">
+        <section class="modal-panel action-modal" role="dialog" aria-modal="true" aria-labelledby="action-modal-title">
+          <div class="modal-header">
+            <div>
+              <span class="eyebrow">${escapeHtml(content.eyebrow)}</span>
+              <h2 id="action-modal-title">${escapeHtml(content.title)}</h2>
+            </div>
+            <button class="icon-button" data-action="close-action-modal" type="button" aria-label="Cerrar" title="Cerrar" ${modal.submitting ? 'disabled' : ''}>×</button>
+          </div>
+          <p class="action-modal-message">${escapeHtml(content.message)}</p>
+          <form id="action-modal-form" class="form-stack">
+            ${
+              needsReason
+                ? `<label>Motivo<textarea name="reason" rows="4" maxlength="500" required placeholder="Contale brevemente al paciente por qué se cancela">${escapeHtml(modal.reason || '')}</textarea></label>`
+                : ''
+            }
+            ${modal.error ? `<div class="status-message error">${escapeHtml(modal.error)}</div>` : ''}
+            <div class="form-actions">
+              <button class="secondary-button" data-action="close-action-modal" type="button" ${modal.submitting ? 'disabled' : ''}>Volver</button>
+              <button class="${content.dangerous ? 'danger-button' : 'primary-button'}" type="submit" ${modal.submitting ? 'disabled' : ''}>${modal.submitting ? 'Procesando…' : escapeHtml(content.confirm)}</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    `;
+  }
+
   function renderPatients() {
-    const selectedPatient = state.patients.find(
-      (patient) => Number(patient.id) === Number(state.selectedPatientId),
-    );
     return `
       ${pageHeader('Pacientes', 'Contacto, próxima atención y situación administrativa de cada paciente.')}
       <section class="panel">
@@ -508,7 +823,11 @@
                             <td>${escapeHtml(patient.practice || '—')}</td>
                             <td><span class="patient-status ${escapeHtml(patient.triage_status)}">${escapeHtml(triageLabel(patient.triage_status))}</span></td>
                             <td>${escapeHtml(patientSourceLabel(patient))}</td>
-                            <td><button class="secondary-button compact-button" data-action="patient-details" data-id="${patient.id}" type="button">Detalles</button></td>
+                            <td>
+                              <button class="appointment-icon-button" data-action="patient-details" data-id="${patient.id}" type="button" aria-label="Ver información del paciente" title="Ver información del paciente">
+                                ${eyeIcon}
+                              </button>
+                            </td>
                           </tr>
                         `,
                       )
@@ -520,7 +839,6 @@
             : '<div class="empty-state">No encontramos pacientes.</div>'
         }
       </section>
-      ${renderPatientDetails(selectedPatient)}
     `;
   }
 
@@ -684,11 +1002,15 @@
         ${renderStatus()}
         ${renderContent()}
       </main>
+      ${renderPatientDetails(selectedPatientDetails())}
+      ${renderActionModal()}
     `;
     bindEvents();
   }
 
   function render() {
+    syncAppointmentsPolling();
+    syncMeetWindowRefresh();
     if (state.loading) return;
     if (state.invitationToken) renderInvitation();
     else if (!state.user) renderLogin();
@@ -697,11 +1019,7 @@
 
   function bindEvents() {
     app.querySelectorAll('[data-module]').forEach((button) => {
-      button.addEventListener('click', () => {
-        state.active = button.dataset.module;
-        state.status = '';
-        render();
-      });
+      button.addEventListener('click', () => activateModule(button.dataset.module));
     });
     document.getElementById('logout-button')?.addEventListener('click', handleLogout);
     document.getElementById('profile-form')?.addEventListener('submit', handleProfile);
@@ -709,8 +1027,13 @@
     document.getElementById('block-form')?.addEventListener('submit', handleBlock);
     document.getElementById('password-form')?.addEventListener('submit', handlePassword);
     document.getElementById('patient-search-form')?.addEventListener('submit', handlePatientSearch);
+    document
+      .getElementById('appointment-search-form')
+      ?.addEventListener('submit', handleAppointmentSearch);
     document.getElementById('google-connect-button')?.addEventListener('click', handleGoogleConnect);
-    document.getElementById('google-disconnect-button')?.addEventListener('click', handleGoogleDisconnect);
+    document.getElementById('google-disconnect-button')?.addEventListener('click', () => {
+      openActionModal({ type: 'disconnect-google' });
+    });
     app.querySelectorAll('[data-action="add-range"]').forEach((button) => {
       button.addEventListener('click', () => {
         const day = button.closest('.availability-day');
@@ -732,7 +1055,9 @@
       button.addEventListener('click', () => button.closest('.availability-range').remove());
     });
     app.querySelectorAll('[data-action="delete-block"]').forEach((button) => {
-      button.addEventListener('click', () => handleDeleteBlock(button.dataset.id));
+      button.addEventListener('click', () => {
+        openActionModal({ type: 'delete-block', id: button.dataset.id });
+      });
     });
     app.querySelectorAll('[data-action="open-blocks-modal"]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -751,16 +1076,33 @@
       });
     });
     app.querySelectorAll('[data-action="cancel-appointment"]').forEach((button) => {
-      button.addEventListener('click', () => handleCancelAppointment(button.dataset.id));
+      button.addEventListener('click', () => {
+        openActionModal({ type: 'cancel-appointment', id: button.dataset.id, reason: '' });
+      });
     });
     app.querySelectorAll('[data-action="retry-refund"]').forEach((button) => {
-      button.addEventListener('click', () =>
-        handleCancelAppointment(button.dataset.id, button.dataset.reason),
-      );
+      button.addEventListener('click', () => {
+        openActionModal({
+          type: 'cancel-appointment',
+          id: button.dataset.id,
+          reason: button.dataset.reason,
+          retry: true,
+        });
+      });
+    });
+    app.querySelectorAll('[data-action="appointment-patient-details"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.selectedAppointmentId = Number(button.dataset.id);
+        state.selectedPatientId = null;
+        state.patientDetailMessage = '';
+        state.patientDetailMessageType = '';
+        render();
+      });
     });
     app.querySelectorAll('[data-action="patient-details"]').forEach((button) => {
       button.addEventListener('click', () => {
         state.selectedPatientId = Number(button.dataset.id);
+        state.selectedAppointmentId = null;
         state.patientDetailMessage = '';
         state.patientDetailMessageType = '';
         render();
@@ -769,24 +1111,34 @@
     app.querySelectorAll('[data-action="close-patient-details"]').forEach((button) => {
       button.addEventListener('click', () => {
         state.selectedPatientId = null;
+        state.selectedAppointmentId = null;
         state.patientDetailMessage = '';
         state.patientDetailMessageType = '';
         render();
       });
     });
     app.querySelectorAll('[data-action="remind-triage"]').forEach((button) => {
-      button.addEventListener('click', () => handleTriageReminder(Number(button.dataset.id)));
+      button.addEventListener('click', () => {
+        openActionModal({ type: 'triage-reminder', id: Number(button.dataset.id) });
+      });
     });
+    app.querySelectorAll('[data-action="close-action-modal"]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        if (
+          event.currentTarget.classList?.contains('action-modal-backdrop') &&
+          event.target !== event.currentTarget
+        ) {
+          return;
+        }
+        closeActionModal();
+      });
+    });
+    document
+      .getElementById('action-modal-form')
+      ?.addEventListener('submit', handleActionModalSubmit);
   }
 
   async function handleTriageReminder(appointmentId) {
-    if (
-      !window.confirm(
-        '¿Enviar un mail al paciente para recordarle que complete el cuestionario?',
-      )
-    ) {
-      return;
-    }
     state.sendingTriageReminderId = appointmentId;
     state.patientDetailMessage = '';
     render();
@@ -938,7 +1290,6 @@
   }
 
   async function handleDeleteBlock(id) {
-    if (!window.confirm('¿Querés quitar este bloqueo?')) return;
     try {
       await api(`/api/professional/blocks/${id}`, { method: 'DELETE' });
       state.blocks = (await api('/api/professional/blocks')).schedule_blocks;
@@ -952,13 +1303,7 @@
     }
   }
 
-  async function handleCancelAppointment(id, existingReason = '') {
-    const reason =
-      existingReason ||
-      window.prompt(
-        'Indicá el motivo. El paciente recibirá un aviso y, si pagó por Mercado Pago, se solicitará el reembolso total.',
-      );
-    if (reason === null) return;
+  async function handleCancelAppointment(id, reason) {
     if (!reason.trim()) {
       setStatus('Indicá el motivo de la cancelación.', 'error');
       return;
@@ -1004,6 +1349,12 @@
     }
   }
 
+  function handleAppointmentSearch(event) {
+    event.preventDefault();
+    state.appointmentSearch = event.currentTarget.q.value.trim();
+    render();
+  }
+
   async function handleGoogleConnect() {
     try {
       const payload = await api('/api/professional/integrations/google/connect', {
@@ -1016,13 +1367,55 @@
   }
 
   async function handleGoogleDisconnect() {
-    if (!window.confirm('¿Querés desconectar Google Calendar?')) return;
     try {
       await api('/api/professional/integrations/google/disconnect', { method: 'POST' });
       state.google = (await api('/api/professional/integrations/google')).google;
       setStatus('Google Calendar fue desconectado.', 'ok');
     } catch (error) {
       setStatus(error.message, 'error');
+    }
+  }
+
+  function openActionModal(modal) {
+    state.actionModal = { ...modal, error: '', submitting: false };
+    render();
+  }
+
+  function closeActionModal() {
+    if (state.actionModal?.submitting) return;
+    state.actionModal = null;
+    render();
+  }
+
+  async function handleActionModalSubmit(event) {
+    event.preventDefault();
+    const modal = state.actionModal;
+    if (!modal || modal.submitting) return;
+    const reason =
+      modal.type === 'cancel-appointment' && !modal.retry
+        ? event.currentTarget.reason.value.trim()
+        : modal.reason || '';
+    if (modal.type === 'cancel-appointment' && !reason) {
+      state.actionModal = { ...modal, reason, error: 'Indicá el motivo de la cancelación.' };
+      render();
+      return;
+    }
+
+    state.actionModal = { ...modal, reason, error: '', submitting: true };
+    render();
+    try {
+      if (modal.type === 'cancel-appointment') {
+        await handleCancelAppointment(modal.id, reason);
+      } else if (modal.type === 'triage-reminder') {
+        await handleTriageReminder(Number(modal.id));
+      } else if (modal.type === 'delete-block') {
+        await handleDeleteBlock(modal.id);
+      } else if (modal.type === 'disconnect-google') {
+        await handleGoogleDisconnect();
+      }
+    } finally {
+      state.actionModal = null;
+      render();
     }
   }
 
@@ -1059,6 +1452,23 @@
     [state.status, state.statusType] = messages[googleReturn] || messages.error;
     window.history.replaceState({}, '', '/profesional/');
   }
+  document.addEventListener?.('visibilitychange', () => {
+    syncAppointmentsPolling();
+    if (shouldPollAppointments()) refreshAppointments();
+  });
+  document.addEventListener?.('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (state.actionModal) {
+      closeActionModal();
+    } else if (state.selectedPatientId !== null || state.selectedAppointmentId !== null) {
+      state.selectedPatientId = null;
+      state.selectedAppointmentId = null;
+      render();
+    } else if (state.blocksModalOpen) {
+      state.blocksModalOpen = false;
+      render();
+    }
+  });
   if (state.invitationToken) {
     state.loading = false;
     render();

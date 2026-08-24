@@ -32,6 +32,9 @@ test("admin turnos UI exposes reassignment, slot selection and cancellation", as
   assert.match(source, /id="appointment-edit-slot"/);
   assert.match(source, /id="appointment-cancel-form"/);
   assert.match(source, /reembolso total/);
+  assert.match(source, /renderAppointmentDocuments\(appointment\.documents\)/);
+  assert.match(source, /Estudios y enlaces del turno/);
+  assert.match(source, /Ver archivo/);
 });
 
 test("pending Calendar holds are patched when an appointment time changes", async () => {

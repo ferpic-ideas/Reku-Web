@@ -731,7 +731,19 @@ export const syncAppointmentToGoogleCalendar = async (
     );
     return { skipped: true, reason: "not_connected" };
   }
-  if (connection.status !== "active") throw new Error("GOOGLE_REAUTH_REQUIRED");
+  if (connection.status !== "active") {
+    await query(
+      `
+        UPDATE appointments
+        SET google_sync_status = 'failed',
+            google_sync_error = 'Google requiere reconexión.',
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [appointmentId],
+    );
+    throw new Error("GOOGLE_REAUTH_REQUIRED");
+  }
 
   const eventId = appointment.google_calendar_event_id || eventIdForAppointment(appointmentId);
   await query(

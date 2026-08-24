@@ -429,6 +429,23 @@ select:focus {
   letter-spacing: -0.025em;
 }
 
+.appointments-refresh-status {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.appointments-panel-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+
+.appointment-search-form {
+  width: min(100%, 390px);
+}
+
 .integration-card {
   display: flex;
   align-items: center;
@@ -508,6 +525,67 @@ th {
 
 td a {
   color: var(--brand-dark);
+}
+
+.appointment-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: max-content;
+}
+
+.appointment-icon-button {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid #d8d0ff;
+  border-radius: 10px;
+  color: var(--brand-dark);
+  background: #f7f5ff;
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.appointment-icon-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+
+.appointment-icon-button:hover {
+  border-color: var(--brand);
+  background: #eeeaff;
+  transform: translateY(-1px);
+}
+
+.appointment-icon-button.danger {
+  color: var(--danger);
+  border-color: #f5c7c2;
+  background: #fff5f4;
+}
+
+.appointment-icon-button.danger:hover {
+  border-color: #ed9b93;
+  background: #ffe8e5;
+}
+
+.meet-link-disabled {
+  color: #98a2b3;
+  text-decoration: underline;
+  text-decoration-style: dashed;
+}
+
+.meet-availability {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .empty-state {
@@ -702,6 +780,20 @@ td a {
 
 .modal-panel-wide {
   width: min(100%, 1080px);
+}
+
+.action-modal-backdrop {
+  z-index: 60;
+}
+
+.action-modal {
+  width: min(100%, 520px);
+}
+
+.action-modal-message {
+  margin: -4px 0 20px;
+  color: var(--muted);
+  line-height: 1.55;
 }
 
 .modal-header {
@@ -918,6 +1010,12 @@ td a {
   .integration-card,
   .block-row {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .appointments-panel-tools {
+    width: 100%;
+    align-items: stretch;
     flex-direction: column;
   }
 

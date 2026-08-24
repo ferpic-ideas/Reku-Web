@@ -77,9 +77,22 @@ export const normalizeDocumentLinks = (value) => {
       error.statusCode = 422;
       throw error;
     }
+    let candidateUrl = raw;
+    if (/^http:\/\//i.test(candidateUrl)) {
+      candidateUrl = `https://${candidateUrl.slice("http://".length)}`;
+    } else if (/^\/\//.test(candidateUrl)) {
+      candidateUrl = `https:${candidateUrl}`;
+    } else if (!/^https:\/\//i.test(candidateUrl)) {
+      if (/^[a-z][a-z0-9+.-]*:/i.test(candidateUrl)) {
+        const error = new Error("INVALID_APPOINTMENT_DOCUMENT_LINK");
+        error.statusCode = 422;
+        throw error;
+      }
+      candidateUrl = `https://${candidateUrl}`;
+    }
     let url;
     try {
-      url = new URL(raw);
+      url = new URL(candidateUrl);
     } catch {
       const error = new Error("INVALID_APPOINTMENT_DOCUMENT_LINK");
       error.statusCode = 422;
@@ -91,6 +104,11 @@ export const normalizeDocumentLinks = (value) => {
       throw error;
     }
     const normalized = url.toString();
+    if (normalized.length > 2_000) {
+      const error = new Error("INVALID_APPOINTMENT_DOCUMENT_LINK");
+      error.statusCode = 422;
+      throw error;
+    }
     if (!links.includes(normalized)) links.push(normalized);
   }
   return links;
@@ -113,7 +131,7 @@ export const removeClinicalDocuments = async (storagePaths) => {
   );
 };
 
-export const mapAppointmentDocument = (row) => ({
+const mapAppointmentDocumentFor = (row, fileBasePath) => ({
   id: Number(row.id),
   kind: row.kind,
   name: row.original_name || (row.kind === "link" ? "Estudio por enlace" : "Documento"),
@@ -122,15 +140,21 @@ export const mapAppointmentDocument = (row) => ({
   url:
     row.kind === "link"
       ? row.external_url
-      : `/api/professional/appointment-documents/${Number(row.id)}`,
+      : `${fileBasePath}/${Number(row.id)}`,
   created_at: row.created_at,
 });
 
-export const streamProfessionalAppointmentDocument = async (
+export const mapAppointmentDocument = (row) =>
+  mapAppointmentDocumentFor(row, "/api/professional/appointment-documents");
+
+export const mapAdminAppointmentDocument = (row) =>
+  mapAppointmentDocumentFor(row, "/api/admin/appointment-documents");
+
+const streamAppointmentDocument = async (
   request,
   response,
   documentId,
-  account,
+  { actorUserId, professionalId = null, auditEvent },
 ) => {
   const document = await one(
     `
@@ -139,11 +163,13 @@ export const streamProfessionalAppointmentDocument = async (
       INNER JOIN appointments appointment ON appointment.id = document.appointment_id
       WHERE document.id = $1
         AND document.kind = 'file'
-        AND appointment.professional_id = $2
     `,
-    [documentId, account.user.professional_id],
+    [documentId],
   );
-  if (!document) {
+  if (
+    !document ||
+    (professionalId !== null && Number(document.professional_id) !== Number(professionalId))
+  ) {
     response.writeHead(404, withSecurityHeaders({ "Content-Type": "text/plain; charset=utf-8" }, { privateRoute: true }));
     response.end("Documento no encontrado.");
     return;
@@ -158,12 +184,12 @@ export const streamProfessionalAppointmentDocument = async (
   }
   const fileStat = await stat(filePath);
   const safeAsciiName = cleanOriginalName(document.original_name).replace(/[^a-zA-Z0-9._-]/g, "_");
-  await recordAudit("appointment.document.downloaded", {
-    actorUserId: account.user.id,
+  await recordAudit(auditEvent, {
+    actorUserId,
     detail: {
       appointment_document_id: Number(document.id),
       appointment_id: Number(document.appointment_id),
-      professional_id: account.user.professional_id,
+      professional_id: Number(document.professional_id),
     },
   });
   response.writeHead(
@@ -181,3 +207,26 @@ export const streamProfessionalAppointmentDocument = async (
   if (request.method === "HEAD") response.end();
   else createReadStream(filePath).pipe(response);
 };
+
+export const streamProfessionalAppointmentDocument = async (
+  request,
+  response,
+  documentId,
+  account,
+) =>
+  streamAppointmentDocument(request, response, documentId, {
+    actorUserId: account.user.id,
+    professionalId: account.user.professional_id,
+    auditEvent: "appointment.document.downloaded",
+  });
+
+export const streamAdminAppointmentDocument = async (
+  request,
+  response,
+  documentId,
+  user,
+) =>
+  streamAppointmentDocument(request, response, documentId, {
+    actorUserId: user.id,
+    auditEvent: "admin.appointment.document.downloaded",
+  });

@@ -46,6 +46,8 @@
     documentsUploading: false,
     documentsMessage: '',
     documentsError: '',
+    documentFiles: [],
+    documentLinksDraft: '',
     management: {
       appointment: null,
       rescheduling: false,
@@ -57,6 +59,7 @@
       submitting: false,
       message: '',
       error: '',
+      cancelModalOpen: false,
     },
   };
 
@@ -67,6 +70,15 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+
+  const normalizeDocumentLinkInput = (value) => {
+    const link = String(value || '').trim();
+    if (!link) return '';
+    if (/^http:\/\//i.test(link)) return `https://${link.slice('http://'.length)}`;
+    if (/^\/\//.test(link)) return `https:${link}`;
+    if (/^https:\/\//i.test(link) || /^[a-z][a-z0-9+.-]*:/i.test(link)) return link;
+    return `https://${link}`;
+  };
 
   const removeSensitiveUrlTokens = () => {
     const clean = new URL(window.location.href);
@@ -549,17 +561,20 @@
     if (state.documentsUploading || !state.appointment?.id) return;
     const fileInput = form.querySelector('input[name="documents"]');
     const linkInput = form.querySelector('textarea[name="links"]');
-    const links = String(linkInput?.value || '')
+    const links = String(linkInput?.value ?? state.documentLinksDraft)
       .split(/\r?\n/)
-      .map((value) => value.trim())
+      .map(normalizeDocumentLinkInput)
       .filter(Boolean);
-    const files = Array.from(fileInput?.files || []);
+    const selectedFiles = Array.from(fileInput?.files || []);
+    const files = selectedFiles.length ? selectedFiles : state.documentFiles;
     if (!files.length && !links.length) {
       state.documentsError = 'Adjuntá al menos un archivo o pegá un enlace.';
       state.documentsMessage = '';
       render();
       return;
     }
+    state.documentFiles = files;
+    state.documentLinksDraft = links.join('\n');
     const data = new FormData();
     files.forEach((file) => data.append('documents', file));
     data.set('links_json', JSON.stringify(links));
@@ -573,6 +588,8 @@
         { method: 'POST', body: data },
       );
       state.documents.push(...(payload.documents || []));
+      state.documentFiles = [];
+      state.documentLinksDraft = '';
       state.documentsMessage = payload.message || 'La documentación se compartió.';
     } catch (error) {
       state.documentsError = error.message;
@@ -606,6 +623,12 @@
     management.message = '';
     management.error = '';
     render();
+    window.requestAnimationFrame?.(() => {
+      document.getElementById('management-reschedule-panel')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
     await loadManagementDays();
   }
 
@@ -674,11 +697,11 @@
   async function cancelManagedAppointment() {
     const management = state.management;
     if (management.submitting) return;
-    if (!window.confirm('¿Querés cancelar esta reserva pendiente de pago?')) return;
     management.submitting = true;
     management.error = '';
     management.message = '';
     render();
+    let cancelled = false;
     try {
       const payload = await api('/api/booking/manage/cancel', {
         method: 'POST',
@@ -688,10 +711,12 @@
       management.appointment = payload.appointment;
       management.message = payload.message || 'La reserva fue cancelada.';
       management.rescheduling = false;
+      cancelled = true;
     } catch (error) {
       management.error = error.message;
     } finally {
       management.submitting = false;
+      if (cancelled) management.cancelModalOpen = false;
       render();
     }
   }
@@ -1017,12 +1042,13 @@
             Imágenes o PDF
             <input name="documents" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple />
             <span>Hasta 5 archivos y 10 MB en total.</span>
+            ${state.documentFiles.length ? `<span class="selected-document-files">Seleccionados: ${state.documentFiles.map((file) => escapeHtml(file.name)).join(', ')}</span>` : ''}
           </label>
           <label>
             Links a estudios de imágenes
-            <textarea name="links" rows="3" placeholder="Pegá un link https:// por línea"></textarea>
+            <textarea name="links" rows="3" placeholder="Pegá un link por línea">${escapeHtml(state.documentLinksDraft)}</textarea>
           </label>
-          <button class="secondary-button" type="submit" ${state.documentsUploading ? 'disabled' : ''}>${
+          <button class="primary-button documents-submit-button" type="submit" ${state.documentsUploading ? 'disabled' : ''}>${
             state.documentsUploading ? 'Compartiendo…' : 'Compartir documentación'
           }</button>
         </form>
@@ -1132,7 +1158,7 @@
   function renderManagementReschedule(appointment) {
     const management = state.management;
     return `
-      <div class="management-reschedule">
+      <div class="management-reschedule" id="management-reschedule-panel">
         <div class="calendar-head">
           <div>
             <span class="optional-label">Reprogramación</span>
@@ -1226,6 +1252,30 @@
     `;
   }
 
+  function renderManagementCancelModal() {
+    const management = state.management;
+    if (!management.cancelModalOpen) return '';
+    return `
+      <div class="booking-modal-backdrop" data-action="close-management-cancel-modal" role="presentation">
+        <section class="booking-modal" role="dialog" aria-modal="true" aria-labelledby="management-cancel-title">
+          <div class="booking-modal-header">
+            <div>
+              <span class="optional-label">Tu reserva</span>
+              <h2 id="management-cancel-title">Cancelar reserva</h2>
+            </div>
+            <button type="button" class="booking-modal-close" data-action="close-management-cancel-modal" aria-label="Cerrar" ${management.submitting ? 'disabled' : ''}>×</button>
+          </div>
+          <p>¿Querés cancelar esta reserva pendiente de pago? El horario volverá a quedar disponible.</p>
+          ${management.error ? `<div class="document-status error">${escapeHtml(management.error)}</div>` : ''}
+          <div class="booking-modal-actions">
+            <button type="button" class="secondary-button" data-action="close-management-cancel-modal" ${management.submitting ? 'disabled' : ''}>Volver</button>
+            <button type="button" class="danger-outline-button" data-action="confirm-management-cancel" ${management.submitting ? 'disabled' : ''}>${management.submitting ? 'Cancelando…' : 'Cancelar reserva'}</button>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
   function renderVerificationPending() {
     return `
       <section>
@@ -1267,7 +1317,7 @@
       7: renderVerificationPending,
       8: renderAppointmentManagement,
     }[state.step]();
-    app.innerHTML = `${renderHeader()}${content}`;
+    app.innerHTML = `${renderHeader()}${content}${renderManagementCancelModal()}`;
     bindEvents();
     scheduleManagementMeetRefresh();
   }
@@ -1278,13 +1328,31 @@
       state.error = '';
       await submitIntake(event.currentTarget);
     });
-    app.querySelector('#appointment-documents-form')?.addEventListener('submit', async (event) => {
+    const documentsForm = app.querySelector('#appointment-documents-form');
+    const documentFileInput = documentsForm?.querySelector('input[name="documents"]');
+    const documentLinkInput = documentsForm?.querySelector('textarea[name="links"]');
+    if (documentFileInput && state.documentFiles.length && typeof DataTransfer !== 'undefined') {
+      try {
+        const transfer = new DataTransfer();
+        state.documentFiles.forEach((file) => transfer.items.add(file));
+        documentFileInput.files = transfer.files;
+      } catch {
+        // The selected names remain visible and the in-memory files are reused on retry.
+      }
+    }
+    documentFileInput?.addEventListener('change', (event) => {
+      state.documentFiles = Array.from(event.currentTarget.files || []);
+    });
+    documentLinkInput?.addEventListener('input', (event) => {
+      state.documentLinksDraft = event.currentTarget.value;
+    });
+    documentsForm?.addEventListener('submit', async (event) => {
       event.preventDefault();
       await submitDocuments(event.currentTarget);
     });
 
     app.querySelectorAll('[data-action]').forEach((element) => {
-      element.addEventListener('click', async () => {
+      element.addEventListener('click', async (event) => {
         const action = element.dataset.action;
         state.error = '';
         if (action === 'select-service') await selectService(Number(element.dataset.id));
@@ -1312,6 +1380,11 @@
           window.history.replaceState({}, '', '/agenda/');
           state.step = 2;
           state.appointment = null;
+          state.documents = [];
+          state.documentFiles = [];
+          state.documentLinksDraft = '';
+          state.documentsMessage = '';
+          state.documentsError = '';
           state.error = '';
           await loadServices();
         }
@@ -1358,11 +1431,41 @@
           await rescheduleManagedAppointment();
         }
         if (action === 'cancel-management-appointment') {
+          state.management.cancelModalOpen = true;
+          state.management.error = '';
+          render();
+        }
+        if (action === 'close-management-cancel-modal') {
+          if (
+            element.classList.contains('booking-modal-backdrop') &&
+            event.target !== element
+          ) {
+            return;
+          }
+          if (!state.management.submitting) {
+            state.management.cancelModalOpen = false;
+            state.management.error = '';
+            render();
+          }
+        }
+        if (action === 'confirm-management-cancel') {
           await cancelManagedAppointment();
         }
       });
     });
   }
+
+  document.addEventListener?.('keydown', (event) => {
+    if (
+      event.key === 'Escape' &&
+      state.management.cancelModalOpen &&
+      !state.management.submitting
+    ) {
+      state.management.cancelModalOpen = false;
+      state.management.error = '';
+      render();
+    }
+  });
 
   loadInitial();
 })();

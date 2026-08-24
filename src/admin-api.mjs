@@ -70,6 +70,10 @@ import {
   cancelGoogleCalendarEventForProfessional,
   holdAppointmentOnGoogleCalendar,
 } from "./google-calendar.mjs";
+import {
+  mapAdminAppointmentDocument,
+  streamAdminAppointmentDocument,
+} from "./appointment-documents.mjs";
 
 const canDeleteRecords = (user) => hasPermission(user, "records.delete");
 const canManageSystem = (user) => hasPermission(user, "users.write");
@@ -1919,6 +1923,7 @@ const mapAppointment = (row) => ({
   is_future: Boolean(row.is_future),
   reservation_active: Boolean(row.reservation_active),
   reschedule_count: Number(row.reschedule_count || 0),
+  documents: (row.documents || []).map(mapAdminAppointmentDocument),
   created_at: row.created_at,
 });
 
@@ -1934,6 +1939,25 @@ const listAppointments = async (response) => {
       COALESCE(NULLIF(a.agreement_name_snapshot, ''), pi.agreement_name_snapshot, ag.name, '') AS agreement_name,
       COALESCE(NULLIF(a.agreement_slug_snapshot, ''), pi.agreement_slug_snapshot, ag.slug, '') AS agreement_slug,
       COALESCE(NULLIF(a.agreement_type_snapshot, ''), pi.agreement_type_snapshot, ag.type, '') AS agreement_type,
+      (
+        SELECT COALESCE(
+          jsonb_agg(
+            jsonb_build_object(
+              'id', document.id,
+              'kind', document.kind,
+              'original_name', document.original_name,
+              'mime_type', document.mime_type,
+              'size_bytes', document.size_bytes,
+              'external_url', document.external_url,
+              'created_at', document.created_at
+            )
+            ORDER BY document.created_at, document.id
+          ),
+          '[]'::jsonb
+        )
+        FROM appointment_documents document
+        WHERE document.appointment_id = a.id
+      ) AS documents,
       ((a.appointment_date + a.start_time) AT TIME ZONE $1) > NOW() AS is_future,
       (a.status <> 'pending_payment' OR a.created_at > NOW() - INTERVAL '40 minutes') AS reservation_active,
       to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
@@ -2011,6 +2035,7 @@ const listAdminAppointmentSlots = async (url, response, appointmentId) => {
     professionalId,
     date: appointmentDate,
     excludeAppointmentId: appointmentId,
+    minimumNoticeMinutes: 0,
   });
   if (
     professionalId === Number(appointment.professional_id) &&
@@ -2046,6 +2071,7 @@ const updateAdminAppointment = async (request, response, user, appointmentId) =>
     professionalId,
     date: appointmentDate,
     excludeAppointmentId: appointmentId,
+    minimumNoticeMinutes: 0,
   });
   if (!slots.includes(startTime)) {
     throw appointmentManagementError("ADMIN_APPOINTMENT_SLOT_TAKEN");
@@ -2081,7 +2107,7 @@ const updateAdminAppointment = async (request, response, user, appointmentId) =>
               SELECT 1
               FROM professional_google_connections connection
               WHERE connection.professional_id = professional.id
-                AND connection.status = 'active'
+                AND connection.status IN ('active', 'error')
             )
           )
       `,
@@ -2688,6 +2714,21 @@ export const handleAdminApi = async (request, response, url) => {
 
     if (pathname === "/api/admin/appointments" && request.method === "GET") {
       await listAppointments(response);
+      return true;
+    }
+    const appointmentDocumentMatch = pathname.match(
+      /^\/api\/admin\/appointment-documents\/(\d+)$/,
+    );
+    if (
+      appointmentDocumentMatch &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      await streamAdminAppointmentDocument(
+        request,
+        response,
+        Number(appointmentDocumentMatch[1]),
+        user,
+      );
       return true;
     }
     const appointmentSlotsMatch = pathname.match(

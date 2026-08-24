@@ -831,14 +831,6 @@ export const notifyConfirmedAppointment = async (
       },
     });
   }
-  if (googleCalendar?.ok === false || googleCalendar?.status === "pending") {
-    return {
-      patient: { ok: false, skipped: true, reason: "google_calendar_pending" },
-      professional: { ok: false, skipped: true, reason: "google_calendar_pending" },
-      google_calendar: googleCalendar,
-      triage,
-    };
-  }
   const [patient, professional] = await Promise.all([
     notifyPatientForAppointment(appointmentId),
     notifyProfessionalForAppointment(appointmentId),

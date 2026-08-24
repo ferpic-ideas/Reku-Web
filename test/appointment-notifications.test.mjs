@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   patientConfirmationHtml,
@@ -124,6 +125,19 @@ test("patient emails continue normally without mentioning triage after an assign
     assert.doesNotMatch(content, /cuestionario/i);
     assert.doesNotMatch(content, /rehub\.cloud/i);
   }
+});
+
+test("Google synchronization failures do not suppress booking confirmation emails", async () => {
+  const source = await readFile(
+    new URL("../src/appointment-notifications.mjs", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /reason: "google_calendar_pending"/);
+  assert.match(
+    source,
+    /googleCalendar = \{ ok: false, error: error\.message \};[\s\S]*notifyPatientForAppointment\(appointmentId\)[\s\S]*notifyProfessionalForAppointment\(appointmentId\)/,
+  );
 });
 
 test("manual triage reminders include the assigned questionnaire and safe fallback copy", () => {

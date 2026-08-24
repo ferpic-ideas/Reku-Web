@@ -63,9 +63,6 @@ const settledPaymentStatuses = new Set([
   "nomina",
   "free",
 ]);
-const isGoogleAvailabilityError = (error) =>
-  ["GOOGLE_REAUTH_REQUIRED", "GOOGLE_API_ERROR"].includes(error?.message);
-
 const parseJsonBody = async (request) => {
   const body = await readBody(request);
   return body ? JSON.parse(body) : {};
@@ -89,19 +86,49 @@ const dateToDow = (date) => {
 
 const addMinutes = (time, minutes) => minutesToTime(timeToMinutes(time) + minutes);
 
-const currentDateInCalendarTimeZone = () => {
-  const parts = Object.fromEntries(
+const calendarDateTimeParts = (
+  instant = new Date(),
+  timeZone = config.googleCalendarTimeZone,
+) =>
+  Object.fromEntries(
     new Intl.DateTimeFormat("en-CA", {
-      timeZone: config.googleCalendarTimeZone,
+      timeZone,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
     })
-      .formatToParts(new Date())
+      .formatToParts(instant)
       .filter((part) => part.type !== "literal")
       .map((part) => [part.type, part.value]),
   );
+
+const currentDateInCalendarTimeZone = () => {
+  const parts = calendarDateTimeParts();
   return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
+export const filterSlotsByMinimumNotice = ({
+  slots,
+  date,
+  minimumNoticeMinutes = 30,
+  now = new Date(),
+  timeZone = config.googleCalendarTimeZone,
+}) => {
+  const parts = calendarDateTimeParts(now, timeZone);
+  const currentDate = `${parts.year}-${parts.month}-${parts.day}`;
+  if (date < currentDate) return [];
+  if (date > currentDate) return slots;
+  const currentMinutes =
+    Number(parts.hour) * 60 +
+    Number(parts.minute) +
+    Number(parts.second) / 60 +
+    now.getMilliseconds() / 60_000;
+  const earliestStart = currentMinutes + Math.max(0, Number(minimumNoticeMinutes) || 0);
+  return slots.filter((slot) => timeToMinutes(slot) >= earliestStart);
 };
 
 const rangesOverlap = (startA, endA, startB, endB) =>
@@ -131,6 +158,88 @@ export const buildAvailableSlots = ({
     }
   }
   return slots;
+};
+
+export const getBookingGoogleBusyRanges = async (
+  options,
+  {
+    loadBusyRanges = getGoogleBusyRanges,
+    audit = recordAudit,
+    warn = console.warn,
+  } = {},
+) => {
+  try {
+    return await loadBusyRanges(options);
+  } catch (error) {
+    const detail = {
+      professional_id: Number(options.professionalId),
+      start_date: String(options.startDate || ""),
+      end_date_exclusive: String(options.endDateExclusive || ""),
+      error: String(error?.message || error?.name || "GOOGLE_AVAILABILITY_FAILED").slice(
+        0,
+        120,
+      ),
+    };
+    warn("Google Calendar availability unavailable; using Reku availability", detail);
+    try {
+      await audit("booking.google_calendar.availability_fallback", { detail });
+    } catch (auditError) {
+      warn("Could not audit Google Calendar availability fallback", {
+        professional_id: detail.professional_id,
+        error: String(auditError?.message || "AUDIT_FAILED").slice(0, 120),
+      });
+    }
+    return {};
+  }
+};
+
+const markBookingGoogleHoldFailed = (appointmentId, error) =>
+  query(
+    `
+      UPDATE appointments
+      SET google_sync_status = 'failed',
+          google_sync_error = $2,
+          updated_at = NOW()
+      WHERE id = $1
+    `,
+    [appointmentId, String(error || "GOOGLE_SYNC_FAILED").slice(0, 500)],
+  );
+
+export const holdGoogleCalendarForBooking = async (
+  appointmentId,
+  {
+    hold = holdAppointmentOnGoogleCalendar,
+    markFailed = markBookingGoogleHoldFailed,
+    audit = recordAudit,
+    warn = console.warn,
+  } = {},
+) => {
+  try {
+    return await hold(appointmentId);
+  } catch (error) {
+    const detail = {
+      appointment_id: Number(appointmentId),
+      error: String(error?.message || error?.name || "GOOGLE_SYNC_FAILED").slice(0, 120),
+    };
+    warn("Google Calendar hold unavailable; continuing with Reku booking", detail);
+    try {
+      await markFailed(appointmentId, error?.detail || detail.error);
+    } catch (markError) {
+      warn("Could not persist Google Calendar hold failure", {
+        appointment_id: detail.appointment_id,
+        error: String(markError?.message || "GOOGLE_SYNC_STATUS_UPDATE_FAILED").slice(0, 120),
+      });
+    }
+    try {
+      await audit("appointment.google_calendar.hold_failed", { detail });
+    } catch (auditError) {
+      warn("Could not audit Google Calendar hold failure", {
+        appointment_id: detail.appointment_id,
+        error: String(auditError?.message || "AUDIT_FAILED").slice(0, 120),
+      });
+    }
+    return { ok: false, error: detail.error };
+  }
 };
 
 const readToken = (request, url, payload = {}) =>
@@ -406,7 +515,7 @@ const listProfessionals = async (url, response) => {
             SELECT 1
             FROM professional_google_connections pgc
             WHERE pgc.professional_id = p.id
-              AND pgc.status = 'active'
+              AND pgc.status IN ('active', 'error')
           )
         )
       ORDER BY p.name ASC
@@ -437,7 +546,7 @@ const loadEligibleProfessionals = async (serviceId) => {
             SELECT 1
             FROM professional_google_connections pgc
             WHERE pgc.professional_id = p.id
-              AND pgc.status = 'active'
+              AND pgc.status IN ('active', 'error')
           )
         )
       GROUP BY p.id
@@ -488,7 +597,7 @@ const professionalSupportsService = async (professionalId, serviceId) =>
             SELECT 1
             FROM professional_google_connections pgc
             WHERE pgc.professional_id = p.id
-              AND pgc.status = 'active'
+              AND pgc.status IN ('active', 'error')
           )
         )
     `,
@@ -503,6 +612,7 @@ export const computeSlots = async ({
   preloadedService = null,
   selectionValidated = false,
   excludeAppointmentId = null,
+  minimumNoticeMinutes = 30,
 }) => {
   const parsedDate = new Date(`${date}T00:00:00Z`);
   if (
@@ -568,7 +678,7 @@ export const computeSlots = async ({
     ),
     externalBusyRanges
       ? Promise.resolve({ [date]: externalBusyRanges })
-      : getGoogleBusyRanges({
+      : getBookingGoogleBusyRanges({
           professionalId,
           startDate: date,
           endDateExclusive: (() => {
@@ -584,10 +694,14 @@ export const computeSlots = async ({
     ...appointments.rows,
     ...(googleBusyByDate[date] || []),
   ];
-  const slots = buildAvailableSlots({
-    availabilityRanges: availability.rows,
-    busyRanges,
-    durationMinutes: Number(service.duration_minutes),
+  const slots = filterSlotsByMinimumNotice({
+    slots: buildAvailableSlots({
+      availabilityRanges: availability.rows,
+      busyRanges,
+      durationMinutes: Number(service.duration_minutes),
+    }),
+    date,
+    minimumNoticeMinutes,
   });
 
   return { service, slots };
@@ -603,29 +717,20 @@ const computeFirstAvailableSlots = async ({ serviceId, date }) => {
     error.statusCode = 422;
     throw error;
   }
-  const availability = (
-    await Promise.all(
-      professionals.map(async (professional) => {
-        try {
-          return {
-            professional,
-            slots: (
-              await computeSlots({
-                serviceId,
-                professionalId: Number(professional.id),
-                date,
-                preloadedService: service,
-                selectionValidated: true,
-              })
-            ).slots,
-          };
-        } catch (error) {
-          if (isGoogleAvailabilityError(error)) return null;
-          throw error;
-        }
-      }),
-    )
-  ).filter(Boolean);
+  const availability = await Promise.all(
+    professionals.map(async (professional) => ({
+      professional,
+      slots: (
+        await computeSlots({
+          serviceId,
+          professionalId: Number(professional.id),
+          date,
+          preloadedService: service,
+          selectionValidated: true,
+        })
+      ).slots,
+    })),
+  );
   return {
     service,
     professionals,
@@ -668,39 +773,24 @@ const listDays = async (url, response) => {
       ? `${year + 1}-01-01`
       : `${year}-${String(monthNumber + 1).padStart(2, "0")}-01`;
   const service = await loadService(serviceId);
-  let professionals = firstAvailable
+  const professionals = firstAvailable
     ? await loadEligibleProfessionals(serviceId)
     : [{ id: professionalId }];
   if (!service || !professionals.length) {
     sendJson(response, 200, { days: [] });
     return;
   }
-  const googleBusyEntries = (
-    await Promise.all(
-      professionals.map(async (professional) => {
-        try {
-          return [
-            Number(professional.id),
-            await getGoogleBusyRanges({
-              professionalId: Number(professional.id),
-              startDate,
-              endDateExclusive,
-            }),
-          ];
-        } catch (error) {
-          if (firstAvailable && isGoogleAvailabilityError(error)) return null;
-          throw error;
-        }
+  const googleBusyEntries = await Promise.all(
+    professionals.map(async (professional) => [
+      Number(professional.id),
+      await getBookingGoogleBusyRanges({
+        professionalId: Number(professional.id),
+        startDate,
+        endDateExclusive,
       }),
-    )
-  ).filter(Boolean);
+    ]),
+  );
   const googleBusyByProfessional = new Map(googleBusyEntries);
-  if (firstAvailable) {
-    const availableProfessionalIds = new Set(googleBusyEntries.map(([id]) => id));
-    professionals = professionals.filter((professional) =>
-      availableProfessionalIds.has(Number(professional.id)),
-    );
-  }
   const days = [];
   for (let day = 1; day <= daysInMonth; day += 1) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
@@ -919,21 +1009,7 @@ const createAppointment = async (payload, response, url, link) => {
   const professionalId = Number(professional.id);
 
   if (requiresPayment) {
-    try {
-      await holdAppointmentOnGoogleCalendar(appointment.id);
-    } catch (error) {
-      await query(
-        `
-          UPDATE appointments
-          SET payment_status = 'calendar_error',
-              status = 'payment_failed',
-              updated_at = NOW()
-          WHERE id = $1
-        `,
-        [appointment.id],
-      );
-      throw error;
-    }
+    await holdGoogleCalendarForBooking(appointment.id);
     let preference;
     try {
       preference = await createMercadoPagoPreference({
@@ -1284,7 +1360,7 @@ const listPatientManagementDays = async (request, url, response) => {
       : `${year}-${String(monthNumber + 1).padStart(2, "0")}-01`;
   const [service, googleBusyByDate] = await Promise.all([
     loadService(Number(appointment.service_id)),
-    getGoogleBusyRanges({
+    getBookingGoogleBusyRanges({
       professionalId: Number(appointment.professional_id),
       startDate,
       endDateExclusive,
@@ -1974,7 +2050,7 @@ export const handleBookingApi = async (request, response, url) => {
       return true;
     }
     if (error.message === "INVALID_APPOINTMENT_DOCUMENT_LINK") {
-      sendJson(response, 422, { error: "Revisá los enlaces. Deben comenzar con https://." });
+      sendJson(response, 422, { error: "Revisá los enlaces. Deben ser direcciones web válidas." });
       return true;
     }
     if (

@@ -726,6 +726,49 @@
     `;
   }
 
+  const formatDocumentSize = (value) => {
+    const bytes = Number(value || 0);
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  function renderAppointmentDocuments(documents = []) {
+    return `
+      <section class="appointment-documents-panel">
+        <div class="appointment-documents-header">
+          <div>
+            <span>Documentación compartida</span>
+            <h3>Estudios y enlaces del turno</h3>
+          </div>
+          <span class="pill">${documents.length}</span>
+        </div>
+        ${
+          documents.length
+            ? `<ul class="appointment-document-list">
+                ${documents
+                  .map(
+                    (document) => `
+                      <li>
+                        <div>
+                          <strong>${escapeHtml(document.name || 'Documento')}</strong>
+                          <span>${document.kind === 'link' ? 'Enlace externo' : `Archivo${formatDocumentSize(document.size_bytes) ? ` · ${escapeHtml(formatDocumentSize(document.size_bytes))}` : ''}`}</span>
+                        </div>
+                        <a href="${escapeHtml(document.url)}" target="_blank" rel="noopener noreferrer">
+                          ${document.kind === 'link' ? 'Abrir enlace' : 'Ver archivo'}
+                        </a>
+                      </li>
+                    `,
+                  )
+                  .join('')}
+              </ul>`
+            : '<div class="appointment-documents-empty">El paciente no compartió documentación para este turno.</div>'
+        }
+      </section>
+    `;
+  }
+
   function professionalsForAppointment(appointment) {
     return state.professionals.filter(
       (professional) =>
@@ -851,6 +894,7 @@
               ${detailRow('Cuestionario previo', appointment.triage_status === 'assigned' ? 'Enlace generado' : appointment.triage_status === 'failed' ? 'Alerta: no se pudo obtener de ReHub' : 'Pendiente')}
               ${detailRow('Alta paciente', appointment.patient_intake_id ? `#${appointment.patient_intake_id}` : 'Sin alta asociada')}
             </div>
+            ${renderAppointmentDocuments(appointment.documents)}
             ${
               canManageAppointment(appointment)
                 ? `<div class="modal-actions appointment-detail-actions">

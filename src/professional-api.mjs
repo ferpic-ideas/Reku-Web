@@ -796,6 +796,7 @@ const listPatients = async (url, response, account) => {
 
 const mapAppointment = (row) => ({
   id: Number(row.id),
+  patient_id: row.patient_id ? Number(row.patient_id) : null,
   date: row.appointment_date,
   start_time: String(row.start_time || "").slice(0, 5),
   end_time: String(row.end_time || "").slice(0, 5),
@@ -803,6 +804,7 @@ const mapAppointment = (row) => ({
   patient_name: row.patient_name || "",
   patient_email: row.patient_email || "",
   patient_phone: row.patient_phone || "",
+  amount: Number(row.amount || 0),
   payment_status: row.payment_status || "",
   status: row.status || "",
   cancelled_at: row.cancelled_at || null,
@@ -819,6 +821,7 @@ const mapAppointment = (row) => ({
       : "pending",
   triage_reminder_sent_at: row.triage_reminder_sent_at || null,
   triage_reminder_count: Number(row.triage_reminder_count || 0),
+  documents: (row.documents || []).map(mapAppointmentDocument),
 });
 
 const listProfessionalAppointments = async (
@@ -830,12 +833,14 @@ const listProfessionalAppointments = async (
     `
       SELECT
         a.id,
+        a.patient_id,
         to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
         to_char(a.start_time, 'HH24:MI') AS start_time,
         to_char(a.end_time, 'HH24:MI') AS end_time,
         a.patient_name,
         a.patient_email,
         a.patient_phone,
+        a.amount,
         a.payment_status,
         a.status,
         a.cancelled_at,
@@ -849,6 +854,25 @@ const listProfessionalAppointments = async (
         a.triage_assignment_error,
         a.triage_reminder_sent_at,
         a.triage_reminder_count,
+        (
+          SELECT COALESCE(
+            jsonb_agg(
+              jsonb_build_object(
+                'id', document.id,
+                'kind', document.kind,
+                'original_name', document.original_name,
+                'mime_type', document.mime_type,
+                'size_bytes', document.size_bytes,
+                'external_url', document.external_url,
+                'created_at', document.created_at
+              )
+              ORDER BY document.created_at, document.id
+            ),
+            '[]'::jsonb
+          )
+          FROM appointment_documents document
+          WHERE document.appointment_id = a.id
+        ) AS documents,
         s.name AS service_name
       FROM appointments a
       INNER JOIN services s ON s.id = a.service_id

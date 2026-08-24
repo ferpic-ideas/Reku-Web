@@ -371,6 +371,7 @@ button {
 
 .date-button {
   min-height: 46px;
+  border: 1px solid transparent;
   border-radius: 12px;
   background: #f8fafc;
   color: var(--muted);
@@ -380,6 +381,13 @@ button {
 .date-button.available {
   color: var(--navy);
   background: #ffffff;
+}
+
+.date-button.available.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 800;
 }
 
 .date-button.available:hover:not(.active),
@@ -566,6 +574,23 @@ button {
   color: var(--muted);
   font-size: 12px;
   font-weight: 500;
+}
+
+.documents-submit-button {
+  width: 100%;
+  box-shadow: 0 8px 20px rgb(98 93 245 / 22%);
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+
+.documents-submit-button:not(:disabled):hover,
+.documents-submit-button:not(:disabled):focus-visible {
+  box-shadow: 0 10px 24px rgb(98 93 245 / 30%);
+  transform: translateY(-1px);
+}
+
+.documents-submit-button:disabled {
+  box-shadow: none;
+  opacity: 0.62;
 }
 
 .uploaded-documents {
@@ -758,6 +783,7 @@ button {
 .management-reschedule {
   display: grid;
   gap: 14px;
+  scroll-margin-top: 20px;
   padding: 20px;
   border: 1px solid #ded8ff;
   border-radius: 18px;
@@ -777,6 +803,68 @@ button {
 .management-reschedule .time-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.booking-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(20, 30, 58, 0.52);
+}
+
+.booking-modal {
+  width: min(100%, 520px);
+  border-radius: 20px;
+  padding: 24px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(20, 30, 58, 0.24);
+}
+
+.booking-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.booking-modal-header h2 {
+  margin: 5px 0 0;
+  color: var(--navy);
+  font-size: 28px;
+}
+
+.booking-modal > p {
+  margin: 18px 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.booking-modal-close {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  color: var(--muted);
+  background: #fff;
+  cursor: pointer;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.booking-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.booking-modal-actions .secondary-button,
+.booking-modal-actions .danger-outline-button {
+  flex: 0 1 auto;
 }
 
 @media (min-width: 740px) {

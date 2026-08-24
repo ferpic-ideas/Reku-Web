@@ -114,6 +114,8 @@ test("agenda exposes save-mail, gated Meet, reschedule, cancel and triage action
   const source = await readFile(new URL("../agenda/app.js", import.meta.url), "utf8");
   assert.match(source, /Guardá el mail que recibiste/);
   assert.match(source, /data-action="open-management-reschedule"/);
+  assert.match(source, /management-reschedule-panel/);
+  assert.match(source, /scrollIntoView\(\{[\s\S]*behavior:\s*'smooth'/);
   assert.match(source, /data-action="cancel-management-appointment"/);
   assert.match(source, /Completar cuestionario previo/);
   assert.match(source, /\/api\/booking\/manage\/meet/);
