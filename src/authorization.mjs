@@ -71,6 +71,8 @@ const routeRules = [
   ["GET", /^\/api\/admin\/audit$/, "audit.read"],
   ["GET", /^\/api\/admin\/patient-intakes$/, "patient_intakes.read"],
   ["DELETE", /^\/api\/admin\/patient-intakes\/\d+$/, "records.delete"],
+  ["GET", /^\/api\/admin\/patients$/, "patient_intakes.read"],
+  ["DELETE", /^\/api\/admin\/patients\/\d+$/, "records.delete"],
   ["GET", /^\/api\/admin\/contacts$/, "contacts.read"],
   ["DELETE", /^\/api\/admin\/contacts\/\d+$/, "records.delete"],
   ["GET", /^\/api\/admin\/congress-registrations$/, "contacts.read"],

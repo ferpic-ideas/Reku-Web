@@ -50,7 +50,7 @@ test("operational user is explicitly denied system and sensitive deletion permis
       requireAdminApiPermission(
         user,
         "DELETE",
-        "/api/admin/patient-intakes/42",
+        "/api/admin/patients/42",
       ),
     { message: "PERMISSION_DENIED" },
   );
@@ -108,6 +108,14 @@ test("admin route policy fails closed for missing and unknown routes", () => {
   assert.equal(
     requiredPermissionForRequest("DELETE", "/api/admin/agreements/12"),
     "agreements.delete",
+  );
+  assert.equal(
+    requiredPermissionForRequest("GET", "/api/admin/patients"),
+    "patient_intakes.read",
+  );
+  assert.equal(
+    requiredPermissionForRequest("DELETE", "/api/admin/patients/12"),
+    "records.delete",
   );
   assert.equal(
     requiredPermissionForRequest("GET", "/api/admin/congress-registrations"),

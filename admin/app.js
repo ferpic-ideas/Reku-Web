@@ -16,7 +16,7 @@
     editingServiceId: null,
     editingProfessionalId: null,
     agreements: [],
-    patientIntakes: [],
+    patients: [],
     contacts: [],
     congressRegistrations: [],
     nominaEntries: [],
@@ -524,8 +524,8 @@
       can('dashboard.read') ? api('/api/admin/dashboard') : Promise.resolve({}),
       can('agreements.read') ? api('/api/admin/agreements') : Promise.resolve({ agreements: [] }),
       can('patient_intakes.read')
-        ? api(`/api/admin/patient-intakes${state.patientAgreementFilter ? `?agreement_id=${state.patientAgreementFilter}` : ''}`)
-        : Promise.resolve({ patient_intakes: [] }),
+        ? api(`/api/admin/patients${state.patientAgreementFilter ? `?agreement_id=${state.patientAgreementFilter}` : ''}`)
+        : Promise.resolve({ patients: [] }),
       can('contacts.read') ? api('/api/admin/contacts') : Promise.resolve({ contacts: [] }),
       can('contacts.read')
         ? api('/api/admin/congress-registrations')
@@ -549,7 +549,7 @@
     ]);
     state.dashboard = dashboardData.dashboard || null;
     state.agreements = agreementData.agreements || [];
-    state.patientIntakes = patientData.patient_intakes || [];
+    state.patients = patientData.patients || [];
     state.contacts = contactData.contacts || [];
     state.congressRegistrations = congressData.congress_registrations || [];
     state.nominaEntries = nominaData.nomina_entries || [];
@@ -674,7 +674,7 @@
   function renderActiveModule() {
     if (state.active === 'dashboard') return renderDashboard();
     if (state.active === 'agreements') return renderAgreements();
-    if (state.active === 'patient-intakes') return renderPatientIntakes();
+    if (state.active === 'patient-intakes') return renderPatients();
     if (state.active === 'contacts') return renderContacts();
     if (state.active === 'nomina') return renderNomina();
     if (state.active === 'services') return renderServices();
@@ -1160,7 +1160,11 @@
       ).length;
     const cards = [
       { label: 'Contactos', value: data.contacts || 0, module: 'contacts' },
-      { label: 'Altas Pacientes', value: data.patient_intakes || 0, module: 'patient-intakes' },
+      {
+        label: 'Pacientes',
+        value: data.patients ?? data.patient_intakes ?? 0,
+        module: 'patient-intakes',
+      },
       {
         label: 'Turnos Confirmados',
         value: confirmedAppointments,
@@ -2368,16 +2372,16 @@
     });
   }
 
-  function filteredPatientIntakes() {
+  function filteredPatients() {
     const term = state.patientTextFilter.trim().toLowerCase();
-    if (!term) return state.patientIntakes;
-    return state.patientIntakes.filter((item) =>
+    if (!term) return state.patients;
+    return state.patients.filter((item) =>
       [
-        item.nombre,
-        item.apellido,
+        item.full_name,
         item.telefono,
         item.email,
         item.identificador,
+        item.agreement_name,
       ]
         .join(' ')
         .toLowerCase()
@@ -2436,8 +2440,8 @@
     );
   }
 
-  function renderPatientIntakes() {
-    const items = filteredPatientIntakes();
+  function renderPatients() {
+    const items = filteredPatients();
     return `
       <section class="panel">
         <div class="toolbar compact-filter-toolbar total-right-toolbar">
@@ -2464,18 +2468,19 @@
           <table class="centered-table">
             <thead>
               <tr>
-                <th>Fecha</th>
-                <th>Acuerdo</th>
+                <th>Última actividad</th>
+                <th>Acuerdos</th>
                 <th>Paciente</th>
                 <th>Teléfono</th>
                 <th>Mail</th>
                 <th>Identificador</th>
-                <th>Estado envío</th>
+                <th>Altas / turnos</th>
+                <th>Estado última alta</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${items.length ? items.map(renderPatientRow).join('') : '<tr><td colspan="8">No hay altas registradas.</td></tr>'}
+              ${items.length ? items.map(renderPatientRow).join('') : '<tr><td colspan="9">No hay pacientes registrados.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -2486,22 +2491,18 @@
   function renderPatientRow(item) {
     return `
       <tr>
-        <td>${escapeHtml(formatDate(item.created_at))}</td>
+        <td>${escapeHtml(formatDate(item.last_activity_at || item.created_at))}</td>
         <td>${escapeHtml(item.agreement_name || 'Genérico')}</td>
-        <td><strong>${escapeHtml(item.nombre)} ${escapeHtml(item.apellido)}</strong></td>
+        <td><strong>${escapeHtml(item.full_name || `${item.nombre} ${item.apellido}`.trim())}</strong></td>
         <td>${escapeHtml(item.telefono)}</td>
-        <td>
-          ${escapeHtml(item.email)}
-          ${
-            item.email_duplicate_count > 1
-              ? `<span class="muted">Posible duplicado (${item.email_duplicate_count})</span>`
-              : ''
-          }
-        </td>
+        <td>${escapeHtml(item.email)}</td>
         <td>${escapeHtml(item.identificador)}</td>
+        <td>${escapeHtml(item.intake_count)} / ${escapeHtml(item.appointment_count)}</td>
         <td>
           ${
-            item.verification_email_error
+            item.intake_count === 0
+              ? 'Sin alta registrada'
+              : item.verification_email_error
               ? `<span class="muted">Error al verificar: ${escapeHtml(item.verification_email_error)}</span>`
               : item.verification_email_message_id
                 ? 'Verificación enviada'
@@ -3430,8 +3431,8 @@
           type: 'confirm-delete',
           target: 'patient',
           id,
-          title: 'Eliminar alta',
-          message: 'Esta acción elimina el registro de alta.',
+          title: 'Eliminar paciente',
+          message: 'El paciente se ocultará del listado. Sus turnos e historial se conservan.',
         };
         render();
         return;
@@ -3900,7 +3901,7 @@
     const { target, id } = state.dialog;
     const paths = {
       agreement: `/api/admin/agreements/${id}`,
-      patient: `/api/admin/patient-intakes/${id}`,
+      patient: `/api/admin/patients/${id}`,
       contact: `/api/admin/contacts/${id}`,
       'congress-registration': `/api/admin/congress-registrations/${id}`,
       nomina: `/api/admin/nomina/${id}`,
@@ -3912,7 +3913,7 @@
     };
     const labels = {
       agreement: 'Acuerdo eliminado.',
-      patient: 'Alta eliminada.',
+      patient: 'Paciente eliminado.',
       contact: 'Contacto eliminado.',
       'congress-registration': 'Contacto de COKIBA eliminado.',
       nomina: 'Registro eliminado.',

@@ -831,6 +831,118 @@ const mapPatientIntake = (row) => ({
   created_at: row.created_at,
 });
 
+const listPatients = async (url, response) => {
+  const agreementId = url.searchParams.get("agreement_id") || null;
+  const result = await query(
+    `
+      SELECT
+        patient.id,
+        patient.first_name,
+        patient.last_name,
+        patient.full_name,
+        patient.email,
+        patient.phone,
+        patient.created_at,
+        GREATEST(
+          patient.updated_at,
+          COALESCE(latest_intake.created_at, patient.created_at),
+          COALESCE(appointment_stats.last_appointment_at, patient.created_at)
+        ) AS last_activity_at,
+        latest_intake.identificador,
+        latest_intake.email_message_id,
+        latest_intake.email_error,
+        latest_intake.booking_email_message_id,
+        latest_intake.booking_email_error,
+        COALESCE(intake_stats.intake_count, 0)::int AS intake_count,
+        COALESCE(intake_stats.agreement_names, '') AS agreement_names,
+        COALESCE(appointment_stats.appointment_count, 0)::int AS appointment_count
+      FROM patients patient
+      LEFT JOIN LATERAL (
+        SELECT intake.*
+        FROM patient_intakes intake
+        WHERE intake.patient_id = patient.id
+          AND ($1::bigint IS NULL OR intake.agreement_id = $1::bigint)
+        ORDER BY intake.created_at DESC, intake.id DESC
+        LIMIT 1
+      ) latest_intake ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*)::int AS intake_count,
+          string_agg(
+            DISTINCT COALESCE(agreement.name, intake.agreement_name_snapshot, ''),
+            ' · '
+          ) FILTER (
+            WHERE COALESCE(agreement.name, intake.agreement_name_snapshot, '') <> ''
+          ) AS agreement_names
+        FROM patient_intakes intake
+        LEFT JOIN agreements agreement ON agreement.id = intake.agreement_id
+        WHERE intake.patient_id = patient.id
+          AND ($1::bigint IS NULL OR intake.agreement_id = $1::bigint)
+      ) intake_stats ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*)::int AS appointment_count,
+          MAX(appointment.created_at) AS last_appointment_at
+        FROM appointments appointment
+        WHERE appointment.patient_id = patient.id
+      ) appointment_stats ON TRUE
+      WHERE patient.active = TRUE
+        AND ($1::bigint IS NULL OR latest_intake.id IS NOT NULL)
+      ORDER BY last_activity_at DESC, patient.id DESC
+      LIMIT 300
+    `,
+    [agreementId || null],
+  );
+  sendJson(response, 200, { patients: result.rows.map(mapPatient) });
+};
+
+const mapPatient = (row) => ({
+  id: Number(row.id),
+  nombre: row.first_name || "",
+  apellido: row.last_name || "",
+  full_name:
+    row.full_name || [row.first_name, row.last_name].filter(Boolean).join(" "),
+  telefono: row.phone || "",
+  email: row.email,
+  identificador: row.identificador || "",
+  agreement_name: row.agreement_names || "",
+  intake_count: Number(row.intake_count || 0),
+  appointment_count: Number(row.appointment_count || 0),
+  email_message_id: row.email_message_id || "",
+  email_error: row.email_error || "",
+  verification_email_message_id: row.booking_email_message_id || "",
+  verification_email_error: row.booking_email_error || "",
+  created_at: row.created_at,
+  last_activity_at: row.last_activity_at || row.created_at,
+});
+
+const deactivatePatient = async (response, user, patientId) => {
+  if (!canDeleteRecords(user)) {
+    sendJson(response, 403, { error: "No tenés permisos para eliminar registros." });
+    return;
+  }
+  const result = await query(
+    `
+      UPDATE patients
+      SET active = FALSE,
+          updated_at = NOW()
+      WHERE id = $1
+        AND active = TRUE
+      RETURNING id
+    `,
+    [patientId],
+  );
+  if (!result.rows[0]) {
+    sendJson(response, 404, { error: "Paciente no encontrado." });
+    return;
+  }
+  await recordAudit("patients.deactivated", {
+    actorUserId: user.id,
+    detail: { patient_id: patientId },
+  });
+  sendJson(response, 200, { ok: true });
+};
+
 const listContacts = async (response) => {
   const result = await query(`
     SELECT *
@@ -2364,6 +2476,7 @@ const dashboard = async (response) => {
         (SELECT COUNT(*)::int FROM contacts)
         + (SELECT COUNT(*)::int FROM congreso_cokiba_registrations)
       ) AS contacts,
+      (SELECT COUNT(*)::int FROM patients WHERE active = TRUE) AS patients,
       (SELECT COUNT(*)::int FROM patient_intakes) AS patient_intakes,
       (SELECT COUNT(*)::int FROM appointments WHERE payment_status IN ('approved', 'nomina')) AS appointments_confirmed,
       (SELECT COUNT(*)::int FROM appointments WHERE payment_status = 'pending') AS appointments_pending,
@@ -2377,6 +2490,7 @@ const dashboard = async (response) => {
   sendJson(response, 200, {
     dashboard: {
       contacts: Number(result.rows[0].contacts || 0),
+      patients: Number(result.rows[0].patients || 0),
       patient_intakes: Number(result.rows[0].patient_intakes || 0),
       appointments: Number(result.rows[0].appointments_confirmed || 0),
       appointments_confirmed: Number(result.rows[0].appointments_confirmed || 0),
@@ -2725,6 +2839,16 @@ export const handleAdminApi = async (request, response, url) => {
     const patientMatch = pathname.match(/^\/api\/admin\/patient-intakes\/(\d+)$/);
     if (patientMatch && request.method === "DELETE") {
       await deleteRecord(response, user, "patient_intakes", Number(patientMatch[1]));
+      return true;
+    }
+
+    if (pathname === "/api/admin/patients" && request.method === "GET") {
+      await listPatients(url, response);
+      return true;
+    }
+    const canonicalPatientMatch = pathname.match(/^\/api\/admin\/patients\/(\d+)$/);
+    if (canonicalPatientMatch && request.method === "DELETE") {
+      await deactivatePatient(response, user, Number(canonicalPatientMatch[1]));
       return true;
     }
 
