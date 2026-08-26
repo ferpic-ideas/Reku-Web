@@ -212,7 +212,7 @@ const createPatientIntakeVerification = async ({ recordId }) => {
   );
   return {
     token,
-    url: `${config.appPublicUrl}/agenda/#verify=${encodeURIComponent(token)}`,
+    url: `${config.appPublicUrl}/turnos/#verify=${encodeURIComponent(token)}`,
   };
 };
 

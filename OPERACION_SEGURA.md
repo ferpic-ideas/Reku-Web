@@ -163,7 +163,7 @@ ssh ferpic-ideas 'cd /docker/reku-web && docker compose ps'
 ssh ferpic-ideas 'cd /docker/reku-web && docker compose logs --no-color --tail=80 web'
 curl -fsSI https://www.reku.io/
 curl -fsSI https://www.reku.io/admin/
-curl -fsSI https://www.reku.io/agenda/
+curl -fsSI https://www.reku.io/turnos/
 curl -fsS https://www.reku.io/health
 ```
 

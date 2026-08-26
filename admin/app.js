@@ -3,8 +3,8 @@
   const publicBaseUrl = 'https://www.reku.io';
   const agreementPublicUrl = (agreement = {}) => {
     const prefix = String(agreement.subdomain_prefix || '').trim().toLowerCase();
-    if (prefix) return `https://${prefix}.reku.io/agenda/`;
-    return `${publicBaseUrl}/agenda/?form=${encodeURIComponent(agreement.slug || '')}`;
+    if (prefix) return `https://${prefix}.reku.io/turnos/`;
+    return `${publicBaseUrl}/turnos/?form=${encodeURIComponent(agreement.slug || '')}`;
   };
   let csrfToken = '';
   const state = {
@@ -2180,7 +2180,7 @@
             spellcheck="false"
             required
           />
-          <span class="field-help">La agenda quedará en https://prefijo.reku.io/agenda/</span>
+          <span class="field-help">La agenda quedará en https://prefijo.reku.io/turnos/</span>
         </label>
         <label>
           Tipo

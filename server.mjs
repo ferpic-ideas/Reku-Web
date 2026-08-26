@@ -50,6 +50,8 @@ calendarCleanupTimer.unref();
 
 const isAgreementHostPath = (pathname) =>
   pathname === "/" ||
+  pathname === "/turnos" ||
+  pathname.startsWith("/turnos/") ||
   pathname === "/agenda" ||
   pathname.startsWith("/agenda/") ||
   pathname.startsWith("/api/booking/") ||
@@ -106,7 +108,16 @@ const server = createServer(async (request, response) => {
       pathname === "/" &&
       (request.method === "GET" || request.method === "HEAD")
     ) {
-      sendRedirect(response, `/agenda/${requestUrl.search}`, 308);
+      sendRedirect(response, `/turnos/${requestUrl.search}`, 308);
+      return;
+    }
+
+    if (
+      (request.method === "GET" || request.method === "HEAD") &&
+      (pathname === "/agenda" || pathname.startsWith("/agenda/"))
+    ) {
+      const suffix = pathname.slice("/agenda".length);
+      sendRedirect(response, `/turnos${suffix || "/"}${requestUrl.search}`, 308);
       return;
     }
 
@@ -177,14 +188,14 @@ const server = createServer(async (request, response) => {
         const slug = String(requestUrl.searchParams.get("form") || "").trim();
         sendRedirect(
           response,
-          slug ? `/agenda/?form=${encodeURIComponent(slug)}` : "/agenda/",
+          slug ? `/turnos/?form=${encodeURIComponent(slug)}` : "/turnos/",
           308,
         );
         return;
       }
 
       if (
-        (pathname === "/agenda" || pathname === "/agenda/") &&
+        (pathname === "/turnos" || pathname === "/turnos/") &&
         !(await validatePublicAgreementRoute(request, requestUrl, response))
       ) {
         return;

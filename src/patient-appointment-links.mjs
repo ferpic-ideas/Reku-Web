@@ -34,7 +34,7 @@ export const createPatientAppointmentAccessLink = async ({
     id: Number(result.rows[0].id),
     token,
     expires_at: result.rows[0].expires_at,
-    url: `${config.appPublicUrl}/agenda/#manage=${encodeURIComponent(token)}`,
+    url: `${config.appPublicUrl}/turnos/#manage=${encodeURIComponent(token)}`,
   };
 };
 

@@ -205,7 +205,7 @@ const publicMounts = [
     extensions: new Set([".html", ".css", ".js"]),
   },
   {
-    prefix: "/agenda/",
+    prefix: "/turnos/",
     directory: join(root, "agenda"),
     extensions: new Set([".html", ".css", ".js"]),
   },
@@ -267,11 +267,11 @@ export const resolveStaticRequestPath = (pathname) => {
     return "/congreso-cokiba/index.html";
   }
 
-  const isAgendaPage =
-    pathname === "/agenda" ||
-    (pathname.startsWith("/agenda/") &&
-      !pathname.slice("/agenda/".length).includes("."));
-  if (isAgendaPage) return "/agenda/index.html";
+  const isBookingPage =
+    pathname === "/turnos" ||
+    (pathname.startsWith("/turnos/") &&
+      !pathname.slice("/turnos/".length).includes("."));
+  if (isBookingPage) return "/turnos/index.html";
 
   const isAdminPage =
     pathname === "/admin/" ||
@@ -417,9 +417,9 @@ export const serveStatic = async (
       pathname.startsWith("/profesional-turnos");
     const isHtml = extname(filePath).toLowerCase() === ".html";
     const isAgreementPreview =
-      agreementSubdomain && pathname.startsWith("/agenda") && isHtml;
+      agreementSubdomain && pathname.startsWith("/turnos") && isHtml;
     const allowsSameOriginFrame =
-      !isAgreementPreview && pathname.startsWith("/agenda");
+      !isAgreementPreview && pathname.startsWith("/turnos");
     const allowsAgreementPreview = pathname.startsWith("/admin") && isHtml;
     const extraHeaders = isAgreementPreview
       ? agreementPreviewHeaders

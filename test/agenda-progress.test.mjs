@@ -43,7 +43,7 @@ test("intake continues directly to services when email verification is disabled"
     location: {
       search: "?form=demo",
       hash: "",
-      href: "https://www.reku.io/agenda/?form=demo",
+      href: "https://www.reku.io/turnos/?form=demo",
     },
     history: {
       replaceState() {},

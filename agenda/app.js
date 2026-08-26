@@ -1405,7 +1405,7 @@
         if (action === 'confirm-payment') await confirmPayment();
         if (action === 'retry-triage') await loadTriage();
         if (action === 'restart-booking') {
-          window.history.replaceState({}, '', '/agenda/');
+          window.history.replaceState({}, '', '/turnos/');
           state.step = 2;
           state.appointment = null;
           state.documents = [];

@@ -41,6 +41,6 @@ test("cobranded agendas keep the agreement logo left and Reku smaller at the top
 
 test("admin test agenda links use the agreement subdomain prefix", async () => {
   const source = await readFile(new URL("../admin/app.js", import.meta.url), "utf8");
-  assert.match(source, /https:\/\/\$\{prefix\}\.reku\.io\/agenda\//);
+  assert.match(source, /https:\/\/\$\{prefix\}\.reku\.io\/turnos\//);
   assert.match(source, /state\.testBookingUrl = agreement \? agreementPublicUrl\(agreement\)/);
 });

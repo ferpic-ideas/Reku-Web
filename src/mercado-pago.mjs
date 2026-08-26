@@ -187,7 +187,7 @@ export const createMercadoPagoPreference = async ({
   service,
   professional,
   patient,
-  returnAgendaUrl = `${config.appPublicUrl}/agenda/`,
+  returnAgendaUrl = `${config.appPublicUrl}/turnos/`,
 }) => {
   const credentials = await getActiveMercadoPagoCredentials();
   const externalReference = appointmentReference(appointment.id);

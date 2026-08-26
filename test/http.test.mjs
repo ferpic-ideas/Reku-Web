@@ -49,11 +49,11 @@ const captureStaticHeaders = async (pathname, options) => {
 
 test("admin can embed only agreement subdomain agenda documents", async () => {
   const adminHeaders = await captureStaticHeaders("/admin/index.html");
-  const agreementHeaders = await captureStaticHeaders("/agenda/index.html", {
+  const agreementHeaders = await captureStaticHeaders("/turnos/index.html", {
     agreementSubdomain: true,
   });
   const canonicalAgendaHeaders = await captureStaticHeaders(
-    "/agenda/index.html",
+    "/turnos/index.html",
   );
 
   assert.match(
@@ -88,7 +88,7 @@ test("static request routing exposes only declared application entrypoints", () 
   );
   assert.equal(resolveStaticRequestPath("/terminos"), "/terminos/index.html");
   assert.equal(resolveStaticRequestPath("/terminos/"), "/terminos/index.html");
-  assert.equal(resolveStaticRequestPath("/agenda/"), "/agenda/index.html");
+  assert.equal(resolveStaticRequestPath("/turnos/"), "/turnos/index.html");
   assert.equal(
     resolveStaticRequestPath("/congreso-cokiba"),
     "/congreso-cokiba/index.html",

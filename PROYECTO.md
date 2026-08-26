@@ -33,10 +33,10 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/`: home estatica.
 - `/producto.html`: pagina de producto.
 - `/evidencia.html`: pagina de evidencia.
-- `/agenda/?form=<slug>`: inicio de alta de paciente y reserva para un acuerdo.
-- `/agenda/#token=<token>`: link de agenda; el token se canjea por cookie `HttpOnly`
+- `/turnos/?form=<slug>`: inicio de alta de paciente y reserva para un acuerdo.
+- `/turnos/#token=<token>`: link de agenda; el token se canjea por cookie `HttpOnly`
   y se elimina de la URL.
-- `/alta-pacientes/?form=<slug>`: redirige a `/agenda/?form=<slug>`.
+- `/alta-pacientes/?form=<slug>`: redirige a `/turnos/?form=<slug>`.
 - `/profesional-turnos/#token=<token>`: link de un solo uso; se canjea por una sesión
   `HttpOnly` corta y se elimina de la URL.
 - `/profesional/`: portal permanente del rol Profesional para gestionar perfil,
@@ -54,7 +54,7 @@ propias. En produccion se levanta con Docker Compose junto a Postgres.
 - `/uploads/*`: handler público limitado a carpetas y extensiones explícitas. No sirve
   el storage privado ni SVG subidos.
 
-Si `/agenda/?form=<slug>` recibe un slug que no existe o esta borrado,
+Si `/turnos/?form=<slug>` recibe un slug que no existe o esta borrado,
 devuelve 404.
 
 ## Estructura de archivos
@@ -156,9 +156,9 @@ Tablas principales:
 
 - `users`: usuarios admin/operativos/profesionales, password hash, rol, permisos
   explícitos, vínculo opcional con `professionals`, estado y versión de sesión.
-- `agreements`: acuerdos, co-branding, PDF, links de pago y templates.
+- `agreements`: acuerdos, co-branding, subdominio, PDF y links de pago.
 - `nomina_entries`: registros de nomina asociados a acuerdos tipo `Nomina`.
-- `patient_intakes`: altas iniciadas desde `/agenda/?form=<slug>`.
+- `patient_intakes`: altas iniciadas desde `/turnos/?form=<slug>`.
 - `patients`: directorio canónico de pacientes, deduplicado por email normalizado.
 - `contacts`: contactos enviados desde la web principal.
 - `congreso_cokiba_registrations`: contacto, profesión, ámbitos, intereses y comentarios
@@ -225,7 +225,7 @@ Flujo de reserva:
 3. El link de un solo uso crea la cookie de agenda.
 4. El paciente elige servicio, profesional, fecha y horario.
 5. El backend crea un turno `pending_payment` y una preferencia de Checkout Pro.
-6. Mercado Pago redirige de vuelta a `/agenda/`.
+6. Mercado Pago redirige de vuelta a `/turnos/`.
 7. El backend consulta el pago y confirma el turno sólo si el estado es `approved`.
 8. Con el turno confirmado, el backend solicita una única URL de triaje a ReHub,
    la muestra como último paso y la incluye en los mails al paciente.
@@ -435,7 +435,7 @@ ssh ferpic-ideas 'cd /docker/reku-web && docker compose ps'
 ssh ferpic-ideas 'cd /docker/reku-web && docker compose logs --no-color --tail=100 web'
 
 curl -fsSI https://www.reku.io/
-curl -fsSI https://www.reku.io/agenda/
+curl -fsSI https://www.reku.io/turnos/
 curl -fsSI https://www.reku.io/admin/
 curl -sSI https://reku.io/admin/
 ```
@@ -443,8 +443,9 @@ curl -sSI https://reku.io/admin/
 Resultado esperado:
 
 - `www.reku.io` responde `200`.
-- `/agenda/` responde `200`.
-- `/alta-pacientes/?form=<slug>` responde redirect `308` hacia `/agenda/?form=<slug>`.
+- `/turnos/` responde `200`.
+- `/agenda/` responde redirect `308` hacia `/turnos/` para conservar links anteriores.
+- `/alta-pacientes/?form=<slug>` responde redirect `308` hacia `/turnos/?form=<slug>`.
 - `/admin/` responde `200` y `x-robots-tag: noindex, nofollow`.
 - `reku.io` responde redirect `308` hacia `www.reku.io`.
 

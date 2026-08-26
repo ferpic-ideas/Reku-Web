@@ -443,7 +443,7 @@ const createIntakeAccess = async (request, payload, response, url) => {
     return;
   }
 
-  const sourcePath = `/agenda/?form=${encodeURIComponent(agreement.slug)}`;
+  const sourcePath = `/turnos/?form=${encodeURIComponent(agreement.slug)}`;
   const result = await savePatientIntakeAndNotify({
     submission,
     agreement,
@@ -457,7 +457,7 @@ const createIntakeAccess = async (request, payload, response, url) => {
         patient_intake_id: result.recordId,
         email: submission.values.email,
         agreement_slug: agreement.slug,
-        source: "/agenda/",
+        source: "/turnos/",
       },
     });
 
@@ -479,7 +479,7 @@ const createIntakeAccess = async (request, payload, response, url) => {
       patient_intake_id: result.recordId,
       email: submission.values.email,
       agreement_slug: agreement.slug,
-      source: "/agenda/",
+      source: "/turnos/",
     },
   });
 
@@ -1752,7 +1752,7 @@ const uploadAppointmentDocuments = async (
         appointment_id: appointmentId,
         file_count: savedFiles.length,
         link_count: links.length,
-        source: "/agenda/",
+        source: "/turnos/",
       },
     });
     sendJson(response, 201, {

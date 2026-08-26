@@ -27,7 +27,7 @@ const appointment = {
   google_meet_url: "",
 };
 
-const manageUrl = "https://www.reku.io/agenda/#manage=private-token";
+const manageUrl = "https://www.reku.io/turnos/#manage=private-token";
 
 test("confirmation email is the patient's no-account management access", () => {
   const withTriage = {

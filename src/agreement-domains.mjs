@@ -78,12 +78,12 @@ export const agreementBookingUrl = (agreement, appPublicUrl) => {
   if (isValidAgreementSubdomainPrefix(prefix)) {
     const baseUrl = new URL(appPublicUrl);
     baseUrl.hostname = `${prefix}.${agreementRootDomain(appPublicUrl)}`;
-    baseUrl.pathname = "/agenda/";
+    baseUrl.pathname = "/turnos/";
     baseUrl.search = "";
     baseUrl.hash = "";
     return baseUrl.toString();
   }
-  const baseUrl = new URL("/agenda/", appPublicUrl);
+  const baseUrl = new URL("/turnos/", appPublicUrl);
   if (agreement?.slug) baseUrl.searchParams.set("form", agreement.slug);
   return baseUrl.toString();
 };

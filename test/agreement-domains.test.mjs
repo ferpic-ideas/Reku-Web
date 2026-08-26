@@ -51,10 +51,10 @@ test("agreement URLs prefer the dedicated subdomain and keep legacy fallback", (
       { slug: "ypf", subdomain_prefix: "ypf" },
       "https://www.reku.io",
     ),
-    "https://ypf.reku.io/agenda/",
+    "https://ypf.reku.io/turnos/",
   );
   assert.equal(
     agreementBookingUrl({ slug: "legacy" }, "https://www.reku.io"),
-    "https://www.reku.io/agenda/?form=legacy",
+    "https://www.reku.io/turnos/?form=legacy",
   );
 });
