@@ -5,7 +5,30 @@ import {
   filterSlotsByMinimumNotice,
   getBookingGoogleBusyRanges,
   holdGoogleCalendarForBooking,
+  mapFirstAvailableSlotProfessionals,
 } from "../src/booking-api.mjs";
+
+test("first-available slots expose the professional before confirmation", () => {
+  const slotProfessionals = mapFirstAvailableSlotProfessionals({
+    slots: ["10:00", "10:30", "11:00"],
+    availability: [
+      {
+        professional: { id: 7, name: "Kine A", specialty: "Rodilla" },
+        slots: ["10:00", "10:30"],
+      },
+      {
+        professional: { id: 9, name: "Kine B", specialty: "Hombro" },
+        slots: ["10:30", "11:00"],
+      },
+    ],
+  });
+
+  assert.deepEqual(slotProfessionals, {
+    "10:00": { id: 7, name: "Kine A", photo_url: "", specialty: "Rodilla" },
+    "10:30": { id: 7, name: "Kine A", photo_url: "", specialty: "Rodilla" },
+    "11:00": { id: 9, name: "Kine B", photo_url: "", specialty: "Hombro" },
+  });
+});
 
 test("external Google Calendar events are removed from professional availability", () => {
   const slots = buildAvailableSlots({

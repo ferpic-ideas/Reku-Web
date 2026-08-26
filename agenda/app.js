@@ -37,6 +37,8 @@
     slots: [],
     service: null,
     professional: null,
+    slotProfessionals: {},
+    selectedProfessional: null,
     selectedDate: '',
     selectedSlot: '',
     month: new Date(),
@@ -414,6 +416,8 @@
   async function selectService(serviceId) {
     state.service = state.services.find((service) => service.id === serviceId);
     state.professional = null;
+    state.slotProfessionals = {};
+    state.selectedProfessional = null;
     state.selectedDate = '';
     state.selectedSlot = '';
     state.slots = [];
@@ -446,6 +450,8 @@
       : state.professionals.find((professional) => professional.id === professionalId);
     state.selectedDate = '';
     state.selectedSlot = '';
+    state.slotProfessionals = {};
+    state.selectedProfessional = null;
     state.slots = [];
     state.paymentNotice = '';
     state.retryPaymentUrl = '';
@@ -457,6 +463,8 @@
     state.month = new Date(state.month.getFullYear(), state.month.getMonth() + offset, 1);
     state.selectedDate = '';
     state.selectedSlot = '';
+    state.slotProfessionals = {};
+    state.selectedProfessional = null;
     state.slots = [];
     await loadDays();
   }
@@ -481,6 +489,8 @@
   async function selectDate(date) {
     state.selectedDate = date;
     state.selectedSlot = '';
+    state.slotProfessionals = {};
+    state.selectedProfessional = null;
     state.paymentNotice = '';
     state.retryPaymentUrl = '';
     state.loading = true;
@@ -490,6 +500,7 @@
         `/api/booking/slots?service_id=${state.service.id}&professional_id=${state.professional.id}&date=${date}`,
       );
       state.slots = payload.slots || [];
+      state.slotProfessionals = payload.slot_professionals || {};
     } catch (error) {
       state.error = error.message;
     } finally {
@@ -517,8 +528,9 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           service_id: state.service.id,
-          professional_id: state.professional.id,
-          first_available: state.professional.automatic === true,
+          professional_id: (state.selectedProfessional || state.professional).id,
+          first_available:
+            state.professional.automatic === true && !state.selectedProfessional,
           date: state.selectedDate,
           start_time: state.selectedSlot,
         }),
@@ -534,6 +546,7 @@
           id: payload.appointment.professional_id,
           name: payload.appointment.professional_name || state.professional.name,
         };
+        state.selectedProfessional = state.professional;
       }
       state.step = 6;
       await loadTriage();
@@ -1011,6 +1024,7 @@
 
   function renderPayment() {
     const isCoveredByAgreement = !state.paymentRequired || state.service?.covered_by_agreement;
+    const selectedProfessional = state.selectedProfessional || state.professional;
     return `
       <section>
         <h2 class="section-title">${isCoveredByAgreement ? 'Confirmá tu turno' : 'Pago'}</h2>
@@ -1022,7 +1036,7 @@
         <div class="payment-card">
           ${state.paymentNotice ? `<div class="status-warning">${escapeHtml(state.paymentNotice)}</div>` : ''}
           <p><strong>Servicio:</strong> ${escapeHtml(state.service.name)}</p>
-          <p><strong>Profesional:</strong> ${escapeHtml(state.professional.name)}${state.professional.automatic ? ' · Reku lo asignará al confirmar' : ''}</p>
+          <p><strong>Profesional:</strong> ${escapeHtml(selectedProfessional?.name || '')}</p>
           <p><strong>Fecha:</strong> ${escapeHtml(state.selectedDate)} ${escapeHtml(state.selectedSlot)}</p>
           <p><strong>Total:</strong> ${
             isCoveredByAgreement ? 'Cubierto por acuerdo' : escapeHtml(money(state.service.cost_amount))
@@ -1076,7 +1090,7 @@
             Links a estudios de imágenes
             <textarea name="links" rows="3" placeholder="Pegá un link por línea">${escapeHtml(state.documentLinksDraft)}</textarea>
           </label>
-          <button class="primary-button documents-submit-button" type="submit" ${state.documentsUploading ? 'disabled' : ''}>${
+          <button class="secondary-button documents-submit-button" type="submit" ${state.documentsUploading ? 'disabled' : ''}>${
             state.documentsUploading ? 'Compartiendo…' : 'Compartir documentación'
           }</button>
         </form>
@@ -1394,6 +1408,9 @@
         if (action === 'select-date') await selectDate(element.dataset.date);
         if (action === 'select-slot') {
           state.selectedSlot = element.dataset.slot;
+          state.selectedProfessional = state.professional?.automatic
+            ? state.slotProfessionals[state.selectedSlot] || null
+            : state.professional;
           state.paymentNotice = '';
           state.retryPaymentUrl = '';
           render();

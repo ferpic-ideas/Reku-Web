@@ -610,14 +610,17 @@ button {
 
 .documents-submit-button {
   width: 100%;
-  box-shadow: 0 8px 20px rgb(98 93 245 / 22%);
-  transition: box-shadow 160ms ease, transform 160ms ease;
+  border: 1px solid #d1d5db;
+  background: #e5e7eb;
+  color: var(--navy);
+  box-shadow: none;
+  transition: background 160ms ease, border-color 160ms ease;
 }
 
 .documents-submit-button:not(:disabled):hover,
 .documents-submit-button:not(:disabled):focus-visible {
-  box-shadow: 0 10px 24px rgb(98 93 245 / 30%);
-  transform: translateY(-1px);
+  border-color: #c2c7d0;
+  background: #d7dbe2;
 }
 
 .documents-submit-button:disabled {

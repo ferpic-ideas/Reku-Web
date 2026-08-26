@@ -788,19 +788,34 @@ const computeFirstAvailableSlots = async ({ serviceId, date }) => {
   };
 };
 
+export const mapFirstAvailableSlotProfessionals = ({ slots, availability }) =>
+  Object.fromEntries(
+    slots.flatMap((slot) => {
+      const professional = availability.find((item) =>
+        item.slots.includes(slot),
+      )?.professional;
+      return professional ? [[slot, mapProfessional(professional)]] : [];
+    }),
+  );
+
 const listSlots = async (url, response) => {
   const serviceId = Number(url.searchParams.get("service_id"));
   const requestedProfessionalId = String(url.searchParams.get("professional_id") || "");
   const date = String(url.searchParams.get("date") || "");
-  const { slots } =
-    requestedProfessionalId === firstAvailableProfessionalId
-      ? await computeFirstAvailableSlots({ serviceId, date })
-      : await computeSlots({
-          serviceId,
-          professionalId: Number(requestedProfessionalId),
-          date,
-        });
-  sendJson(response, 200, { slots });
+  if (requestedProfessionalId === firstAvailableProfessionalId) {
+    const result = await computeFirstAvailableSlots({ serviceId, date });
+    sendJson(response, 200, {
+      slots: result.slots,
+      slot_professionals: mapFirstAvailableSlotProfessionals(result),
+    });
+    return;
+  }
+  const { slots } = await computeSlots({
+    serviceId,
+    professionalId: Number(requestedProfessionalId),
+    date,
+  });
+  sendJson(response, 200, { slots, slot_professionals: {} });
 };
 
 const listDays = async (url, response) => {
