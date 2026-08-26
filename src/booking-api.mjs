@@ -1810,27 +1810,12 @@ const assignAppointmentTriage = async (payload, response, link) => {
   sendJson(response, 200, { ok: true, url: triage.url });
 };
 
-const uploadAppointmentDocuments = async (
+const saveAppointmentDocuments = async (
   request,
   response,
-  link,
   appointmentId,
+  { source = "/turnos/" } = {},
 ) => {
-  const appointment = await one(
-    `
-      SELECT id
-      FROM appointments
-      WHERE id = $1
-        AND booking_access_link_id = $2
-        AND status = 'confirmed'
-    `,
-    [appointmentId, link.id],
-  );
-  if (!appointment) {
-    sendJson(response, 404, { error: "Turno confirmado no encontrado." });
-    return;
-  }
-
   const { fields, files } = await parseMultipartForm(request, {
     maxFiles: 5,
     collectFiles: true,
@@ -1908,7 +1893,7 @@ const uploadAppointmentDocuments = async (
         appointment_id: appointmentId,
         file_count: savedFiles.length,
         link_count: links.length,
-        source: "/turnos/",
+        source,
       },
     });
     sendJson(response, 201, {
@@ -1920,6 +1905,43 @@ const uploadAppointmentDocuments = async (
     await removeClinicalDocuments(savedFiles.map((file) => file.storagePath));
     throw error;
   }
+};
+
+const uploadAppointmentDocuments = async (
+  request,
+  response,
+  link,
+  appointmentId,
+) => {
+  const appointment = await one(
+    `
+      SELECT id
+      FROM appointments
+      WHERE id = $1
+        AND booking_access_link_id = $2
+        AND status = 'confirmed'
+    `,
+    [appointmentId, link.id],
+  );
+  if (!appointment) {
+    sendJson(response, 404, { error: "Turno confirmado no encontrado." });
+    return;
+  }
+  await saveAppointmentDocuments(request, response, appointmentId);
+};
+
+const uploadManagedAppointmentDocuments = async (request, response) => {
+  enforcePatientAppointmentOrigin(request);
+  const { appointment } = await requireManagedAppointment(request);
+  if (appointment.status !== "confirmed") {
+    sendJson(response, 409, {
+      error: "La documentación sólo puede enviarse para un turno confirmado.",
+    });
+    return;
+  }
+  await saveAppointmentDocuments(request, response, appointment.id, {
+    source: "/turnos/?manage=1",
+  });
 };
 
 const refreshPaymentStatus = async (url, response, link) => {
@@ -2141,6 +2163,10 @@ export const handleBookingApi = async (request, response, url) => {
     }
     if (pathname === "/api/booking/manage/cancel" && request.method === "POST") {
       await cancelPatientUnpaidAppointment(request, response);
+      return true;
+    }
+    if (pathname === "/api/booking/manage/documents" && request.method === "POST") {
+      await uploadManagedAppointmentDocuments(request, response);
       return true;
     }
 

@@ -110,17 +110,20 @@ test("Meet access is limited to the appointment window", () => {
   );
 });
 
-test("agenda exposes save-mail, gated Meet, reschedule, cancel and triage actions", async () => {
+test("agenda keeps patient management focused on Meet, triage and studies", async () => {
   const source = await readFile(new URL("../agenda/app.js", import.meta.url), "utf8");
+  const managementView = source.match(
+    /function renderAppointmentManagement\(\)[\s\S]*?function renderManagementCancelModal\(\)/,
+  )?.[0] || "";
   assert.match(source, /Guardá el mail que recibiste/);
-  assert.match(source, /data-action="open-management-reschedule"/);
-  assert.match(source, /management-reschedule-panel/);
-  assert.match(source, /scrollIntoView\(\{[\s\S]*behavior:\s*'smooth'/);
   assert.match(source, /data-action="cancel-management-appointment"/);
-  assert.match(source, /Completar cuestionario previo/);
-  assert.match(source, /Agregar a mi calendario/);
+  assert.match(managementView, /Completar cuestionario previo/);
+  assert.match(managementView, /data-action="toggle-management-documents"/);
+  assert.match(source, /management-documents-form/);
+  assert.match(source, /\/api\/booking\/manage\/documents/);
+  assert.doesNotMatch(managementView, /open-management-reschedule/);
+  assert.doesNotMatch(managementView, /calendarActions\(/);
   assert.match(source, /\/api\/booking\/manage\/calendar\.ics/);
-  assert.match(source, /Agregar a Google Calendar/);
   assert.match(source, /\/api\/booking\/manage\/google-calendar/);
   assert.match(
     source,
@@ -129,4 +132,15 @@ test("agenda exposes save-mail, gated Meet, reschedule, cancel and triage action
   assert.match(source, /\/api\/booking\/manage\/meet/);
   assert.match(source, /La videollamada todavía no está disponible/);
   assert.match(source, /Tu turno es el/);
+});
+
+test("managed document uploads use the private session and same-origin protection", async () => {
+  const source = await readFile(new URL("../src/booking-api.mjs", import.meta.url), "utf8");
+  const handler = source.match(
+    /const uploadManagedAppointmentDocuments[\s\S]*?\n};/,
+  )?.[0] || "";
+  assert.match(handler, /enforcePatientAppointmentOrigin\(request\)/);
+  assert.match(handler, /requireManagedAppointment\(request\)/);
+  assert.match(handler, /appointment\.status !== "confirmed"/);
+  assert.match(source, /pathname === "\/api\/booking\/manage\/documents"/);
 });

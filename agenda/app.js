@@ -68,6 +68,11 @@
       message: '',
       error: '',
       cancelModalOpen: false,
+      documentsOpen: false,
+      documentsUploading: false,
+      documentsError: '',
+      documentFiles: [],
+      documentLinksDraft: '',
     },
   };
 
@@ -658,6 +663,48 @@
       state.documentsError = error.message;
     } finally {
       state.documentsUploading = false;
+      render();
+    }
+  }
+
+  async function submitManagementDocuments(form) {
+    const management = state.management;
+    if (management.documentsUploading) return;
+    const fileInput = form.querySelector('input[name="documents"]');
+    const linkInput = form.querySelector('textarea[name="links"]');
+    const links = String(linkInput?.value ?? management.documentLinksDraft)
+      .split(/\r?\n/)
+      .map(normalizeDocumentLinkInput)
+      .filter(Boolean);
+    const selectedFiles = Array.from(fileInput?.files || []);
+    const files = selectedFiles.length ? selectedFiles : management.documentFiles;
+    if (!files.length && !links.length) {
+      management.documentsError = 'Adjuntá al menos un archivo o pegá un enlace.';
+      render();
+      return;
+    }
+    management.documentFiles = files;
+    management.documentLinksDraft = links.join('\n');
+    const data = new FormData();
+    files.forEach((file) => data.append('documents', file));
+    data.set('links_json', JSON.stringify(links));
+    management.documentsUploading = true;
+    management.documentsError = '';
+    management.message = '';
+    render();
+    try {
+      const payload = await api('/api/booking/manage/documents', {
+        method: 'POST',
+        body: data,
+      });
+      management.documentFiles = [];
+      management.documentLinksDraft = '';
+      management.documentsOpen = false;
+      management.message = payload.message || 'La documentación se compartió.';
+    } catch (error) {
+      management.documentsError = error.message;
+    } finally {
+      management.documentsUploading = false;
       render();
     }
   }
@@ -1294,6 +1341,38 @@
     `;
   }
 
+  function renderManagementDocumentsPanel() {
+    const management = state.management;
+    return `
+      <div class="management-documents-panel" id="management-documents-panel">
+        <div class="management-documents-heading">
+          <div>
+            <span class="optional-label">Opcional</span>
+            <h3>Enviar estudios</h3>
+            <p>Adjuntá imágenes o PDF, o pegá un link al estudio.</p>
+          </div>
+          <button type="button" class="booking-modal-close" data-action="toggle-management-documents" aria-label="Cerrar">×</button>
+        </div>
+        ${management.documentsError ? `<div class="document-status error">${escapeHtml(management.documentsError)}</div>` : ''}
+        <form id="management-documents-form" class="documents-form management-documents-form">
+          <label>
+            Archivo
+            <input name="documents" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple />
+            <span>Hasta 5 archivos; JPG, PNG, WebP o PDF.</span>
+            ${management.documentFiles.length ? `<span class="selected-document-files">Seleccionados: ${management.documentFiles.map((file) => escapeHtml(file.name)).join(', ')}</span>` : ''}
+          </label>
+          <label>
+            Link al estudio
+            <textarea name="links" rows="2" placeholder="Pegá un link por línea">${escapeHtml(management.documentLinksDraft)}</textarea>
+          </label>
+          <button class="secondary-button documents-submit-button" type="submit" ${management.documentsUploading ? 'disabled' : ''}>${
+            management.documentsUploading ? 'Enviando…' : 'Enviar documentación'
+          }</button>
+        </form>
+      </div>
+    `;
+  }
+
   function renderAppointmentManagement() {
     const management = state.management;
     const appointment = management.appointment;
@@ -1341,18 +1420,14 @@
           <div class="management-actions">
             ${
               appointment.status === 'confirmed'
-                ? calendarActions({
-                    google: appointment.prefers_google_calendar === true,
-                    googleHref: '/api/booking/manage/google-calendar',
-                    calendarHref: '/api/booking/manage/calendar.ics',
-                  })
+                ? `${appointment.triage_url ? `<a class="primary-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Completar cuestionario previo</a>` : ''}
+                   <button type="button" class="secondary-button" data-action="toggle-management-documents">Enviar estudios</button>`
                 : ''
             }
             ${appointment.payment_url && appointment.status === 'pending_payment' ? `<a class="primary-button" href="${escapeHtml(appointment.payment_url)}">Completar pago</a>` : ''}
-            ${capabilities.can_reschedule ? '<button type="button" class="secondary-button" data-action="open-management-reschedule">Mover turno</button>' : ''}
             ${capabilities.can_cancel ? `<button type="button" class="danger-outline-button" data-action="cancel-management-appointment" ${management.submitting ? 'disabled' : ''}>Cancelar reserva</button>` : ''}
-            ${appointment.triage_url ? `<a class="primary-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Completar cuestionario previo</a>` : ''}
           </div>
+          ${appointment.status === 'confirmed' && management.documentsOpen ? renderManagementDocumentsPanel() : ''}
           ${appointment.status === 'confirmed' ? '<p class="management-reminder-note">También te enviaremos un recordatorio aproximadamente 24 horas antes.</p>' : ''}
         </div>
         ${management.rescheduling ? renderManagementReschedule(appointment) : ''}
@@ -1459,6 +1534,33 @@
       await submitDocuments(event.currentTarget);
     });
 
+    const managementDocumentsForm = app.querySelector('#management-documents-form');
+    const managementDocumentFileInput = managementDocumentsForm?.querySelector('input[name="documents"]');
+    const managementDocumentLinkInput = managementDocumentsForm?.querySelector('textarea[name="links"]');
+    if (
+      managementDocumentFileInput &&
+      state.management.documentFiles.length &&
+      typeof DataTransfer !== 'undefined'
+    ) {
+      try {
+        const transfer = new DataTransfer();
+        state.management.documentFiles.forEach((file) => transfer.items.add(file));
+        managementDocumentFileInput.files = transfer.files;
+      } catch {
+        // The selected names remain visible and the in-memory files are reused on retry.
+      }
+    }
+    managementDocumentFileInput?.addEventListener('change', (event) => {
+      state.management.documentFiles = Array.from(event.currentTarget.files || []);
+    });
+    managementDocumentLinkInput?.addEventListener('input', (event) => {
+      state.management.documentLinksDraft = event.currentTarget.value;
+    });
+    managementDocumentsForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await submitManagementDocuments(event.currentTarget);
+    });
+
     app.querySelectorAll('[data-action]').forEach((element) => {
       element.addEventListener('click', async (event) => {
         const action = element.dataset.action;
@@ -1515,6 +1617,19 @@
         }
         if (action === 'open-management-reschedule') {
           await openManagementReschedule();
+        }
+        if (action === 'toggle-management-documents') {
+          state.management.documentsOpen = !state.management.documentsOpen;
+          state.management.documentsError = '';
+          render();
+          if (state.management.documentsOpen) {
+            window.requestAnimationFrame?.(() => {
+              document.getElementById('management-documents-panel')?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'nearest',
+              });
+            });
+          }
         }
         if (action === 'close-management-reschedule') {
           state.management.rescheduling = false;
