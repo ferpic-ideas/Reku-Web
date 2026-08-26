@@ -6,6 +6,14 @@ import {
   recordAudit,
   tx,
 } from "./db.mjs";
+import {
+  agreementBookingUrl,
+  validateAgreementSubdomainPrefix,
+} from "./agreement-domains.mjs";
+import {
+  requestIdentifiesAgreement,
+  resolveAgreementForRequest,
+} from "./agreement-resolution.mjs";
 import QRCode from "qrcode";
 import { randomBytes } from "node:crypto";
 import { getClientIp, readBody, sendJson, withSecurityHeaders } from "./http.mjs";
@@ -590,6 +598,7 @@ const mapAgreement = (row) => ({
   id: Number(row.id),
   name: row.name,
   slug: row.slug,
+  subdomain_prefix: row.subdomain_prefix || "",
   cobranded: Boolean(row.cobranded),
   type: row.type,
   logo_path: row.logo_path || "",
@@ -610,6 +619,9 @@ const agreementPayloadFromMultipart = async (request) => {
   const { fields, files } = await parseMultipartForm(request);
   const name = String(fields.name || "").trim();
   const slug = slugify(fields.slug || name);
+  const subdomainPrefix = validateAgreementSubdomainPrefix(
+    fields.subdomain_prefix,
+  );
   const type = fields.type === "Nomina" ? "Nomina" : "Pago";
   const subject = String(fields.email_subject_template || defaultPatientSubject).trim();
   const body = String(fields.email_body_template || defaultPatientBody).trim();
@@ -638,6 +650,7 @@ const agreementPayloadFromMultipart = async (request) => {
     fields: {
       name,
       slug,
+      subdomain_prefix: subdomainPrefix,
       cobranded: fields.cobranded === "true" || fields.cobranded === "on",
       type,
       payment_evaluation_url:
@@ -657,6 +670,11 @@ const createAgreement = async (request, response, user) => {
   const payload = await agreementPayloadFromMultipart(request);
   const logoPath = await saveAgreementLogo(payload.files.logo);
   const pdfPath = await saveAgreementPdf(payload.files.pdf);
+  if (payload.fields.cobranded && !logoPath) {
+    const error = new Error("COBRANDED_LOGO_REQUIRED");
+    error.statusCode = 422;
+    throw error;
+  }
 
   const result = await query(
     `
@@ -664,6 +682,7 @@ const createAgreement = async (request, response, user) => {
         (
           name,
           slug,
+          subdomain_prefix,
           logo_path,
           pdf_path,
           cobranded,
@@ -673,12 +692,13 @@ const createAgreement = async (request, response, user) => {
           email_subject_template,
           email_body_template
         )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *
     `,
     [
       payload.fields.name,
       payload.fields.slug,
+      payload.fields.subdomain_prefix,
       logoPath || null,
       pdfPath || null,
       payload.fields.cobranded,
@@ -691,7 +711,11 @@ const createAgreement = async (request, response, user) => {
   );
   await recordAudit("agreement.created", {
     actorUserId: user.id,
-    detail: { agreement_id: result.rows[0].id, slug: result.rows[0].slug },
+    detail: {
+      agreement_id: result.rows[0].id,
+      slug: result.rows[0].slug,
+      subdomain_prefix: result.rows[0].subdomain_prefix,
+    },
   });
   sendJson(response, 201, { agreement: mapAgreement(result.rows[0]) });
 };
@@ -706,29 +730,39 @@ const updateAgreement = async (request, response, user, id) => {
   const payload = await agreementPayloadFromMultipart(request);
   const logoPath = await saveAgreementLogo(payload.files.logo);
   const pdfPath = await saveAgreementPdf(payload.files.pdf);
+  const nextLogoPath = payload.fields.remove_logo
+    ? null
+    : logoPath || current.logo_path || null;
+  if (payload.fields.cobranded && !nextLogoPath) {
+    const error = new Error("COBRANDED_LOGO_REQUIRED");
+    error.statusCode = 422;
+    throw error;
+  }
 
   const result = await query(
     `
       UPDATE agreements
       SET name = $1,
           slug = $2,
-          logo_path = $3,
-          pdf_path = $4,
-          cobranded = $5,
-          type = $6,
-          payment_evaluation_url = $7,
-          payment_treatment_url = $8,
-          email_subject_template = $9,
-          email_body_template = $10,
+          subdomain_prefix = $3,
+          logo_path = $4,
+          pdf_path = $5,
+          cobranded = $6,
+          type = $7,
+          payment_evaluation_url = $8,
+          payment_treatment_url = $9,
+          email_subject_template = $10,
+          email_body_template = $11,
           updated_at = NOW()
-      WHERE id = $11
+      WHERE id = $12
         AND deleted_at IS NULL
       RETURNING *
     `,
     [
       payload.fields.name,
       payload.fields.slug,
-      payload.fields.remove_logo ? null : logoPath || current.logo_path || null,
+      payload.fields.subdomain_prefix,
+      nextLogoPath,
       payload.fields.remove_pdf ? null : pdfPath || current.pdf_path || null,
       payload.fields.cobranded,
       payload.fields.type,
@@ -762,9 +796,7 @@ const downloadAgreementQr = async (response, id) => {
     return;
   }
 
-  const formUrl = `${config.appPublicUrl}/agenda/?form=${encodeURIComponent(
-    agreement.slug,
-  )}`;
+  const formUrl = agreementBookingUrl(agreement, config.appPublicUrl);
   const filename = `reku-agenda-${downloadSlug(agreement.slug)}-qr.png`;
   const png = await QRCode.toBuffer(formUrl, {
     type: "png",
@@ -2449,6 +2481,7 @@ const createTestBookingLink = async (request, response, user) => {
     agreementId: agreement.id,
     agreementName: agreement.name,
     agreementSlug: agreement.slug,
+    agreementSubdomainPrefix: agreement.subdomain_prefix || "",
     agreementType: agreement.type,
     ttlHours: 48,
   });
@@ -2545,6 +2578,7 @@ export const handlePublicAgreementApi = async (request, response, url) => {
       id: agreement.id,
       name: agreement.name,
       slug: agreement.slug,
+      subdomain_prefix: agreement.subdomain_prefix || "",
       cobranded: agreement.cobranded,
       type: agreement.type,
       logo_url: agreement.cobranded ? agreement.logo_url : "",
@@ -2554,10 +2588,9 @@ export const handlePublicAgreementApi = async (request, response, url) => {
   return true;
 };
 
-export const validatePublicAgreementRoute = async (url, response) => {
-  const slug = String(url.searchParams.get("form") || "").trim();
-  if (!slug) return true;
-  const agreement = await getAgreementBySlug(slug);
+export const validatePublicAgreementRoute = async (request, url, response) => {
+  if (!requestIdentifiesAgreement(request, url)) return true;
+  const agreement = await resolveAgreementForRequest(request, url);
   if (agreement) return true;
   sendJson(response, 404, { error: "Acuerdo no encontrado." });
   return false;
@@ -2861,7 +2894,12 @@ export const handleAdminApi = async (request, response, url) => {
     return false;
   } catch (error) {
     if (error.code === "23505") {
-      sendJson(response, 409, { error: "Ya existe un registro con esos datos." });
+      sendJson(response, 409, {
+        error:
+          error.constraint === "agreements_subdomain_prefix_active_key"
+            ? "Ese prefijo de subdominio ya está asignado a otro acuerdo."
+            : "Ya existe un registro con esos datos.",
+      });
       return true;
     }
     if (error.message === "URL_INVALID") {
@@ -2989,6 +3027,27 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (error.message === "SLUG_REQUIRED") {
       sendJson(response, 422, { error: "El slug no puede quedar vacío." });
+      return true;
+    }
+    if (error.message === "AGREEMENT_SUBDOMAIN_REQUIRED") {
+      sendJson(response, 422, { error: "Ingresá el prefijo del subdominio." });
+      return true;
+    }
+    if (error.message === "AGREEMENT_SUBDOMAIN_INVALID") {
+      sendJson(response, 422, {
+        error:
+          "El prefijo sólo puede usar letras minúsculas, números y guiones, sin comenzar ni terminar con guion.",
+      });
+      return true;
+    }
+    if (error.message === "AGREEMENT_SUBDOMAIN_RESERVED") {
+      sendJson(response, 422, { error: "Ese prefijo está reservado. Elegí otro." });
+      return true;
+    }
+    if (error.message === "COBRANDED_LOGO_REQUIRED") {
+      sendJson(response, 422, {
+        error: "Un acuerdo con cobranding debe tener un logo.",
+      });
       return true;
     }
     if (error.message === "TEMPLATE_INVALID") {

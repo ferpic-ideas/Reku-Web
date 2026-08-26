@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { config } from "./config.mjs";
 import { query as databaseQuery } from "./db.mjs";
 import { hashToken } from "./security.mjs";
+import { agreementBookingUrl } from "./agreement-domains.mjs";
 
 export const createBookingAccessLink = async ({
   patientIntakeId = null,
@@ -12,6 +13,7 @@ export const createBookingAccessLink = async ({
   agreementId = null,
   agreementName = "",
   agreementSlug = "",
+  agreementSubdomainPrefix = "",
   agreementType = "",
   ttlHours = 48,
   client = null,
@@ -57,7 +59,13 @@ export const createBookingAccessLink = async ({
     id: Number(result.rows[0].id),
     token,
     expires_at: result.rows[0].expires_at,
-    url: `${config.appPublicUrl}/agenda/#token=${encodeURIComponent(token)}`,
+    url: `${agreementBookingUrl(
+      {
+        slug: agreementSlug,
+        subdomain_prefix: agreementSubdomainPrefix,
+      },
+      config.appPublicUrl,
+    )}#token=${encodeURIComponent(token)}`,
   };
 };
 

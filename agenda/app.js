@@ -7,6 +7,11 @@
   const managementToken = hashParams.get('manage') || '';
   const managementMode = Boolean(managementToken || urlParams.get('manage') === '1');
   const formSlug = urlParams.get('form') || '';
+  const agreementHostPrefix = (() => {
+    const hostname = String(window.location.hostname || '').toLowerCase();
+    const match = hostname.match(/^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.reku\.io$/);
+    return match && match[1] !== 'www' ? match[1] : '';
+  })();
   const returnAppointmentId = urlParams.get('appointment_id') || '';
   const returnPaymentId = urlParams.get('payment_id') || urlParams.get('collection_id') || '';
   const returnResult = urlParams.get('mp_return') || '';
@@ -315,7 +320,7 @@
       return;
     }
     if (await loadPaymentReturn()) return;
-    if (state.formSlug) {
+    if (state.formSlug || agreementHostPrefix) {
       await loadAgreement();
       return;
     }
@@ -345,11 +350,16 @@
 
   async function loadAgreement() {
     try {
-      const payload = await api(
-        `/api/booking/agreement?form=${encodeURIComponent(state.formSlug)}`,
-      );
+      const query = state.formSlug
+        ? `?form=${encodeURIComponent(state.formSlug)}`
+        : '';
+      const payload = await api(`/api/booking/agreement${query}`);
       state.agreement = payload.agreement || null;
+      state.formSlug = state.agreement?.slug || state.formSlug;
       state.paymentRequired = state.agreement?.type !== 'Nomina';
+      if (state.agreement?.name) {
+        document.title = `Agenda ${state.agreement.name} | Reku`;
+      }
     } catch (error) {
       state.error = error.message;
     } finally {
@@ -738,24 +748,43 @@
         : state.step >= 6
           ? { activeStep: 0, completedThrough: 5 }
           : { activeStep: state.step, completedThrough: state.step - 1 };
+    const agreement = state.agreement || {};
+    const agreementLogo = agreement.cobranded && agreement.logo_url
+      ? `
+          <img
+            class="agreement-brand-logo"
+            src="${escapeHtml(agreement.logo_url)}"
+            alt="${escapeHtml(agreement.name || 'Acuerdo')}"
+          />
+          <span class="brand-connector">con</span>
+        `
+      : '';
+    const stepper = state.step === 1
+      ? ''
+      : `
+          <div class="stepper">
+            ${[1, 2, 3, 4, 5]
+              .map(
+                (step) => `
+                  <div class="step${progress.activeStep === step ? ' active' : ''}${progress.completedThrough >= step ? ' done' : ''}">
+                    <span>${progress.completedThrough >= step ? '✓' : step}</span>
+                  </div>
+                `,
+              )
+              .join('')}
+          </div>
+        `;
 
     return `
       <header class="booking-header">
         <div class="booking-title">
-          <img src="/images/logo-reku.svg" alt="Reku" />
+          <div class="booking-brand-lockup${agreementLogo ? ' cobranded' : ''}">
+            ${agreementLogo}
+            <img class="reku-brand-logo" src="/images/logo-reku.svg" alt="Reku" />
+          </div>
           <h1>Reserva tu turno</h1>
         </div>
-        <div class="stepper">
-          ${[1, 2, 3, 4, 5]
-            .map(
-              (step) => `
-                <div class="step${progress.activeStep === step ? ' active' : ''}${progress.completedThrough >= step ? ' done' : ''}">
-                  <span>${progress.completedThrough >= step ? '✓' : step}</span>
-                </div>
-              `,
-            )
-            .join('')}
-        </div>
+        ${stepper}
       </header>
     `;
   }
@@ -772,10 +801,9 @@
     const showIdentifier = agreement.type === 'Nomina';
     return `
       <section>
-        <div class="intake-brand">
-          ${agreement.logo_url ? `<img src="${escapeHtml(agreement.logo_url)}" alt="" />` : ''}
+        ${agreement.pdf_url ? `<div class="intake-brand">
           ${agreement.pdf_url ? `<a class="secondary-button how-it-works-button" href="${escapeHtml(agreement.pdf_url)}" target="_blank" rel="noreferrer">Cómo funciona</a>` : ''}
-        </div>
+        </div>` : ''}
         <h2 class="section-title">Tus datos</h2>
         <p class="section-copy">Completá tus datos para iniciar el alta y continuar con la reserva.</p>
         <form class="intake-card" id="booking-intake-form" novalidate>

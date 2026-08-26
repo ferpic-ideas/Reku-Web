@@ -52,12 +52,46 @@ button {
 .booking-title {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
-.booking-title img {
+.booking-title > img {
   width: 108px;
   height: auto;
+}
+
+.booking-brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.booking-brand-lockup.cobranded {
+  flex: 0 1 auto;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.booking-brand-lockup .agreement-brand-logo {
+  width: auto;
+  max-width: 190px;
+  height: 64px;
+  object-fit: contain;
+}
+
+.booking-brand-lockup .reku-brand-logo {
+  width: 76px;
+  height: auto;
+}
+
+.brand-connector {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .booking-title h1 {
@@ -158,18 +192,11 @@ button {
 }
 
 .intake-brand {
-  min-height: 44px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   margin-bottom: 18px;
-}
-
-.intake-brand img {
-  max-width: 160px;
-  max-height: 54px;
-  object-fit: contain;
 }
 
 .intake-card {
@@ -874,6 +901,15 @@ button {
 
   .booking-title h1 {
     font-size: 36px;
+  }
+
+  .booking-brand-lockup .agreement-brand-logo {
+    max-width: 280px;
+    height: 92px;
+  }
+
+  .booking-brand-lockup .reku-brand-logo {
+    width: 92px;
   }
 
   .section-title {

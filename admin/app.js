@@ -1,6 +1,11 @@
 (() => {
   const app = document.getElementById('app');
   const publicBaseUrl = 'https://www.reku.io';
+  const agreementPublicUrl = (agreement = {}) => {
+    const prefix = String(agreement.subdomain_prefix || '').trim().toLowerCase();
+    if (prefix) return `https://${prefix}.reku.io/agenda/`;
+    return `${publicBaseUrl}/agenda/?form=${encodeURIComponent(agreement.slug || '')}`;
+  };
   let csrfToken = '';
   const state = {
     user: null,
@@ -2142,8 +2147,9 @@
       state.agreements.find((agreement) => agreement.id === state.editingAgreementId) || {
         name: '',
         slug: '',
+        subdomain_prefix: '',
         type: 'Pago',
-        cobranded: false,
+        cobranded: true,
         payment_evaluation_url: '',
         payment_treatment_url: '',
         email_subject_template: 'Alta de paciente - {{agreement.name}}',
@@ -2172,6 +2178,20 @@
         <label>
           Slug URL
           <input name="slug" value="${escapeHtml(item.slug)}" placeholder="se genera desde el nombre" />
+        </label>
+        <label>
+          Prefijo de subdominio
+          <input
+            name="subdomain_prefix"
+            value="${escapeHtml(item.subdomain_prefix || '')}"
+            placeholder="ypf"
+            maxlength="63"
+            pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+            autocapitalize="none"
+            spellcheck="false"
+            required
+          />
+          <span class="field-help">La agenda quedará en https://prefijo.reku.io/agenda/</span>
         </label>
         <label>
           Tipo
@@ -2287,6 +2307,7 @@
               <tr>
                 <th>Nombre</th>
                 <th>Slug</th>
+                <th>Subdominio</th>
                 <th>Tipo</th>
                 <th>Cobranded</th>
                 <th>Archivos</th>
@@ -2295,7 +2316,7 @@
               </tr>
             </thead>
             <tbody>
-              ${agreements.length ? agreements.map(renderAgreementRow).join('') : '<tr><td colspan="7">No hay acuerdos para esos filtros.</td></tr>'}
+              ${agreements.length ? agreements.map(renderAgreementRow).join('') : '<tr><td colspan="8">No hay acuerdos para esos filtros.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -2308,6 +2329,11 @@
       <tr>
         <td><strong>${escapeHtml(agreement.name)}</strong></td>
         <td>${escapeHtml(agreement.slug)}</td>
+        <td>
+          ${agreement.subdomain_prefix
+            ? `<a href="${escapeHtml(agreementPublicUrl(agreement))}" target="_blank" rel="noreferrer">${escapeHtml(agreement.subdomain_prefix)}.reku.io</a>`
+            : 'Sin prefijo'}
+        </td>
         <td><span class="pill">${escapeHtml(agreement.type)}</span></td>
         <td>${agreement.cobranded ? 'Sí' : 'No'}</td>
         <td>
@@ -2318,7 +2344,7 @@
         <td>${agreement.intake_count || 0}</td>
         <td>
           <div class="table-actions">
-            <button type="button" class="secondary-button" data-action="copy-url" data-slug="${escapeHtml(agreement.slug)}">Get URL</button>
+            <button type="button" class="secondary-button" data-action="copy-url" data-slug="${escapeHtml(agreement.slug)}" data-prefix="${escapeHtml(agreement.subdomain_prefix || '')}">Get URL</button>
             <a
               class="secondary-button"
               href="/api/admin/agreements/${agreement.id}/qr"
@@ -2979,6 +3005,13 @@
       togglePaymentFields();
     }
 
+    const agreementSubdomainInput = document.querySelector(
+      '#agreement-form input[name="subdomain_prefix"]',
+    );
+    agreementSubdomainInput?.addEventListener('input', () => {
+      agreementSubdomainInput.value = agreementSubdomainInput.value.toLowerCase();
+    });
+
     const agreementTextFilter = document.getElementById('agreement-text-filter');
     if (agreementTextFilter) {
       agreementTextFilter.value = state.agreementTextFilter;
@@ -3166,6 +3199,7 @@
     const action = event.currentTarget.dataset.action;
     const id = Number(event.currentTarget.dataset.id || 0);
     const slug = event.currentTarget.dataset.slug || '';
+    const prefix = event.currentTarget.dataset.prefix || '';
     const tab = event.currentTarget.dataset.tab || '';
 
     try {
@@ -3275,7 +3309,7 @@
         return;
       }
       if (action === 'copy-url') {
-        const url = `${publicBaseUrl}/agenda/?form=${encodeURIComponent(slug)}`;
+        const url = agreementPublicUrl({ slug, subdomain_prefix: prefix });
         await navigator.clipboard.writeText(url);
         setStatus(`URL copiada: ${url}`, 'ok');
         return;
@@ -3359,9 +3393,7 @@
         const agreement = state.agreements.find(
           (item) => String(item.id) === String(state.testBookingAgreementId),
         );
-        state.testBookingUrl = agreement
-          ? `${publicBaseUrl}/agenda/?form=${encodeURIComponent(agreement.slug)}`
-          : '';
+        state.testBookingUrl = agreement ? agreementPublicUrl(agreement) : '';
         setStatus('Link de agenda generado.', 'ok');
         return;
       }

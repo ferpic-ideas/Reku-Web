@@ -187,6 +187,7 @@ export const createMercadoPagoPreference = async ({
   service,
   professional,
   patient,
+  returnAgendaUrl = `${config.appPublicUrl}/agenda/`,
 }) => {
   const credentials = await getActiveMercadoPagoCredentials();
   const externalReference = appointmentReference(appointment.id);
@@ -195,7 +196,9 @@ export const createMercadoPagoPreference = async ({
       appointment_id: String(appointment.id),
       mp_return: result,
     });
-    return `${config.appPublicUrl}/agenda/?${params.toString()}`;
+    const url = new URL(returnAgendaUrl);
+    url.search = params.toString();
+    return url.toString();
   };
   const patientName = splitPatientName(patient.name);
   const unitPrice = Number(service.cost_amount || 0);

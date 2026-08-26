@@ -29,6 +29,7 @@ import {
   sendText,
   resolveStaticRequestPath,
 } from "./src/http.mjs";
+import { agreementPrefixForRequest } from "./src/agreement-resolution.mjs";
 
 assertSafeStartup();
 await ensureRuntimeDirectories();
@@ -47,9 +48,19 @@ runCalendarMaintenance();
 const calendarCleanupTimer = setInterval(runCalendarMaintenance, 5 * 60 * 1000);
 calendarCleanupTimer.unref();
 
+const isAgreementHostPath = (pathname) =>
+  pathname === "/" ||
+  pathname === "/agenda" ||
+  pathname.startsWith("/agenda/") ||
+  pathname.startsWith("/api/booking/") ||
+  pathname.startsWith("/uploads/") ||
+  pathname === "/images/logo-reku.svg" ||
+  pathname === "/favicon-32x32.png";
+
 const server = createServer(async (request, response) => {
   const requestUrl = new URL(request.url, `http://${request.headers.host}`);
   const { pathname } = requestUrl;
+  const agreementPrefix = agreementPrefixForRequest(request);
 
   try {
     if (
@@ -70,7 +81,9 @@ const server = createServer(async (request, response) => {
 
     if (isProduction) {
       const canonicalUrl = new URL(config.appPublicUrl);
-      if (requestUrl.host.toLowerCase() !== canonicalUrl.host.toLowerCase()) {
+      const isCanonicalHost =
+        requestUrl.host.toLowerCase() === canonicalUrl.host.toLowerCase();
+      if (!isCanonicalHost && !agreementPrefix) {
         sendRedirect(
           response,
           `${config.appPublicUrl}${pathname}${requestUrl.search}`,
@@ -78,6 +91,23 @@ const server = createServer(async (request, response) => {
         );
         return;
       }
+      if (agreementPrefix && !isAgreementHostPath(pathname)) {
+        sendRedirect(
+          response,
+          `${config.appPublicUrl}${pathname}${requestUrl.search}`,
+          308,
+        );
+        return;
+      }
+    }
+
+    if (
+      agreementPrefix &&
+      pathname === "/" &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      sendRedirect(response, `/agenda/${requestUrl.search}`, 308);
+      return;
     }
 
     if (
@@ -155,7 +185,7 @@ const server = createServer(async (request, response) => {
 
       if (
         (pathname === "/agenda" || pathname === "/agenda/") &&
-        !(await validatePublicAgreementRoute(requestUrl, response))
+        !(await validatePublicAgreementRoute(request, requestUrl, response))
       ) {
         return;
       }

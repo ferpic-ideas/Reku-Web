@@ -105,9 +105,17 @@ services:
       - traefik.http.routers.reku-web.service=reku-web
       - traefik.http.routers.reku-web-www.rule=Host(`www.reku.io`)
       - traefik.http.routers.reku-web-www.entrypoints=websecure
+      - traefik.http.routers.reku-web-www.priority=100
       - traefik.http.routers.reku-web-www.tls.certresolver=letsencrypt
       - traefik.http.routers.reku-web-www.middlewares=reku-security-headers,reku-web-upload-limit
       - traefik.http.routers.reku-web-www.service=reku-web
+      - traefik.http.routers.reku-web-agreements.rule=Host(`*.reku.io`)
+      - traefik.http.routers.reku-web-agreements.entrypoints=websecure
+      - traefik.http.routers.reku-web-agreements.priority=10
+      - traefik.http.routers.reku-web-agreements.tls.certresolver=reku-route53
+      - traefik.http.routers.reku-web-agreements.tls.domains[0].main=*.reku.io
+      - traefik.http.routers.reku-web-agreements.middlewares=reku-security-headers,reku-web-upload-limit
+      - traefik.http.routers.reku-web-agreements.service=reku-web
       - traefik.http.routers.reku-web-apex.rule=Host(`reku.io`)
       - traefik.http.routers.reku-web-apex.entrypoints=websecure
       - traefik.http.routers.reku-web-apex.tls.certresolver=letsencrypt

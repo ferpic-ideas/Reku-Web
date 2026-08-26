@@ -232,6 +232,7 @@ export const createPatientBookingLink = async ({
     agreementId: agreement?.id || null,
     agreementName: agreement?.name || "",
     agreementSlug: agreement?.slug || submission.agreementSlug || "",
+    agreementSubdomainPrefix: agreement?.subdomain_prefix || "",
     agreementType: agreement?.type || "",
     ttlHours: 48,
     client,

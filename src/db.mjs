@@ -103,6 +103,44 @@ export const initDb = async () => {
       ON agreements (lower(slug))
       WHERE deleted_at IS NULL;
 
+    ALTER TABLE agreements
+      ADD COLUMN IF NOT EXISTS subdomain_prefix TEXT;
+
+    UPDATE agreements
+      SET subdomain_prefix = lower(slug),
+          cobranded = TRUE,
+          updated_at = NOW()
+      WHERE deleted_at IS NULL
+        AND logo_path IS NOT NULL
+        AND subdomain_prefix IS NULL
+        AND lower(slug) ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+        AND lower(slug) NOT IN (
+          'admin', 'api', 'app', 'assets', 'cdn', 'dev', 'ftp', 'imap',
+          'localhost', 'mail', 'pop', 'reku-web', 'smtp', 'staging',
+          'static', 'status', 'support', 'test', 'www'
+        );
+
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'agreements_subdomain_prefix_format_check'
+      ) THEN
+        ALTER TABLE agreements
+          ADD CONSTRAINT agreements_subdomain_prefix_format_check
+          CHECK (
+            subdomain_prefix IS NULL
+            OR subdomain_prefix ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+          );
+      END IF;
+    END
+    $$;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS agreements_subdomain_prefix_active_key
+      ON agreements (lower(subdomain_prefix))
+      WHERE deleted_at IS NULL AND subdomain_prefix IS NOT NULL;
+
     CREATE TABLE IF NOT EXISTS nomina_entries (
       id BIGSERIAL PRIMARY KEY,
       agreement_id BIGINT NOT NULL REFERENCES agreements(id),
@@ -563,6 +601,19 @@ export const getAgreementBySlug = async (slug) =>
           AND deleted_at IS NULL
       `,
       [slug],
+    ),
+  );
+
+export const getAgreementBySubdomainPrefix = async (prefix) =>
+  normalizeAgreement(
+    await one(
+      `
+        SELECT *
+        FROM agreements
+        WHERE lower(subdomain_prefix) = lower($1)
+          AND deleted_at IS NULL
+      `,
+      [prefix],
     ),
   );
 

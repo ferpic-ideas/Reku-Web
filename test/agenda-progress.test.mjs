@@ -142,6 +142,7 @@ test("intake continues directly to services when email verification is disabled"
 
   await flushAsyncWork();
   assert.equal(typeof submitHandler, "function");
+  assert.doesNotMatch(html, /class="stepper"/);
 
   await submitHandler({
     preventDefault() {},

@@ -53,6 +53,12 @@ import {
   patientAppointmentSessionCookie,
   requirePatientAppointmentSession,
 } from "./patient-appointment-links.mjs";
+import { agreementBookingUrl } from "./agreement-domains.mjs";
+import {
+  agreementPrefixForRequest,
+  requestIdentifiesAgreement,
+  resolveAgreementForRequest,
+} from "./agreement-resolution.mjs";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
@@ -268,7 +274,11 @@ const requireAccessLink = async (token) => {
         p.agreement_type_snapshot AS intake_agreement_type,
         a.name AS current_agreement_name,
         a.slug AS current_agreement_slug,
-        a.type AS current_agreement_type
+        a.type AS current_agreement_type,
+        a.subdomain_prefix AS current_agreement_subdomain_prefix,
+        a.cobranded AS current_agreement_cobranded,
+        a.logo_path AS current_agreement_logo_path,
+        a.pdf_path AS current_agreement_pdf_path
       FROM booking_access_links l
       LEFT JOIN patient_intakes p ON p.id = l.patient_intake_id
       LEFT JOIN agreements a ON a.id = COALESCE(p.agreement_id, l.agreement_id)
@@ -306,6 +316,15 @@ const requireAccessLink = async (token) => {
         link.intake_agreement_type ||
         link.agreement_type_snapshot ||
         "",
+      subdomain_prefix: link.current_agreement_subdomain_prefix || "",
+      cobranded: Boolean(link.current_agreement_cobranded),
+      logo_url:
+        link.current_agreement_cobranded && link.current_agreement_logo_path
+          ? `/uploads/${link.current_agreement_logo_path}`
+          : "",
+      pdf_url: link.current_agreement_pdf_path
+        ? `/uploads/${link.current_agreement_pdf_path}`
+        : "",
     },
     patient: {
       name: [link.nombre, link.apellido].filter(Boolean).join(" ") || link.patient_name || "",
@@ -313,6 +332,20 @@ const requireAccessLink = async (token) => {
       phone: link.intake_telefono || link.patient_phone || "",
     },
   };
+};
+
+const requireAccessLinkForRequest = async (request, token) => {
+  const link = await requireAccessLink(token);
+  const requestPrefix = agreementPrefixForRequest(request);
+  if (
+    requestPrefix &&
+    requestPrefix !== String(link.agreement?.subdomain_prefix || "").toLowerCase()
+  ) {
+    const error = new Error("BOOKING_TOKEN_INVALID");
+    error.statusCode = 401;
+    throw error;
+  }
+  return link;
 };
 
 const mapService = (row) => ({
@@ -332,6 +365,7 @@ const mapAgreement = (agreement) => ({
   id: agreement.id,
   name: agreement.name,
   slug: agreement.slug,
+  subdomain_prefix: agreement.subdomain_prefix || "",
   cobranded: agreement.cobranded,
   type: agreement.type,
   logo_url: agreement.cobranded ? agreement.logo_url : "",
@@ -362,23 +396,38 @@ const listServices = async (response, link) => {
   });
 };
 
-const getAgreementForIntake = async (url, response) => {
-  const agreementSlug = String(url.searchParams.get("form") || "").trim();
-  if (!agreementSlug) {
+const getAgreementForIntake = async (request, url, response) => {
+  if (!requestIdentifiesAgreement(request, url)) {
     sendJson(response, 422, { error: "Indicá el acuerdo para iniciar la agenda." });
     return;
   }
-  const submission = buildPatientIntakeSubmission({ agreementSlug });
-  const agreement = await loadPatientIntakeAgreement(submission);
+  const agreement = await resolveAgreementForRequest(request, url);
+  if (!agreement) {
+    sendJson(response, 404, { error: "Acuerdo no encontrado." });
+    return;
+  }
   sendJson(response, 200, { agreement: mapAgreement(agreement) });
 };
 
-const createIntakeAccess = async (request, payload, response) => {
+const createIntakeAccess = async (request, payload, response, url) => {
   const submission = buildPatientIntakeSubmission({
     agreementSlug: payload.agreement_slug || payload.form || "",
     values: payload,
   });
-  const agreement = await loadPatientIntakeAgreement(submission);
+  const requestPrefix = agreementPrefixForRequest(request);
+  const hostAgreement = requestPrefix
+    ? await resolveAgreementForRequest(request, url)
+    : null;
+  if (
+    requestPrefix &&
+    (!hostAgreement ||
+      hostAgreement.slug.toLowerCase() !== submission.agreementSlug.toLowerCase())
+  ) {
+    sendJson(response, 404, { error: "Acuerdo no encontrado." });
+    return;
+  }
+  const agreement =
+    hostAgreement || (await loadPatientIntakeAgreement(submission));
   await enforceIntakeRateLimits({
     clientIp: getClientIp(request),
     email: submission.values.email,
@@ -481,7 +530,7 @@ const verifyIntakeAccess = async (payload, response) => {
 
 const exchangeBookingAccess = async (request, payload, response, url) => {
   const token = readToken(request, url, payload);
-  const link = await requireAccessLink(token);
+  const link = await requireAccessLinkForRequest(request, token);
   sendJson(
     response,
     200,
@@ -1014,6 +1063,10 @@ const createAppointment = async (payload, response, url, link) => {
     try {
       preference = await createMercadoPagoPreference({
         appointment,
+        returnAgendaUrl: agreementBookingUrl(
+          link.agreement,
+          config.appPublicUrl,
+        ),
         service: {
           ...service,
           id: serviceId,
@@ -1918,7 +1971,10 @@ export const handleBookingApi = async (request, response, url) => {
       /^\/api\/booking\/appointments\/(\d+)\/documents$/,
     );
     if (appointmentDocumentsMatch && request.method === "POST") {
-      const link = await requireAccessLink(readToken(request, url));
+      const link = await requireAccessLinkForRequest(
+        request,
+        readToken(request, url),
+      );
       await uploadAppointmentDocuments(
         request,
         response,
@@ -1934,11 +1990,11 @@ export const handleBookingApi = async (request, response, url) => {
     }
 
     if (pathname === "/api/booking/agreement" && request.method === "GET") {
-      await getAgreementForIntake(url, response);
+      await getAgreementForIntake(request, url, response);
       return true;
     }
     if (pathname === "/api/booking/intake" && request.method === "POST") {
-      await createIntakeAccess(request, payload, response);
+      await createIntakeAccess(request, payload, response, url);
       return true;
     }
     if (pathname === "/api/booking/intake/verify" && request.method === "POST") {
@@ -1951,7 +2007,7 @@ export const handleBookingApi = async (request, response, url) => {
     }
 
     const token = readToken(request, url, payload);
-    const link = await requireAccessLink(token);
+    const link = await requireAccessLinkForRequest(request, token);
 
     if (pathname === "/api/booking/services" && request.method === "GET") {
       await listServices(response, link);
