@@ -498,6 +498,34 @@ button {
   background: #ffffff;
 }
 
+.calendar-button {
+  width: fit-content;
+  margin: 18px 0;
+  border: 1px solid #ccd5e2;
+  box-shadow: 0 6px 16px rgba(24, 33, 63, 0.08);
+}
+
+.calendar-button:hover,
+.calendar-button:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.calendar-button-icon {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.calendar-button-icon path:last-child {
+  fill: currentColor;
+  stroke: none;
+}
+
 .how-it-works-button:hover,
 .how-it-works-button:focus-visible {
   background: #e9f8fb;

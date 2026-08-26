@@ -44,6 +44,8 @@ test("confirmation email is the patient's no-account management access", () => {
     assert.match(content, /no necesitás.*usuario/i);
     assert.match(content, /manage=private-token/);
     assert.match(content, /gestionar o mover/i);
+    assert.match(content, /Agregar a mi calendario/i);
+    assert.match(content, /calendar=1/);
     assert.match(content, /aproximadamente 24 horas/i);
     assert.match(content, /opentriage\/example/);
   }
@@ -148,6 +150,8 @@ test("24-hour reminder keeps management and triage access", () => {
     assert.match(content, /aproximadamente 24 horas/i);
     assert.match(content, /manage=private-token/);
     assert.match(content, /opentriage\/reminder/);
+    assert.match(content, /Agregar a mi calendario/i);
+    assert.match(content, /calendar=1/);
   }
 });
 

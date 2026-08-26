@@ -118,6 +118,8 @@ test("agenda exposes save-mail, gated Meet, reschedule, cancel and triage action
   assert.match(source, /scrollIntoView\(\{[\s\S]*behavior:\s*'smooth'/);
   assert.match(source, /data-action="cancel-management-appointment"/);
   assert.match(source, /Completar cuestionario previo/);
+  assert.match(source, /Agregar a mi calendario/);
+  assert.match(source, /\/api\/booking\/manage\/calendar\.ics/);
   assert.match(source, /\/api\/booking\/manage\/meet/);
   assert.match(source, /La videollamada todavía no está disponible/);
   assert.match(source, /Tu turno es el/);

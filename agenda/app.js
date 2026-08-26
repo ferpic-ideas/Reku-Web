@@ -5,6 +5,7 @@
   const initialToken = urlParams.get('token') || hashParams.get('token') || '';
   const verificationToken = hashParams.get('verify') || '';
   const managementToken = hashParams.get('manage') || '';
+  const calendarRequested = hashParams.get('calendar') === '1';
   const managementMode = Boolean(managementToken || urlParams.get('manage') === '1');
   const formSlug = urlParams.get('form') || '';
   const agreementHostPrefix = (() => {
@@ -227,6 +228,7 @@
   }
 
   async function loadManagement() {
+    let shouldDownloadCalendar = false;
     try {
       if (managementToken) {
         const payload = await api('/api/booking/manage/session', {
@@ -239,6 +241,7 @@
           state.management.month = new Date(`${payload.appointment.date}T12:00:00`);
         }
         removeManagementToken();
+        shouldDownloadCalendar = calendarRequested;
       } else {
         await loadManagedAppointment();
       }
@@ -248,8 +251,27 @@
     } finally {
       state.loading = false;
       render();
+      if (shouldDownloadCalendar) {
+        window.requestAnimationFrame?.(() => {
+          window.location.assign('/api/booking/manage/calendar.ics');
+        });
+      }
     }
   }
+
+  const calendarIcon = () => `
+    <svg class="calendar-button-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 2v3M17 2v3M3.5 9h17M5.5 4h13a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+      <path d="M8 13h3v3H8z" />
+    </svg>
+  `;
+
+  const calendarButton = (href) => `
+    <a class="secondary-button calendar-button" href="${escapeHtml(href)}">
+      ${calendarIcon()}
+      <span>Agregar a mi calendario</span>
+    </a>
+  `;
 
   async function loadPaymentReturn() {
     if (!returnAppointmentId) return false;
@@ -1153,6 +1175,7 @@
           }
           ${professionalName ? `<p><strong>Profesional:</strong> ${escapeHtml(professionalName)}</p>` : ''}
           ${serviceName ? `<p><strong>Práctica:</strong> ${escapeHtml(serviceName)}</p>` : ''}
+          ${isPaid && state.appointment?.id ? calendarButton(`/api/booking/appointments/${state.appointment.id}/calendar.ics`) : ''}
           ${isPaid ? renderDocumentsCard() : ''}
           ${isPaid ? renderTriageCard() : ''}
           ${
@@ -1282,6 +1305,7 @@
           <p><strong>Profesional:</strong> ${escapeHtml(appointment.professional.name)}</p>
           ${meetCard}
           <div class="management-actions">
+            ${appointment.status === 'confirmed' ? calendarButton('/api/booking/manage/calendar.ics') : ''}
             ${appointment.payment_url && appointment.status === 'pending_payment' ? `<a class="primary-button" href="${escapeHtml(appointment.payment_url)}">Completar pago</a>` : ''}
             ${capabilities.can_reschedule ? '<button type="button" class="secondary-button" data-action="open-management-reschedule">Mover turno</button>' : ''}
             ${capabilities.can_cancel ? `<button type="button" class="danger-outline-button" data-action="cancel-management-appointment" ${management.submitting ? 'disabled' : ''}>Cancelar reserva</button>` : ''}

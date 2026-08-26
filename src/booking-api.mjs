@@ -5,6 +5,7 @@ import {
   readBody,
   sendJson,
   sendRedirect,
+  withSecurityHeaders,
 } from "./http.mjs";
 import { hashToken } from "./security.mjs";
 import {
@@ -49,10 +50,15 @@ import {
 } from "./appointment-documents.mjs";
 import {
   enforcePatientAppointmentOrigin,
+  createPatientAppointmentAccessLink,
   exchangePatientAppointmentAccessLink,
   patientAppointmentSessionCookie,
   requirePatientAppointmentSession,
 } from "./patient-appointment-links.mjs";
+import {
+  appointmentCalendarContent,
+  appointmentCalendarFilename,
+} from "./appointment-calendar.mjs";
 import { agreementBookingUrl } from "./agreement-domains.mjs";
 import {
   agreementPrefixForRequest,
@@ -1364,6 +1370,84 @@ const getPatientManagedAppointment = async (request, response) => {
   sendJson(response, 200, { appointment: mapManagedAppointment(appointment) });
 };
 
+const sendAppointmentCalendar = async (
+  response,
+  appointment,
+  { access = "management" } = {},
+) => {
+  if (appointment.status !== "confirmed") {
+    sendJson(response, 409, {
+      error: "Sólo podés agregar al calendario un turno confirmado.",
+    });
+    return;
+  }
+  const manageLink = await createPatientAppointmentAccessLink({
+    appointmentId: appointment.id,
+  });
+  const calendar = appointmentCalendarContent({
+    appointment,
+    manageUrl: manageLink.url,
+  });
+  try {
+    await recordAudit("appointment.patient_calendar_downloaded", {
+      detail: {
+        appointment_id: Number(appointment.id),
+        access,
+      },
+    });
+  } catch {
+    // An audit failure must not prevent the patient from saving the appointment.
+  }
+  response.writeHead(
+    200,
+    withSecurityHeaders(
+      {
+        "Content-Type": "text/calendar; charset=utf-8; method=PUBLISH",
+        "Content-Disposition": `attachment; filename="${appointmentCalendarFilename(appointment)}"`,
+        "Cache-Control": "no-store",
+      },
+      { privateRoute: true },
+    ),
+  );
+  response.end(calendar);
+};
+
+const downloadManagedAppointmentCalendar = async (request, response) => {
+  const { appointment } = await requireManagedAppointment(request);
+  await sendAppointmentCalendar(response, appointment);
+};
+
+const downloadBookedAppointmentCalendar = async (
+  response,
+  appointmentId,
+  link,
+) => {
+  const appointment = await one(
+    `
+      SELECT
+        appointment.id,
+        to_char(appointment.appointment_date, 'YYYY-MM-DD') AS appointment_date,
+        appointment.status,
+        appointment.reschedule_count,
+        ((appointment.appointment_date + appointment.start_time) AT TIME ZONE $3) AS starts_at,
+        ((appointment.appointment_date + appointment.end_time) AT TIME ZONE $3) AS ends_at,
+        service.name AS service_name,
+        professional.name AS professional_name
+      FROM appointments appointment
+      INNER JOIN services service ON service.id = appointment.service_id
+      INNER JOIN professionals professional ON professional.id = appointment.professional_id
+      WHERE appointment.id = $1
+        AND appointment.booking_access_link_id = $2
+    `,
+    [appointmentId, link.id, config.googleCalendarTimeZone],
+  );
+  if (!appointment) {
+    sendJson(response, 404, { error: "Turno confirmado no encontrado." });
+    return;
+  }
+  await sendAppointmentCalendar(response, appointment, { access: "booking" });
+};
+
 const patientMeetUnavailableMessage = (appointment, access) => {
   const [year, month, day] = String(appointment.appointment_date || "").split("-");
   const date = year && month && day ? `${day}/${month}/${year}` : appointment.appointment_date;
@@ -1970,6 +2054,13 @@ export const handleBookingApi = async (request, response, url) => {
       await enterPatientManagedMeet(request, response);
       return true;
     }
+    if (
+      pathname === "/api/booking/manage/calendar.ics" &&
+      request.method === "GET"
+    ) {
+      await downloadManagedAppointmentCalendar(request, response);
+      return true;
+    }
     if (pathname === "/api/booking/manage/days" && request.method === "GET") {
       await listPatientManagementDays(request, url, response);
       return true;
@@ -1990,6 +2081,21 @@ export const handleBookingApi = async (request, response, url) => {
     const appointmentDocumentsMatch = pathname.match(
       /^\/api\/booking\/appointments\/(\d+)\/documents$/,
     );
+    const appointmentCalendarMatch = pathname.match(
+      /^\/api\/booking\/appointments\/(\d+)\/calendar\.ics$/,
+    );
+    if (appointmentCalendarMatch && request.method === "GET") {
+      const link = await requireAccessLinkForRequest(
+        request,
+        readToken(request, url),
+      );
+      await downloadBookedAppointmentCalendar(
+        response,
+        Number(appointmentCalendarMatch[1]),
+        link,
+      );
+      return true;
+    }
     if (appointmentDocumentsMatch && request.method === "POST") {
       const link = await requireAccessLinkForRequest(
         request,
