@@ -159,3 +159,19 @@ test("managed document confirmation stays in the open upload panel", async () =>
     panel.indexOf("Enviar documentación") < panel.indexOf("management.documentsMessage"),
   );
 });
+
+test("managed appointments reuse the booking cobranded header", async () => {
+  const [agendaSource, bookingSource] = await Promise.all([
+    readFile(new URL("../agenda/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/booking-api.mjs", import.meta.url), "utf8"),
+  ]);
+  const header = agendaSource.match(
+    /function renderHeader\(\)[\s\S]*?function fieldError/,
+  )?.[0] || "";
+  assert.match(header, /state\.management\.appointment\?\.agreement/);
+  assert.match(header, /booking-brand-lockup cobranded/);
+  assert.match(header, /agreement-brand-logo/);
+  assert.match(header, /cobranded-reku-logo/);
+  assert.match(bookingSource, /LEFT JOIN agreements agreement ON agreement\.id = appointment\.agreement_id/);
+  assert.match(bookingSource, /agreement_logo_path/);
+});

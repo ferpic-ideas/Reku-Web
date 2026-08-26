@@ -840,6 +840,29 @@
 
   function renderHeader() {
     if (state.step === 8) {
+      const agreement = state.management.appointment?.agreement || {};
+      const agreementLogo = agreement.cobranded && agreement.logo_url
+        ? `
+            <img
+              class="agreement-brand-logo"
+              src="${escapeHtml(agreement.logo_url)}"
+              alt="${escapeHtml(agreement.name || 'Acuerdo')}"
+            />
+          `
+        : '';
+      if (agreementLogo) {
+        return `
+          <header class="booking-header management-header">
+            <div class="booking-title cobranded">
+              <div class="booking-brand-lockup cobranded">
+                ${agreementLogo}
+              </div>
+              <h1>Gestioná tu turno</h1>
+              <img class="reku-brand-logo cobranded-reku-logo" src="/images/logo-reku.svg" alt="Reku" />
+            </div>
+          </header>
+        `;
+      }
       return `
         <header class="booking-header management-header">
           <div class="booking-title">

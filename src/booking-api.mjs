@@ -1296,6 +1296,17 @@ const mapManagedAppointment = (row) => ({
   payment_status: row.payment_status || "",
   payment_url: row.payment_init_point || "",
   triage_url: row.triage_url || "",
+  agreement: row.agreement_id
+    ? {
+        id: Number(row.agreement_id),
+        name: row.agreement_name || "",
+        cobranded: Boolean(row.agreement_cobranded),
+        logo_url:
+          row.agreement_cobranded && row.agreement_logo_path
+            ? `/uploads/${row.agreement_logo_path}`
+            : "",
+      }
+    : null,
   service: {
     id: Number(row.service_id),
     name: row.service_name || "",
@@ -1329,6 +1340,10 @@ const loadManagedAppointment = async (appointmentId) =>
         appointment.triage_url,
         appointment.google_meet_url,
         appointment.reschedule_count,
+        appointment.agreement_id,
+        COALESCE(NULLIF(agreement.name, ''), appointment.agreement_name_snapshot) AS agreement_name,
+        COALESCE(agreement.cobranded, appointment.agreement_cobranded_snapshot) AS agreement_cobranded,
+        agreement.logo_path AS agreement_logo_path,
         service.name AS service_name,
         service.duration_minutes,
         professional.name AS professional_name,
@@ -1339,6 +1354,7 @@ const loadManagedAppointment = async (appointmentId) =>
       FROM appointments appointment
       INNER JOIN services service ON service.id = appointment.service_id
       INNER JOIN professionals professional ON professional.id = appointment.professional_id
+      LEFT JOIN agreements agreement ON agreement.id = appointment.agreement_id
       WHERE appointment.id = $1
     `,
     [appointmentId, config.googleCalendarTimeZone],
