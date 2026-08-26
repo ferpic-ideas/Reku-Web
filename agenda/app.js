@@ -756,7 +756,6 @@
             src="${escapeHtml(agreement.logo_url)}"
             alt="${escapeHtml(agreement.name || 'Acuerdo')}"
           />
-          <span class="brand-connector">con</span>
         `
       : '';
     const stepper = state.step === 1
@@ -777,12 +776,13 @@
 
     return `
       <header class="booking-header">
-        <div class="booking-title">
+        <div class="booking-title${agreementLogo ? ' cobranded' : ''}">
           <div class="booking-brand-lockup${agreementLogo ? ' cobranded' : ''}">
             ${agreementLogo}
-            <img class="reku-brand-logo" src="/images/logo-reku.svg" alt="Reku" />
+            ${agreementLogo ? '' : '<img class="reku-brand-logo" src="/images/logo-reku.svg" alt="Reku" />'}
           </div>
           <h1>Reserva tu turno</h1>
+          ${agreementLogo ? '<img class="reku-brand-logo cobranded-reku-logo" src="/images/logo-reku.svg" alt="Reku" />' : ''}
         </div>
         ${stepper}
       </header>

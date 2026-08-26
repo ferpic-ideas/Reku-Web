@@ -56,6 +56,11 @@ button {
   gap: 12px;
 }
 
+.booking-title.cobranded {
+  position: relative;
+  padding-right: 66px;
+}
+
 .booking-title > img {
   width: 108px;
   height: auto;
@@ -87,11 +92,11 @@ button {
   height: auto;
 }
 
-.brand-connector {
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 800;
-  text-transform: uppercase;
+.booking-title .cobranded-reku-logo {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 53.2px;
 }
 
 .booking-title h1 {
@@ -910,6 +915,14 @@ button {
 
   .booking-brand-lockup .reku-brand-logo {
     width: 92px;
+  }
+
+  .booking-title.cobranded {
+    padding-right: 78px;
+  }
+
+  .booking-title .cobranded-reku-logo {
+    width: 64.4px;
   }
 
   .section-title {
