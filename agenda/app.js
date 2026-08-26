@@ -271,7 +271,7 @@
   `;
 
   const calendarButton = (href, label = 'Agregar a mi calendario') => `
-    <a class="secondary-button calendar-button" href="${escapeHtml(href)}">
+    <a class="secondary-button calendar-button" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">
       ${calendarIcon()}
       <span>${escapeHtml(label)}</span>
     </a>
@@ -281,7 +281,7 @@
     google
       ? `<div class="calendar-actions">
           ${calendarButton(googleHref, 'Agregar a Google Calendar')}
-          <a class="calendar-alternative" href="${escapeHtml(calendarHref)}">Usar otro calendario</a>
+          <a class="calendar-alternative" href="${escapeHtml(calendarHref)}" target="_blank" rel="noopener noreferrer">Usar otro calendario</a>
         </div>`
       : calendarButton(calendarHref);
 
@@ -540,6 +540,12 @@
     } finally {
       state.loading = false;
       render();
+      window.requestAnimationFrame?.(() => {
+        document.getElementById('booking-time-options')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      });
     }
   }
 
@@ -717,6 +723,12 @@
       management.error = error.message;
     } finally {
       render();
+      window.requestAnimationFrame?.(() => {
+        document.getElementById('management-time-options')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      });
     }
   }
 
@@ -849,7 +861,7 @@
     return `
       <section>
         ${agreement.pdf_url ? `<div class="intake-brand">
-          ${agreement.pdf_url ? `<a class="secondary-button how-it-works-button" href="${escapeHtml(agreement.pdf_url)}" target="_blank" rel="noreferrer">Cómo funciona</a>` : ''}
+          ${agreement.pdf_url ? `<a class="secondary-button how-it-works-button" href="${escapeHtml(agreement.pdf_url)}" target="_blank" rel="noreferrer">¿Cómo funciona?</a>` : ''}
         </div>` : ''}
         <h2 class="section-title">Tus datos</h2>
         <p class="section-copy">Completá tus datos para iniciar el alta y continuar con la reserva.</p>
@@ -1032,7 +1044,7 @@
           ${
             state.selectedDate
               ? `
-                <strong class="time-section-title">Seleccioná un horario</strong>
+                <strong class="time-section-title" id="booking-time-options">Seleccioná un horario</strong>
                 <div class="time-grid">
                   ${state.slots
                     .map(
@@ -1263,7 +1275,7 @@
         <div class="calendar-grid">${managementCalendarCells()}</div>
         ${
           management.selectedDate
-            ? `<strong class="time-section-title">Horarios disponibles</strong>
+            ? `<strong class="time-section-title" id="management-time-options">Horarios disponibles</strong>
                <div class="time-grid">${management.slots
                  .map((slot) => {
                    const isCurrent =

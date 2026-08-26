@@ -38,7 +38,7 @@ export const buildAgreementLinks = (agreement) => {
   const pdfUrl = agreementFileUrl(agreement?.pdf_path);
 
   if (pdfUrl) {
-    links.push({ label: "Cómo funciona", url: pdfUrl });
+    links.push({ label: "¿Cómo funciona?", url: pdfUrl });
   }
 
   return links;
@@ -144,7 +144,7 @@ export const buildPatientVerificationEmail = ({
       "",
       `Confirmar mail: ${verificationUrl}`,
       "El enlace vence en 24 horas y puede usarse una sola vez.",
-      pdfUrl ? `Cómo funciona: ${pdfUrl}` : "",
+      pdfUrl ? `¿Cómo funciona?: ${pdfUrl}` : "",
     ]
       .filter(Boolean)
       .join("\n"),
@@ -156,7 +156,7 @@ export const buildPatientVerificationEmail = ({
         <p style="font-size: 13px; color: #667085;">El enlace vence en 24 horas y puede usarse una sola vez.</p>
         ${
           pdfUrl
-            ? `<p><a href="${escapeHtml(pdfUrl)}" style="color:#18213f;">Cómo funciona</a></p>`
+            ? `<p><a href="${escapeHtml(pdfUrl)}" style="color:#18213f;">¿Cómo funciona?</a></p>`
             : ""
         }
       </div>

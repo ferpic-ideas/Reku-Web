@@ -71,14 +71,14 @@ const patientCalendarTextLines = (appointment, manageUrl) => {
 const patientCalendarHtml = (appointment, manageUrl) => {
   if (!manageUrl) return "";
   if (!isGoogleCalendarEmail(appointment.patient_email)) {
-    return `<p style="margin-top:18px"><a href="${escapeHtml(patientCalendarActionUrl(manageUrl))}" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a mi calendario</a></p>`;
+    return `<p style="margin-top:18px"><a href="${escapeHtml(patientCalendarActionUrl(manageUrl))}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a mi calendario</a></p>`;
   }
   const googleUrl = googleCalendarTemplateUrl({
     appointment,
     manageUrl,
     timeZone: config.googleCalendarTimeZone,
   });
-  return `<p style="margin-top:18px"><a href="${escapeHtml(googleUrl)}" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a Google Calendar</a><br><a href="${escapeHtml(patientCalendarActionUrl(manageUrl))}" style="display:inline-block;margin-top:9px;color:#64738a;text-decoration:underline;text-underline-offset:3px;font-size:13px">Usar otro calendario</a></p>`;
+  return `<p style="margin-top:18px"><a href="${escapeHtml(googleUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a Google Calendar</a><br><a href="${escapeHtml(patientCalendarActionUrl(manageUrl))}" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin-top:9px;color:#64738a;text-decoration:underline;text-underline-offset:3px;font-size:13px">Usar otro calendario</a></p>`;
 };
 
 export const appointmentText = ({ appointment, link }) =>

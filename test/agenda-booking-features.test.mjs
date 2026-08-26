@@ -27,6 +27,21 @@ test("the selected calendar day uses the same highlighted state as a selected ti
   assert.match(styles, /\.documents-submit-button\s*\{[^}]*background:\s*#e5e7eb/s);
 });
 
+test("selecting a day reveals its times and calendar actions open separately", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("../agenda/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../agenda/styles.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(source, /id="booking-time-options"/);
+  assert.match(
+    source,
+    /async function selectDate[\s\S]*booking-time-options'[\s\S]*scrollIntoView\(\{[\s\S]*behavior:\s*'smooth'/,
+  );
+  assert.match(source, />¿Cómo funciona\?<\/a>/);
+  assert.match(source, /calendar-button[^>]*target="_blank"[^>]*rel="noopener noreferrer"/);
+  assert.match(styles, /\.time-section-title\s*\{[^}]*scroll-margin-top:\s*24px/s);
+});
+
 test("cobranded agendas keep the agreement logo left and Reku smaller at the top right", async () => {
   const [source, styles] = await Promise.all([
     readFile(new URL("../agenda/app.js", import.meta.url), "utf8"),

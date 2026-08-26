@@ -51,6 +51,18 @@ test("confirmation email is the patient's no-account management access", () => {
   }
 });
 
+test("calendar buttons in patient emails request a new tab", () => {
+  const html = patientConfirmationHtml({
+    appointment: { ...appointment, patient_email: "paciente@gmail.com" },
+    manageUrl,
+  });
+  assert.match(
+    html,
+    /Agregar a Google Calendar<\/a>[\s\S]*target="_blank"|target="_blank"[\s\S]*Agregar a Google Calendar<\/a>/,
+  );
+  assert.match(html, /rel="noopener noreferrer"/);
+});
+
 test("Gmail confirmations open Google Calendar and retain the universal fallback", () => {
   const gmailAppointment = {
     ...appointment,
