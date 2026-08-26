@@ -860,6 +860,10 @@ button {
   grid-column: 1 / -1;
 }
 
+.management-documents-status {
+  grid-column: 1 / -1;
+}
+
 .secondary-button:hover,
 .secondary-button:focus-visible {
   background: #e9f8fb;
@@ -992,6 +996,10 @@ button {
   }
 
   .management-documents-form .documents-submit-button {
+    grid-column: auto;
+  }
+
+  .management-documents-status {
     grid-column: auto;
   }
 }

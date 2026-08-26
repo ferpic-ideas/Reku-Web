@@ -70,6 +70,7 @@
       cancelModalOpen: false,
       documentsOpen: false,
       documentsUploading: false,
+      documentsMessage: '',
       documentsError: '',
       documentFiles: [],
       documentLinksDraft: '',
@@ -679,6 +680,7 @@
     const selectedFiles = Array.from(fileInput?.files || []);
     const files = selectedFiles.length ? selectedFiles : management.documentFiles;
     if (!files.length && !links.length) {
+      management.documentsMessage = '';
       management.documentsError = 'Adjuntá al menos un archivo o pegá un enlace.';
       render();
       return;
@@ -689,8 +691,8 @@
     files.forEach((file) => data.append('documents', file));
     data.set('links_json', JSON.stringify(links));
     management.documentsUploading = true;
+    management.documentsMessage = '';
     management.documentsError = '';
-    management.message = '';
     render();
     try {
       const payload = await api('/api/booking/manage/documents', {
@@ -699,8 +701,7 @@
       });
       management.documentFiles = [];
       management.documentLinksDraft = '';
-      management.documentsOpen = false;
-      management.message = payload.message || 'La documentación se compartió.';
+      management.documentsMessage = payload.message || 'La documentación se compartió.';
     } catch (error) {
       management.documentsError = error.message;
     } finally {
@@ -1353,7 +1354,6 @@
           </div>
           <button type="button" class="booking-modal-close" data-action="toggle-management-documents" aria-label="Cerrar">×</button>
         </div>
-        ${management.documentsError ? `<div class="document-status error">${escapeHtml(management.documentsError)}</div>` : ''}
         <form id="management-documents-form" class="documents-form management-documents-form">
           <label>
             Archivo
@@ -1368,6 +1368,8 @@
           <button class="secondary-button documents-submit-button" type="submit" ${management.documentsUploading ? 'disabled' : ''}>${
             management.documentsUploading ? 'Enviando…' : 'Enviar documentación'
           }</button>
+          ${management.documentsMessage ? `<div class="document-status ok management-documents-status">${escapeHtml(management.documentsMessage)}</div>` : ''}
+          ${management.documentsError ? `<div class="document-status error management-documents-status">${escapeHtml(management.documentsError)}</div>` : ''}
         </form>
       </div>
     `;
@@ -1619,8 +1621,12 @@
           await openManagementReschedule();
         }
         if (action === 'toggle-management-documents') {
-          state.management.documentsOpen = !state.management.documentsOpen;
-          state.management.documentsError = '';
+          const openingDocuments = !state.management.documentsOpen;
+          state.management.documentsOpen = openingDocuments;
+          if (openingDocuments) {
+            state.management.documentsMessage = '';
+            state.management.documentsError = '';
+          }
           render();
           if (state.management.documentsOpen) {
             window.requestAnimationFrame?.(() => {

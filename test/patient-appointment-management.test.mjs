@@ -144,3 +144,18 @@ test("managed document uploads use the private session and same-origin protectio
   assert.match(handler, /appointment\.status !== "confirmed"/);
   assert.match(source, /pathname === "\/api\/booking\/manage\/documents"/);
 });
+
+test("managed document confirmation stays in the open upload panel", async () => {
+  const source = await readFile(new URL("../agenda/app.js", import.meta.url), "utf8");
+  const submit = source.match(
+    /async function submitManagementDocuments[\s\S]*?async function loadManagementDays/,
+  )?.[0] || "";
+  const panel = source.match(
+    /function renderManagementDocumentsPanel[\s\S]*?function renderAppointmentManagement/,
+  )?.[0] || "";
+  assert.match(submit, /management\.documentsMessage = payload\.message/);
+  assert.doesNotMatch(submit, /management\.documentsOpen = false/);
+  assert.ok(
+    panel.indexOf("Enviar documentación") < panel.indexOf("management.documentsMessage"),
+  );
+});
