@@ -34,6 +34,7 @@ test("success keeps documentation collapsed and confirms below its submit button
   )?.[0] || "";
   assert.match(source, /documentsOpen: false/);
   assert.match(documentsCard, /data-action="toggle-documents"/);
+  assert.match(documentsCard, /Quiero enviar estudios previos/);
   assert.match(documentsCard, /state\.documentsOpen \? `\s*<div class="documents-card"/);
   assert.ok(
     documentsCard.indexOf("documents-submit-button") <

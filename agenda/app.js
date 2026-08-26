@@ -1186,7 +1186,7 @@
           class="secondary-button documents-toggle-button"
           data-action="toggle-documents"
           aria-expanded="${state.documentsOpen ? 'true' : 'false'}"
-        >${state.documentsOpen ? 'Ocultar documentación' : 'Compartir documentación'}</button>
+        >${state.documentsOpen ? 'Ocultar documentación' : 'Quiero enviar estudios previos'}</button>
         ${state.documentsOpen ? `
           <div class="documents-card" id="appointment-documents-panel">
             <div>
