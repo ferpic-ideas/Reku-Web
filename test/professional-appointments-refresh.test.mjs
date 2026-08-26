@@ -99,6 +99,8 @@ test("professional appointments refresh on entry and poll every five minutes", a
                 end_time: "14:50",
                 patient_name: "Paciente actualizado",
                 service_name: "Evaluación",
+                agreement_name: "YPF",
+                agreement_type: "Nomina",
                 status: "confirmed",
                 google_meet_url: "https://meet.google.com/available",
                 documents: [
@@ -198,6 +200,7 @@ test("professional appointments refresh on entry and poll every five minutes", a
 
   assert.equal(appointmentsRequests, 2);
   assert.match(html, /Paciente actualizado/);
+  assert.match(html, /Acuerdo: YPF/);
   assert.match(html, /https:\/\/meet\.google\.com\/available/);
   assert.doesNotMatch(html, /https:\/\/meet\.google\.com\/too-early/);
   assert.doesNotMatch(html, /https:\/\/meet\.google\.com\/cancelled/);

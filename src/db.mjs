@@ -368,6 +368,7 @@ export const initDb = async () => {
       agreement_name_snapshot TEXT NOT NULL DEFAULT '',
       agreement_slug_snapshot TEXT NOT NULL DEFAULT '',
       agreement_type_snapshot TEXT NOT NULL DEFAULT '',
+      agreement_cobranded_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
       amount NUMERIC(12,2) NOT NULL DEFAULT 0,
       payment_status TEXT NOT NULL DEFAULT 'pending',
       payment_reference TEXT,
@@ -395,6 +396,9 @@ export const initDb = async () => {
       patient_followup_notified_at TIMESTAMPTZ,
       patient_followup_notification_message_id TEXT,
       patient_followup_notification_error TEXT,
+      professional_followup_notified_at TIMESTAMPTZ,
+      professional_followup_notification_message_id TEXT,
+      professional_followup_notification_error TEXT,
       cancelled_at TIMESTAMPTZ,
       cancelled_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
       cancellation_reason TEXT,
@@ -416,6 +420,7 @@ export const initDb = async () => {
       ADD COLUMN IF NOT EXISTS agreement_name_snapshot TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS agreement_slug_snapshot TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS agreement_type_snapshot TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS agreement_cobranded_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
       ADD COLUMN IF NOT EXISTS payment_provider TEXT,
       ADD COLUMN IF NOT EXISTS payment_preference_id TEXT,
       ADD COLUMN IF NOT EXISTS payment_init_point TEXT,
@@ -439,7 +444,10 @@ export const initDb = async () => {
       ADD COLUMN IF NOT EXISTS triage_reminder_count INTEGER NOT NULL DEFAULT 0,
       ADD COLUMN IF NOT EXISTS patient_followup_notified_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS patient_followup_notification_message_id TEXT,
-      ADD COLUMN IF NOT EXISTS patient_followup_notification_error TEXT;
+      ADD COLUMN IF NOT EXISTS patient_followup_notification_error TEXT,
+      ADD COLUMN IF NOT EXISTS professional_followup_notified_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS professional_followup_notification_message_id TEXT,
+      ADD COLUMN IF NOT EXISTS professional_followup_notification_error TEXT;
 
     UPDATE appointments a
       SET patient_name = CASE
@@ -483,6 +491,12 @@ export const initDb = async () => {
         OR a.agreement_slug_snapshot = ''
         OR a.agreement_type_snapshot = '';
 
+    UPDATE appointments appointment
+      SET agreement_cobranded_snapshot = agreement.cobranded
+      FROM agreements agreement
+      WHERE appointment.agreement_id = agreement.id
+        AND appointment.agreement_cobranded_snapshot IS DISTINCT FROM agreement.cobranded;
+
     CREATE INDEX IF NOT EXISTS appointments_lookup_idx
       ON appointments (professional_id, appointment_date, status);
     CREATE INDEX IF NOT EXISTS appointments_created_at_idx
@@ -496,6 +510,9 @@ export const initDb = async () => {
     CREATE INDEX IF NOT EXISTS appointments_followup_pending_idx
       ON appointments (appointment_date, start_time)
       WHERE status = 'confirmed' AND patient_followup_notified_at IS NULL;
+    CREATE INDEX IF NOT EXISTS appointments_professional_followup_pending_idx
+      ON appointments (appointment_date, start_time)
+      WHERE status = 'confirmed' AND professional_followup_notified_at IS NULL;
     CREATE INDEX IF NOT EXISTS appointments_payment_reference_idx
       ON appointments (payment_external_reference)
       WHERE payment_external_reference IS NOT NULL;

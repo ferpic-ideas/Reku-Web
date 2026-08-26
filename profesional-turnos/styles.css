@@ -132,6 +132,24 @@ a {
   color: var(--muted);
 }
 
+.appointment-main .appointment-agreement {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.meet-button {
+  width: fit-content;
+  margin-top: 6px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--navy);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
 .appointment-contact {
   grid-column: 2;
   display: flex;

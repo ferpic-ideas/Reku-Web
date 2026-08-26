@@ -16,14 +16,45 @@ const formatDate = (value) => {
 
 const isRescheduled = (appointment) => Number(appointment.reschedule_count || 0) > 0;
 
+const appointmentAgreementName = (appointment) =>
+  String(appointment.agreement_name || "").trim();
+
+const safeSubjectPart = (value) =>
+  String(value || "")
+    .replace(/[\r\n]+/g, " ")
+    .trim()
+    .slice(0, 100);
+
+const patientConfirmationBrand = (appointment) => {
+  const agreementName = appointmentAgreementName(appointment);
+  return appointment.agreement_cobranded && agreementName
+    ? `${safeSubjectPart(agreementName)}+Reku`
+    : "Reku";
+};
+
+export const patientConfirmationSubject = (appointment) =>
+  `${isRescheduled(appointment) ? "Turno reprogramado" : "Turno confirmado"} ${patientConfirmationBrand(appointment)} - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`;
+
+const professionalNotificationLead = (appointment) => {
+  const lead = isRescheduled(appointment)
+    ? "El paciente reprogramó su turno en Reku"
+    : "Se confirmó un nuevo turno en Reku";
+  const agreementName = appointmentAgreementName(appointment);
+  return agreementName
+    ? `${lead} vía el acuerdo de ${agreementName}.`
+    : `${lead}.`;
+};
+
 const patientMeetWindowText = () =>
   `Por seguridad, el acceso a la videollamada se habilita ${config.patientMeetEarlyMinutes} minutos antes del turno y permanece disponible hasta ${config.patientMeetLateMinutes} minutos después de su finalización.`;
 
-const appointmentText = ({ appointment, link }) =>
+export const appointmentText = ({ appointment, link }) =>
   [
     isRescheduled(appointment)
       ? "Turno reprogramado en Reku"
       : "Nuevo turno confirmado en Reku",
+    "",
+    professionalNotificationLead(appointment),
     "",
     `Fecha: ${formatDate(appointment.appointment_date)}`,
     `Horario: ${appointment.start_time} a ${appointment.end_time}`,
@@ -31,17 +62,17 @@ const appointmentText = ({ appointment, link }) =>
     `Paciente: ${appointment.patient_name}`,
     `Teléfono: ${appointment.patient_phone || "-"}`,
     `Mail: ${appointment.patient_email || "-"}`,
-    appointment.google_meet_url
-      ? `Videollamada: ${appointment.google_meet_url}`
-      : "",
+    appointmentAgreementName(appointment)
+      ? `Acuerdo: ${appointmentAgreementName(appointment)}`
+      : null,
     "",
     `Ver próximos turnos: ${link.url}`,
-  ].join("\n");
+  ].filter((line) => line !== null).join("\n");
 
-const appointmentHtml = ({ appointment, link }) => `
+export const appointmentHtml = ({ appointment, link }) => `
   <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
     <h1 style="font-size:24px;margin:0 0 16px">${isRescheduled(appointment) ? "Turno reprogramado" : "Nuevo turno confirmado"}</h1>
-    <p>${isRescheduled(appointment) ? "El paciente reprogramó su turno en Reku." : "Se confirmó un nuevo turno en Reku."}</p>
+    <p>${escapeHtml(professionalNotificationLead(appointment))}</p>
     <table cellpadding="6" cellspacing="0" style="border-collapse:collapse">
       <tr><td><strong>Fecha</strong></td><td>${escapeHtml(formatDate(appointment.appointment_date))}</td></tr>
       <tr><td><strong>Horario</strong></td><td>${escapeHtml(appointment.start_time)} a ${escapeHtml(appointment.end_time)}</td></tr>
@@ -49,18 +80,49 @@ const appointmentHtml = ({ appointment, link }) => `
       <tr><td><strong>Paciente</strong></td><td>${escapeHtml(appointment.patient_name)}</td></tr>
       <tr><td><strong>Teléfono</strong></td><td>${escapeHtml(appointment.patient_phone || "-")}</td></tr>
       <tr><td><strong>Mail</strong></td><td>${escapeHtml(appointment.patient_email || "-")}</td></tr>
+      ${appointmentAgreementName(appointment) ? `<tr><td><strong>Acuerdo</strong></td><td>${escapeHtml(appointmentAgreementName(appointment))}</td></tr>` : ""}
     </table>
-    ${
-      appointment.google_meet_url
-        ? `<p style="margin-top:20px"><a href="${escapeHtml(appointment.google_meet_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">Entrar a Google Meet</a></p>`
-        : ""
-    }
     <p style="margin-top:20px">
       <a href="${escapeHtml(link.url)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">
         Ver próximos turnos
       </a>
     </p>
     <p style="color:#64738a;font-size:13px">Este link permite ver tus turnos confirmados hacia adelante.</p>
+  </div>
+`;
+
+export const professionalFollowupText = ({ appointment, link }) =>
+  [
+    "Recordatorio: tenés un turno en aproximadamente 24 horas",
+    "",
+    `Fecha: ${formatDate(appointment.appointment_date)}`,
+    `Horario: ${appointment.start_time} a ${appointment.end_time}`,
+    `Servicio: ${appointment.service_name}`,
+    `Paciente: ${appointment.patient_name}`,
+    appointmentAgreementName(appointment)
+      ? `Acuerdo: ${appointmentAgreementName(appointment)}`
+      : "",
+    appointment.google_meet_url
+      ? `Entrar a Google Meet: ${appointment.google_meet_url}`
+      : "",
+    `Ver próximos turnos: ${link.url}`,
+  ].filter(Boolean).join("\n");
+
+export const professionalFollowupHtml = ({ appointment, link }) => `
+  <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
+    <h1 style="font-size:24px;margin:0 0 16px">Recordatorio de turno</h1>
+    <p>Tenés un turno en aproximadamente 24 horas.</p>
+    <table cellpadding="6" cellspacing="0" style="border-collapse:collapse">
+      <tr><td><strong>Fecha</strong></td><td>${escapeHtml(formatDate(appointment.appointment_date))}</td></tr>
+      <tr><td><strong>Horario</strong></td><td>${escapeHtml(appointment.start_time)} a ${escapeHtml(appointment.end_time)}</td></tr>
+      <tr><td><strong>Servicio</strong></td><td>${escapeHtml(appointment.service_name)}</td></tr>
+      <tr><td><strong>Paciente</strong></td><td>${escapeHtml(appointment.patient_name)}</td></tr>
+      ${appointmentAgreementName(appointment) ? `<tr><td><strong>Acuerdo</strong></td><td>${escapeHtml(appointmentAgreementName(appointment))}</td></tr>` : ""}
+    </table>
+    ${appointment.google_meet_url ? `<p style="margin-top:20px"><a href="${escapeHtml(appointment.google_meet_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Entrar a Google Meet</a></p>` : ""}
+    <p style="margin-top:20px">
+      <a href="${escapeHtml(link.url)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Ver próximos turnos</a>
+    </p>
   </div>
 `;
 
@@ -79,9 +141,9 @@ export const patientConfirmationText = ({ appointment, manageUrl = "" }) =>
     `Profesional: ${appointment.professional_name}`,
     appointment.google_meet_url ? patientMeetWindowText() : "",
     appointment.google_meet_url && manageUrl
-      ? `Acceder a la videollamada desde Reku: ${manageUrl}`
+      ? `Acceder a la videollamada desde Reku: ${manageUrl} | Gestionar o mover mi turno: ${manageUrl}`
       : "",
-    ...(manageUrl
+    ...(!appointment.google_meet_url && manageUrl
       ? [
           "",
           "Gestionar o mover mi turno:",
@@ -104,7 +166,7 @@ export const patientConfirmationText = ({ appointment, manageUrl = "" }) =>
 export const patientConfirmationHtml = ({ appointment, manageUrl = "" }) => `
   <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
     <h1 style="font-size:24px;margin:0 0 16px">${isRescheduled(appointment) ? "Tu turno fue reprogramado" : "Tu turno quedó confirmado"}</h1>
-    <p>${isRescheduled(appointment) ? "Actualizamos tu reserva en Reku." : "Confirmamos tu reserva en Reku."}</p>
+    <p>${isRescheduled(appointment) ? "Actualizamos tu reserva." : "Confirmamos tu reserva."}</p>
     <div style="margin:20px 0;padding:18px;border:1px solid #f2d48a;border-radius:12px;background:#fff8e6">
       <strong style="display:block;margin-bottom:6px">Guardá este mail</strong>
       <p style="margin:0">No necesitás crear un usuario en la plataforma. Este mail y su enlace privado son tu acceso para gestionar el turno. No lo reenvíes a otras personas.</p>
@@ -117,12 +179,12 @@ export const patientConfirmationHtml = ({ appointment, manageUrl = "" }) => `
     </table>
     ${
       appointment.google_meet_url && manageUrl
-        ? `<div style="margin-top:20px;padding:18px;border-radius:12px;background:#eef9fb"><h2 style="font-size:18px;margin:0 0 8px">Videollamada protegida</h2><p style="margin:0 0 14px">${escapeHtml(patientMeetWindowText())}</p><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Acceder a la videollamada</a></div>`
+        ? `<div style="margin-top:20px;padding:18px;border-radius:12px;background:#eef9fb"><h2 style="font-size:18px;margin:0 0 8px">Videollamada protegida</h2><p style="margin:0 0 14px">${escapeHtml(patientMeetWindowText())}</p><table role="presentation" cellpadding="0" cellspacing="0"><tr><td><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Acceder a la videollamada</a></td><td style="padding-left:14px"><a href="${escapeHtml(manageUrl)}" style="color:#18213f;text-decoration:underline;text-underline-offset:3px;font-weight:700;white-space:nowrap">Gestionar o mover mi turno</a></td></tr></table></div>`
         : ""
     }
     ${
-      manageUrl
-        ? `<p style="margin-top:20px"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Gestionar o mover mi turno</a></p>`
+      !appointment.google_meet_url && manageUrl
+        ? `<p style="margin-top:20px"><a href="${escapeHtml(manageUrl)}" style="color:#18213f;text-decoration:underline;text-underline-offset:3px;font-weight:700">Gestionar o mover mi turno</a></p>`
         : ""
     }
     ${
@@ -340,6 +402,8 @@ const claimAppointmentNotification = async (appointmentId) => {
         a.patient_email,
         a.patient_phone,
         a.google_meet_url,
+        a.agreement_name_snapshot AS agreement_name,
+        a.agreement_cobranded_snapshot AS agreement_cobranded,
         a.reschedule_count,
         p.name AS professional_name,
         p.email AS professional_email,
@@ -375,6 +439,8 @@ const claimPatientConfirmation = async (appointmentId) => {
         a.patient_email,
         a.google_meet_url,
         a.triage_url,
+        a.agreement_name_snapshot AS agreement_name,
+        a.agreement_cobranded_snapshot AS agreement_cobranded,
         a.payment_status,
         a.reschedule_count,
         p.name AS professional_name,
@@ -511,7 +577,7 @@ export const notifyPatientForAppointment = async (appointmentId) => {
 
   try {
     const manageLink = await createPatientAppointmentAccessLink({ appointmentId });
-    const subject = `${isRescheduled(appointment) ? "Turno reprogramado" : "Turno confirmado"} Reku - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`;
+    const subject = patientConfirmationSubject(appointment);
     const result = await sendEmail({
       formName: "turno-paciente",
       to: appointment.patient_email,
@@ -668,6 +734,104 @@ export const notifyPatientAppointmentFollowup = async (appointmentId) => {
     await clearPatientFollowupClaim(appointment.id, error.message);
     await recordAudit("appointment.patient_followup_notification_failed", {
       detail: { appointment_id: Number(appointment.id), error: error.message },
+    });
+    return { ok: false, error: error.message };
+  }
+};
+
+const claimProfessionalFollowup = async (appointmentId) => {
+  const result = await query(
+    `
+      UPDATE appointments a
+      SET professional_followup_notified_at = NOW(),
+          professional_followup_notification_error = NULL,
+          updated_at = NOW()
+      FROM professionals p,
+           services s
+      WHERE a.id = $1
+        AND a.professional_id = p.id
+        AND a.service_id = s.id
+        AND a.status = 'confirmed'
+        AND a.professional_followup_notified_at IS NULL
+        AND p.deleted_at IS NULL
+        AND p.active = TRUE
+        AND NULLIF(p.email, '') IS NOT NULL
+        AND ((a.appointment_date + a.start_time) AT TIME ZONE $2) > NOW()
+        AND ((a.appointment_date + a.start_time) AT TIME ZONE $2) <= NOW() + INTERVAL '24 hours'
+      RETURNING
+        a.id,
+        a.professional_id,
+        to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
+        to_char(a.start_time, 'HH24:MI') AS start_time,
+        to_char(a.end_time, 'HH24:MI') AS end_time,
+        a.patient_name,
+        a.patient_email,
+        a.google_meet_url,
+        a.agreement_name_snapshot AS agreement_name,
+        p.name AS professional_name,
+        p.email AS professional_email,
+        s.name AS service_name
+    `,
+    [appointmentId, config.googleCalendarTimeZone],
+  );
+  return result.rows[0] || null;
+};
+
+const clearProfessionalFollowupClaim = async (appointmentId, errorMessage) => {
+  await query(
+    `
+      UPDATE appointments
+      SET professional_followup_notified_at = NULL,
+          professional_followup_notification_error = $2,
+          updated_at = NOW()
+      WHERE id = $1
+    `,
+    [appointmentId, String(errorMessage || "No se pudo enviar el recordatorio.").slice(0, 500)],
+  );
+};
+
+export const notifyProfessionalAppointmentFollowup = async (appointmentId) => {
+  const appointment = await claimProfessionalFollowup(appointmentId);
+  if (!appointment) return { ok: true, skipped: true };
+
+  try {
+    const link = await createProfessionalAccessLink({
+      professionalId: appointment.professional_id,
+    });
+    const result = await sendEmail({
+      formName: "recordatorio-turno-profesional",
+      to: appointment.professional_email,
+      replyTo: appointment.patient_email || undefined,
+      subject: `Recordatorio turno Reku - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`,
+      text: professionalFollowupText({ appointment, link }),
+      html: professionalFollowupHtml({ appointment, link }),
+    });
+    await query(
+      `
+        UPDATE appointments
+        SET professional_followup_notification_message_id = $2,
+            professional_followup_notification_error = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [appointment.id, result?.id || ""],
+    );
+    await recordAudit("appointment.professional_followup_notified", {
+      detail: {
+        appointment_id: Number(appointment.id),
+        professional_id: Number(appointment.professional_id),
+        message_id: result?.id || "",
+      },
+    });
+    return { ok: true, skipped: false, message_id: result?.id || "" };
+  } catch (error) {
+    await clearProfessionalFollowupClaim(appointment.id, error.message);
+    await recordAudit("appointment.professional_followup_notification_failed", {
+      detail: {
+        appointment_id: Number(appointment.id),
+        professional_id: Number(appointment.professional_id),
+        error: error.message,
+      },
     });
     return { ok: false, error: error.message };
   }
@@ -843,9 +1007,20 @@ export const sendUpcomingAppointmentFollowups = async () => {
     `
       SELECT a.id
       FROM appointments a
+      INNER JOIN professionals p ON p.id = a.professional_id
       WHERE a.status = 'confirmed'
-        AND a.patient_followup_notified_at IS NULL
-        AND NULLIF(a.patient_email, '') IS NOT NULL
+        AND (
+          (
+            a.patient_followup_notified_at IS NULL
+            AND NULLIF(a.patient_email, '') IS NOT NULL
+          )
+          OR (
+            a.professional_followup_notified_at IS NULL
+            AND p.active = TRUE
+            AND p.deleted_at IS NULL
+            AND NULLIF(p.email, '') IS NOT NULL
+          )
+        )
         AND ((a.appointment_date + a.start_time) AT TIME ZONE $1) > NOW()
         AND ((a.appointment_date + a.start_time) AT TIME ZONE $1) <= NOW() + INTERVAL '24 hours'
       ORDER BY a.appointment_date, a.start_time
@@ -854,7 +1029,14 @@ export const sendUpcomingAppointmentFollowups = async () => {
     [config.googleCalendarTimeZone],
   );
   let completed = 0;
+  let patientCompleted = 0;
+  let professionalCompleted = 0;
   for (const row of result.rows) {
+    try {
+      await syncAppointmentToGoogleCalendar(Number(row.id));
+    } catch {
+      // Reminders still go out when Google synchronization is unavailable.
+    }
     if (isReHubConfigured()) {
       try {
         await ensureAppointmentTriage(Number(row.id));
@@ -862,10 +1044,22 @@ export const sendUpcomingAppointmentFollowups = async () => {
         // The appointment reminder still goes out without a triage link.
       }
     }
-    const followup = await notifyPatientAppointmentFollowup(Number(row.id));
-    if (followup.ok && !followup.skipped) completed += 1;
+    const [patient, professional] = await Promise.all([
+      notifyPatientAppointmentFollowup(Number(row.id)),
+      notifyProfessionalAppointmentFollowup(Number(row.id)),
+    ]);
+    const patientSent = patient.ok && !patient.skipped;
+    const professionalSent = professional.ok && !professional.skipped;
+    if (patientSent) patientCompleted += 1;
+    if (professionalSent) professionalCompleted += 1;
+    if (patientSent || professionalSent) completed += 1;
   }
-  return { attempted: result.rowCount, completed };
+  return {
+    attempted: result.rowCount,
+    completed,
+    patient_completed: patientCompleted,
+    professional_completed: professionalCompleted,
+  };
 };
 
 export const retryPendingPaymentNotifications = async () => {

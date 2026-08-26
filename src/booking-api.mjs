@@ -990,6 +990,7 @@ const createAppointment = async (payload, response, url, link) => {
               agreement_name_snapshot,
               agreement_slug_snapshot,
               agreement_type_snapshot,
+              agreement_cobranded_snapshot,
               amount,
               payment_status,
               payment_provider,
@@ -997,7 +998,7 @@ const createAppointment = async (payload, response, url, link) => {
           )
           VALUES (
             $1, $2, $3, $4, $5, $6::date, $7::time, $8::time, $9, $10, $11,
-            $12, $13, $14, $15, $16, $17, $18, $19
+            $12, $13, $14, $15, $16, $17, $18, $19, $20
           )
           RETURNING *
         `,
@@ -1017,6 +1018,7 @@ const createAppointment = async (payload, response, url, link) => {
           link.agreement?.name || "",
           link.agreement?.slug || "",
           link.agreement?.type || "",
+          Boolean(link.agreement?.cobranded),
           amount,
           paymentStatus,
           requiresPayment
@@ -1545,6 +1547,9 @@ const reschedulePatientAppointment = async (request, response) => {
             patient_followup_notified_at = NULL,
             patient_followup_notification_message_id = NULL,
             patient_followup_notification_error = NULL,
+            professional_followup_notified_at = NULL,
+            professional_followup_notification_message_id = NULL,
+            professional_followup_notification_error = NULL,
             updated_at = NOW()
         WHERE id = $1
       `,

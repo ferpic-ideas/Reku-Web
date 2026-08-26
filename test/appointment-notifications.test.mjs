@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  appointmentHtml,
+  appointmentText,
   patientConfirmationHtml,
+  patientConfirmationSubject,
   patientConfirmationText,
   patientFollowupHtml,
   patientFollowupText,
@@ -10,6 +13,8 @@ import {
   patientPendingPaymentText,
   patientTriageReminderHtml,
   patientTriageReminderText,
+  professionalFollowupHtml,
+  professionalFollowupText,
 } from "../src/appointment-notifications.mjs";
 
 const appointment = {
@@ -42,6 +47,74 @@ test("confirmation email is the patient's no-account management access", () => {
     assert.match(content, /aproximadamente 24 horas/i);
     assert.match(content, /opentriage\/example/);
   }
+});
+
+test("cobranded patient confirmations use the agreement plus Reku subject", () => {
+  assert.equal(
+    patientConfirmationSubject({
+      ...appointment,
+      appointment_date: "2026-08-27",
+      start_time: "10:00",
+      agreement_name: "YPF",
+      agreement_cobranded: true,
+    }),
+    "Turno confirmado YPF+Reku - 27/08/2026 10:00",
+  );
+  assert.equal(
+    patientConfirmationSubject({
+      ...appointment,
+      appointment_date: "2026-08-27",
+      start_time: "10:00",
+      agreement_name: "YPF",
+      agreement_cobranded: false,
+    }),
+    "Turno confirmado Reku - 27/08/2026 10:00",
+  );
+});
+
+test("patient confirmation puts management as a text link beside video access", () => {
+  const withMeet = {
+    ...appointment,
+    google_meet_url: "https://meet.google.com/private-raw-url",
+  };
+  const text = patientConfirmationText({ appointment: withMeet, manageUrl });
+  const html = patientConfirmationHtml({ appointment: withMeet, manageUrl });
+
+  assert.match(text, /videollamada[^\n]+\| Gestionar o mover mi turno:/i);
+  assert.match(
+    html,
+    /Acceder a la videollamada<\/a><\/td><td[^>]*><a[^>]*>Gestionar o mover mi turno<\/a>/,
+  );
+  assert.match(html, /Confirmamos tu reserva\./);
+  assert.doesNotMatch(html, /Confirmamos tu reserva en Reku/);
+  assert.doesNotMatch(html, /background:#18213f[^>]*>Gestionar o mover mi turno/);
+});
+
+test("professional confirmation names the agreement and defers Meet to the reminder", () => {
+  const professionalAppointment = {
+    ...appointment,
+    agreement_name: "YPF",
+    google_meet_url: "https://meet.google.com/professional-room",
+  };
+  const link = { url: "https://www.reku.io/profesional-turnos/#token=private" };
+  const confirmationText = appointmentText({ appointment: professionalAppointment, link });
+  const confirmationHtml = appointmentHtml({ appointment: professionalAppointment, link });
+  const reminderText = professionalFollowupText({ appointment: professionalAppointment, link });
+  const reminderHtml = professionalFollowupHtml({ appointment: professionalAppointment, link });
+
+  for (const content of [confirmationText, confirmationHtml]) {
+    assert.match(content, /vía el acuerdo de YPF/i);
+    assert.doesNotMatch(content, /meet\.google\.com\/professional-room/);
+  }
+  for (const content of [reminderText, reminderHtml]) {
+    assert.match(content, /Acuerdo(?:: YPF|<\/strong><\/td><td>YPF)/i);
+    assert.match(content, /meet\.google\.com\/professional-room/);
+    assert.match(content, /Ver próximos turnos/i);
+  }
+
+  const withoutAgreement = appointmentHtml({ appointment, link });
+  assert.doesNotMatch(withoutAgreement, /<strong>Acuerdo<\/strong>/);
+  assert.doesNotMatch(withoutAgreement, /vía el acuerdo/i);
 });
 
 test("pending payment email allows payment or cancellation without an account", () => {
@@ -138,6 +211,25 @@ test("Google synchronization failures do not suppress booking confirmation email
     source,
     /googleCalendar = \{ ok: false, error: error\.message \};[\s\S]*notifyPatientForAppointment\(appointmentId\)[\s\S]*notifyProfessionalForAppointment\(appointmentId\)/,
   );
+});
+
+test("24-hour maintenance schedules independent patient and professional reminders", async () => {
+  const [notifications, database, bookingApi, adminApi] = await Promise.all([
+    readFile(new URL("../src/appointment-notifications.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../src/db.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../src/booking-api.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../src/admin-api.mjs", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(notifications, /notifyProfessionalAppointmentFollowup/);
+  assert.match(
+    notifications,
+    /Promise\.all\(\[\s*notifyPatientAppointmentFollowup[\s\S]*notifyProfessionalAppointmentFollowup/,
+  );
+  assert.match(database, /professional_followup_notified_at TIMESTAMPTZ/);
+  assert.match(database, /appointments_professional_followup_pending_idx/);
+  assert.match(bookingApi, /professional_followup_notified_at = NULL/);
+  assert.match(adminApi, /professional_followup_notified_at = NULL/);
 });
 
 test("manual triage reminders include the assigned questionnaire and safe fallback copy", () => {

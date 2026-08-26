@@ -588,6 +588,14 @@ td a {
   white-space: nowrap;
 }
 
+.appointment-agreement {
+  display: block;
+  margin-top: 4px;
+  color: var(--brand-dark);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .empty-state {
   border: 1px dashed #cdd4e0;
   border-radius: 14px;

@@ -512,7 +512,10 @@
                   <tr>
                     <td><strong>${escapeHtml(formatDate(item.date))}</strong></td>
                     <td>${escapeHtml(item.start_time)}–${escapeHtml(item.end_time)}</td>
-                    <td>${escapeHtml(item.patient_name || 'Paciente')}</td>
+                    <td>
+                      ${escapeHtml(item.patient_name || 'Paciente')}
+                      ${item.agreement_name ? `<small class="appointment-agreement">Acuerdo: ${escapeHtml(item.agreement_name)}</small>` : ''}
+                    </td>
                     <td>${escapeHtml(item.service_name)}</td>
                     <td>
                       ${item.patient_email ? `<a href="mailto:${escapeHtml(item.patient_email)}">${escapeHtml(item.patient_email)}</a><br />` : ''}
@@ -585,8 +588,11 @@
     })[value] || 'Sin información';
 
   const patientSourceLabel = (patient) => {
+    if (patient.source?.name) {
+      return `Acuerdo · ${patient.source.name}`;
+    }
     if (String(patient.source?.type || '').toLowerCase() === 'nomina') {
-      return patient.source?.name ? `Acuerdo · ${patient.source.name}` : 'Acuerdo';
+      return 'Acuerdo';
     }
     if (patient.source?.type || patient.payment?.status) {
       return `Pago · ${paymentStatusLabel(patient.payment?.status)}`;
@@ -625,6 +631,8 @@
       start_time: appointment.start_time,
       end_time: appointment.end_time,
       status: appointment.status,
+      agreement_name: appointment.agreement_name || '',
+      agreement_type: appointment.agreement_type || '',
       documents: appointment.documents || [],
       triage_reminder_sent_at: appointment.triage_reminder_sent_at || null,
     };
@@ -638,6 +646,9 @@
           status: appointment.payment_status || '',
           amount: Number(appointment.amount || 0),
         },
+        source: appointment.agreement_name
+          ? { type: 'agreement', name: appointment.agreement_name }
+          : patient.source,
       };
     }
     const hasUpcomingAppointment =
@@ -659,7 +670,9 @@
         : null,
       practice: appointment.service_name || '',
       triage_status: hasUpcomingAppointment ? appointment.triage_status : 'not_applicable',
-      source: { type: '', name: '' },
+      source: appointment.agreement_name
+        ? { type: 'agreement', name: appointment.agreement_name }
+        : { type: '', name: '' },
       payment: {
         status: appointment.payment_status || '',
         amount: Number(appointment.amount || 0),

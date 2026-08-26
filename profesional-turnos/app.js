@@ -3,6 +3,8 @@
   const queryToken = new URLSearchParams(window.location.search).get('token') || '';
   const hashToken = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token') || '';
   const token = hashToken || queryToken;
+  const meetEarlyMinutes = 20;
+  let meetRefreshTimer = null;
   const state = {
     loading: true,
     error: '',
@@ -34,6 +36,38 @@
       month: 'long',
     }).format(new Date(year, month - 1, day, 12));
   };
+
+  const appointmentTime = (appointment, field) => {
+    const value = new Date(`${appointment.date}T${appointment[field]}:00-03:00`).getTime();
+    return Number.isFinite(value) ? value : null;
+  };
+
+  const meetAvailable = (appointment) => {
+    if (!appointment.google_meet_url) return false;
+    const startsAt = appointmentTime(appointment, 'start_time');
+    const endsAt = appointmentTime(appointment, 'end_time');
+    if (startsAt === null || endsAt === null) return false;
+    const now = Date.now();
+    return now >= startsAt - meetEarlyMinutes * 60 * 1000 && now <= endsAt;
+  };
+
+  function scheduleMeetRefresh() {
+    if (meetRefreshTimer !== null) window.clearTimeout(meetRefreshTimer);
+    meetRefreshTimer = null;
+    const now = Date.now();
+    const nextTransition = state.appointments
+      .flatMap((appointment) => {
+        if (!appointment.google_meet_url) return [];
+        const startsAt = appointmentTime(appointment, 'start_time');
+        const endsAt = appointmentTime(appointment, 'end_time');
+        if (startsAt === null || endsAt === null) return [];
+        return [startsAt - meetEarlyMinutes * 60 * 1000, endsAt + 1000];
+      })
+      .filter((timestamp) => timestamp > now)
+      .sort((a, b) => a - b)[0];
+    if (!nextTransition) return;
+    meetRefreshTimer = window.setTimeout(render, Math.min(nextTransition - now, 2_147_000_000));
+  }
 
   const groupAppointments = () =>
     state.appointments.reduce((groups, appointment) => {
@@ -92,6 +126,8 @@
         <div class="appointment-main">
           <strong>${escapeHtml(appointment.patient_name || 'Paciente')}</strong>
           <span>${escapeHtml(appointment.service_name)}</span>
+          ${appointment.agreement_name ? `<span class="appointment-agreement">Acuerdo: ${escapeHtml(appointment.agreement_name)}</span>` : ''}
+          ${meetAvailable(appointment) ? `<a class="meet-button" href="${escapeHtml(appointment.google_meet_url)}" target="_blank" rel="noopener noreferrer">Acceder a Google Meet</a>` : ''}
         </div>
         <div class="appointment-contact">
           ${appointment.patient_phone ? `<a href="tel:${escapeHtml(appointment.patient_phone)}">${escapeHtml(appointment.patient_phone)}</a>` : ''}
@@ -144,6 +180,7 @@
       ${renderHeader()}
       ${renderAppointments()}
     `;
+    scheduleMeetRefresh();
   }
 
   loadAppointments();
