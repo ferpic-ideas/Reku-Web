@@ -84,8 +84,6 @@ const routeRules = [
   ["POST", /^\/api\/admin\/nomina$/, "nomina.write"],
   ["POST", /^\/api\/admin\/nomina\/import$/, "nomina.write"],
   ["DELETE", /^\/api\/admin\/nomina\/\d+$/, "nomina.delete"],
-  ["POST", /^\/api\/admin\/templates\/validate$/, "templates.validate"],
-  ["POST", /^\/api\/admin\/templates\/test$/, "templates.send"],
 ];
 
 export const permissionsForRole = (role) => [

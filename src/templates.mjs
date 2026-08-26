@@ -15,66 +15,6 @@ export const defaultPatientBody = [
   "Tipo de acuerdo: {{agreement.type}}",
 ].join("\n");
 
-export const allowedTemplateVariables = new Set([
-  "patient.nombre",
-  "patient.apellido",
-  "patient.telefono",
-  "patient.email",
-  "patient.identificador",
-  "agreement.name",
-  "agreement.type",
-]);
-
-export const getTemplateErrors = (subject, body) => {
-  const errors = [];
-  const values = [
-    ["subject", subject],
-    ["body", body],
-  ];
-
-  for (const [label, value] of values) {
-    if (!String(value || "").trim()) {
-      errors.push(`${label === "subject" ? "El asunto" : "El cuerpo"} es obligatorio.`);
-    }
-
-    const stripped = String(value || "").replace(/\{\{\s*[\w.]+\s*\}\}/g, "");
-    if (stripped.includes("{{") || stripped.includes("}}")) {
-      errors.push(
-        `${label === "subject" ? "El asunto" : "El cuerpo"} tiene llaves de template sin cerrar.`,
-      );
-    }
-
-    for (const match of String(value || "").matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)) {
-      if (!allowedTemplateVariables.has(match[1])) {
-        errors.push(`Variable no permitida: {{${match[1]}}}.`);
-      }
-    }
-  }
-
-  if (errors.length === 0) {
-    const preview = renderTemplate(body, sampleTemplateContext());
-    if (/\{\{.*\}\}/.test(preview)) {
-      errors.push("El template deja variables sin resolver.");
-    }
-  }
-
-  return [...new Set(errors)];
-};
-
-export const sampleTemplateContext = () => ({
-  patient: {
-    nombre: "María",
-    apellido: "Gómez",
-    telefono: "+54 11 4444 5555",
-    email: "maria@email.com",
-    identificador: "ABC123",
-  },
-  agreement: {
-    name: "Acuerdo Demo",
-    type: "Pago",
-  },
-});
-
 export const renderTemplate = (template, context) =>
   String(template || "").replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => {
     const [group, field] = key.split(".");
@@ -144,11 +84,11 @@ export const buildPatientEmail = ({ submission, agreement }) => {
     },
   };
   const subject = renderTemplate(
-    agreement.email_subject_template || defaultPatientSubject,
+    defaultPatientSubject,
     context,
   );
   const body = renderTemplate(
-    agreement.email_body_template || defaultPatientBody,
+    defaultPatientBody,
     context,
   );
   const links = buildAgreementLinks(agreement);
@@ -156,7 +96,7 @@ export const buildPatientEmail = ({ submission, agreement }) => {
     ? `\n\nRecursos:\n${links.map((link) => `${link.label}: ${link.url}`).join("\n")}`
     : "";
   const htmlBody = renderTemplateHtml(
-    agreement.email_body_template || defaultPatientBody,
+    defaultPatientBody,
     context,
   );
   const linksHtml = links.length

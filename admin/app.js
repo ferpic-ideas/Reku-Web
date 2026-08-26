@@ -2152,17 +2152,6 @@
         cobranded: true,
         payment_evaluation_url: '',
         payment_treatment_url: '',
-        email_subject_template: 'Alta de paciente - {{agreement.name}}',
-        email_body_template: [
-          'Recibimos una nueva solicitud de alta.',
-          '',
-          'Paciente: {{patient.nombre}} {{patient.apellido}}',
-          'Teléfono: {{patient.telefono}}',
-          'Mail: {{patient.email}}',
-          'Identificador: {{patient.identificador}}',
-          'Acuerdo: {{agreement.name}}',
-          'Tipo de acuerdo: {{agreement.type}}',
-        ].join('\n'),
       }
     );
   }
@@ -2238,27 +2227,7 @@
             ` : '<span></span>'}
           </div>
         ` : ''}
-        <label class="span-two">
-          Subject del mail
-          <input name="email_subject_template" value="${escapeHtml(item.email_subject_template)}" required />
-        </label>
-        <label class="span-two">
-          Template del mail
-          <textarea name="email_body_template" required>${escapeHtml(item.email_body_template)}</textarea>
-        </label>
-        <div class="template-help span-two">
-          <strong>Variables permitidas</strong>
-          <span>{{patient.nombre}}, {{patient.apellido}}, {{patient.telefono}}, {{patient.email}}, {{patient.identificador}}, {{agreement.name}}, {{agreement.type}}</span>
-        </div>
-        <div class="template-test span-two">
-          <label for="template-test-email">Mail para test</label>
-          <div class="inline-control">
-            <input id="template-test-email" name="template_test_email" type="email" placeholder="mail@dominio.com" />
-            <button type="button" class="secondary-button" data-action="send-template-test">Enviar test</button>
-          </div>
-        </div>
         <div class="form-actions span-two">
-          <button type="button" class="secondary-button" data-action="validate-template">Validar template</button>
           <button type="submit" class="primary-button">Guardar acuerdo</button>
         </div>
       </div>
@@ -3300,14 +3269,6 @@
         render();
         return;
       }
-      if (action === 'validate-template') {
-        await validateTemplate();
-        return;
-      }
-      if (action === 'send-template-test') {
-        await sendTemplateTest();
-        return;
-      }
       if (action === 'copy-url') {
         const url = agreementPublicUrl({ slug, subdomain_prefix: prefix });
         await navigator.clipboard.writeText(url);
@@ -3870,54 +3831,6 @@
         ? ` ${error.payload.errors.join(' ')}`
         : '';
       setStatus(`${error.message}${details}`, 'error');
-    }
-  }
-
-  async function validateTemplate() {
-    const form = document.getElementById('agreement-form');
-    if (!form) return;
-    try {
-      const payload = await api('/api/admin/templates/validate', {
-        method: 'POST',
-        body: {
-          subject: form.email_subject_template.value,
-          body: form.email_body_template.value,
-        },
-      });
-      setStatus(`Template válido. Preview subject: ${payload.preview.subject}`, 'ok');
-    } catch (error) {
-      const details = error.payload?.errors?.join(' ') || '';
-      setStatus(`${error.message} ${details}`, 'error');
-    }
-  }
-
-  async function sendTemplateTest() {
-    const form = document.getElementById('agreement-form');
-    if (!form) return;
-    const to = form.elements.template_test_email.value.trim();
-    if (!to) {
-      setStatus('Ingresá un mail para enviar el test.', 'error');
-      return;
-    }
-
-    try {
-      await api('/api/admin/templates/test', {
-        method: 'POST',
-        body: {
-          to,
-          agreement_id: state.editingAgreementId || '',
-          agreement_name: form.elements.name.value,
-          type: form.elements.type.value,
-          payment_evaluation_url: form.elements.payment_evaluation_url?.value || '',
-          payment_treatment_url: form.elements.payment_treatment_url?.value || '',
-          subject: form.elements.email_subject_template.value,
-          body: form.elements.email_body_template.value,
-        },
-      });
-      setStatus(`Mail de test enviado a ${to}.`, 'ok');
-    } catch (error) {
-      const details = error.payload?.errors?.join(' ') || '';
-      setStatus(`${error.message}${details ? ` ${details}` : ''}`, 'error');
     }
   }
 

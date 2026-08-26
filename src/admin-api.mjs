@@ -18,7 +18,6 @@ import QRCode from "qrcode";
 import { randomBytes } from "node:crypto";
 import { getClientIp, readBody, sendJson, withSecurityHeaders } from "./http.mjs";
 import { parseNominaCsv, serializeCsv } from "./csv.mjs";
-import { sendEmail } from "./email.mjs";
 import {
   clearSessionCookie,
   createSessionToken,
@@ -30,14 +29,6 @@ import {
   verifyPassword,
 } from "./security.mjs";
 import { config } from "./config.mjs";
-import {
-  defaultPatientBody,
-  defaultPatientSubject,
-  buildPatientEmail,
-  getTemplateErrors,
-  renderTemplate,
-  sampleTemplateContext,
-} from "./templates.mjs";
 import {
   parseMultipartForm,
   readCsvUpload,
@@ -607,8 +598,6 @@ const mapAgreement = (row) => ({
   pdf_url: row.pdf_path ? `/uploads/${row.pdf_path}` : "",
   payment_evaluation_url: row.payment_evaluation_url || "",
   payment_treatment_url: row.payment_treatment_url || "",
-  email_subject_template: row.email_subject_template || defaultPatientSubject,
-  email_body_template: row.email_body_template || defaultPatientBody,
   nomina_count: Number(row.nomina_count || 0),
   intake_count: Number(row.intake_count || 0),
   created_at: row.created_at,
@@ -623,8 +612,6 @@ const agreementPayloadFromMultipart = async (request) => {
     fields.subdomain_prefix,
   );
   const type = fields.type === "Nomina" ? "Nomina" : "Pago";
-  const subject = String(fields.email_subject_template || defaultPatientSubject).trim();
-  const body = String(fields.email_body_template || defaultPatientBody).trim();
 
   if (!name) {
     const error = new Error("NAME_REQUIRED");
@@ -635,14 +622,6 @@ const agreementPayloadFromMultipart = async (request) => {
   if (!slug) {
     const error = new Error("SLUG_REQUIRED");
     error.statusCode = 422;
-    throw error;
-  }
-
-  const templateErrors = getTemplateErrors(subject, body);
-  if (templateErrors.length) {
-    const error = new Error("TEMPLATE_INVALID");
-    error.statusCode = 422;
-    error.details = templateErrors;
     throw error;
   }
 
@@ -657,8 +636,6 @@ const agreementPayloadFromMultipart = async (request) => {
         type === "Nomina" ? "" : optionalUrl(fields.payment_evaluation_url),
       payment_treatment_url:
         type === "Nomina" ? "" : optionalUrl(fields.payment_treatment_url),
-      email_subject_template: subject,
-      email_body_template: body,
       remove_logo: fields.remove_logo === "true",
       remove_pdf: fields.remove_pdf === "true",
     },
@@ -688,11 +665,9 @@ const createAgreement = async (request, response, user) => {
           cobranded,
           type,
           payment_evaluation_url,
-          payment_treatment_url,
-          email_subject_template,
-          email_body_template
+          payment_treatment_url
         )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `,
     [
@@ -705,8 +680,6 @@ const createAgreement = async (request, response, user) => {
       payload.fields.type,
       payload.fields.payment_evaluation_url || null,
       payload.fields.payment_treatment_url || null,
-      payload.fields.email_subject_template,
-      payload.fields.email_body_template,
     ],
   );
   await recordAudit("agreement.created", {
@@ -751,10 +724,8 @@ const updateAgreement = async (request, response, user, id) => {
           type = $7,
           payment_evaluation_url = $8,
           payment_treatment_url = $9,
-          email_subject_template = $10,
-          email_body_template = $11,
           updated_at = NOW()
-      WHERE id = $12
+      WHERE id = $10
         AND deleted_at IS NULL
       RETURNING *
     `,
@@ -768,8 +739,6 @@ const updateAgreement = async (request, response, user, id) => {
       payload.fields.type,
       payload.fields.payment_evaluation_url || null,
       payload.fields.payment_treatment_url || null,
-      payload.fields.email_subject_template,
-      payload.fields.email_body_template,
       id,
     ],
   );
@@ -2498,77 +2467,6 @@ const createTestBookingLink = async (request, response, user) => {
   });
 };
 
-const validateTemplatePreview = async (request, response) => {
-  const payload = await parseJsonBody(request);
-  const subject = String(payload.subject || "");
-  const body = String(payload.body || "");
-  const errors = getTemplateErrors(subject, body);
-  sendJson(response, errors.length ? 422 : 200, {
-    ok: errors.length === 0,
-    errors,
-    preview: {
-      subject: renderTemplate(subject, sampleTemplateContext()),
-      body: renderTemplate(body, sampleTemplateContext()),
-    },
-  });
-};
-
-const sendTemplateTest = async (request, response, user) => {
-  const payload = await parseJsonBody(request);
-  const to = String(payload.to || "").trim().toLowerCase();
-  const subject = String(payload.subject || "");
-  const body = String(payload.body || "");
-  const type = payload.type === "Nomina" ? "Nomina" : "Pago";
-
-  if (!emailPattern.test(to)) {
-    const error = new Error("TEMPLATE_TEST_EMAIL_INVALID");
-    error.statusCode = 422;
-    throw error;
-  }
-
-  const templateErrors = getTemplateErrors(subject, body);
-  if (templateErrors.length) {
-    const error = new Error("TEMPLATE_INVALID");
-    error.statusCode = 422;
-    error.details = templateErrors;
-    throw error;
-  }
-
-  const agreementId = Number(payload.agreement_id || 0);
-  const existingAgreement = agreementId ? await getAgreementById(agreementId) : null;
-  const sample = sampleTemplateContext();
-  const agreement = {
-    ...(existingAgreement || {}),
-    name:
-      String(payload.agreement_name || existingAgreement?.name || sample.agreement.name)
-        .trim() || sample.agreement.name,
-    type,
-    pdf_path: existingAgreement?.pdf_path || "",
-    payment_evaluation_url:
-      type === "Nomina" ? "" : optionalUrl(payload.payment_evaluation_url),
-    payment_treatment_url:
-      type === "Nomina" ? "" : optionalUrl(payload.payment_treatment_url),
-    email_subject_template: subject,
-    email_body_template: body,
-  };
-  const email = buildPatientEmail({
-    submission: { values: sample.patient },
-    agreement,
-  });
-  const result = await sendEmail({
-    formName: "template-test",
-    to,
-    replyTo: user.email,
-    ...email,
-  });
-
-  await recordAudit("template.test_sent", {
-    actorUserId: user.id,
-    detail: { to, agreement_id: agreementId || null },
-  });
-  sendJson(response, 200, { ok: true, id: result?.id || "" });
-};
-
 export const handlePublicAgreementApi = async (request, response, url) => {
   const slug = decodeURIComponent(url.pathname.replace("/api/public/agreements/", ""));
   const agreement = await getAgreementBySlug(slug);
@@ -2882,15 +2780,6 @@ export const handleAdminApi = async (request, response, url) => {
     const nominaMatch = pathname.match(/^\/api\/admin\/nomina\/(\d+)$/);
     if (nominaMatch && request.method === "DELETE") {
       await deleteNominaEntry(response, user, Number(nominaMatch[1]));
-      return true;
-    }
-
-    if (pathname === "/api/admin/templates/validate" && request.method === "POST") {
-      await validateTemplatePreview(request, response);
-      return true;
-    }
-    if (pathname === "/api/admin/templates/test" && request.method === "POST") {
-      await sendTemplateTest(request, response, user);
       return true;
     }
 
