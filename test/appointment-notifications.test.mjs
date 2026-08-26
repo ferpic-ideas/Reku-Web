@@ -184,6 +184,21 @@ test("24-hour reminder keeps management and triage access", () => {
   }
 });
 
+test("patient reminder leaves management and calendar actions at the end", () => {
+  const reminder = {
+    ...appointment,
+    patient_email: "paciente@gmail.com",
+    triage_url: "https://patient-dev2.rehub.cloud/opentriage/reminder-order",
+  };
+  const html = patientFollowupHtml({ appointment: reminder, manageUrl });
+  const text = patientFollowupText({ appointment: reminder, manageUrl });
+
+  assert.ok(html.indexOf("Cuestionario previo") < html.indexOf("Gestionar mi turno"));
+  assert.ok(html.indexOf("Gestionar mi turno") < html.indexOf("Agregar a Google Calendar"));
+  assert.ok(text.indexOf("opentriage/reminder-order") < text.indexOf("Gestionar mi turno"));
+  assert.ok(text.indexOf("Gestionar mi turno") < text.indexOf("Agregar a Google Calendar"));
+});
+
 test("patient emails gate Meet behind Reku and never expose Google's URL", () => {
   const withMeet = {
     ...appointment,

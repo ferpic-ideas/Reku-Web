@@ -288,6 +288,13 @@ export const patientFollowupText = ({ appointment, manageUrl = "" }) =>
     appointment.google_meet_url && manageUrl
       ? `Acceder a la videollamada desde Reku: ${manageUrl}`
       : "",
+    ...(appointment.triage_url
+      ? [
+          "",
+          "Si todavía no completaste el cuestionario previo, es importante que lo hagas antes de la consulta con tu fisio:",
+          appointment.triage_url,
+        ]
+      : []),
     ...(manageUrl
       ? [
           "",
@@ -296,13 +303,6 @@ export const patientFollowupText = ({ appointment, manageUrl = "" }) =>
         ]
       : []),
     ...patientCalendarTextLines(appointment, manageUrl),
-    ...(appointment.triage_url
-      ? [
-          "",
-          "Si todavía no completaste el cuestionario previo, es importante que lo hagas antes de la consulta con tu fisio:",
-          appointment.triage_url,
-        ]
-      : []),
   ].join("\n");
 
 export const patientFollowupHtml = ({ appointment, manageUrl = "" }) => `
@@ -320,8 +320,6 @@ export const patientFollowupHtml = ({ appointment, manageUrl = "" }) => `
         ? `<div style="margin-top:20px;padding:18px;border-radius:12px;background:#eef9fb"><h2 style="font-size:18px;margin:0 0 8px">Acceso a la videollamada</h2><p style="margin:0 0 14px">${escapeHtml(patientMeetWindowText())}</p><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Acceder desde Reku</a></div>`
         : ""
     }
-    ${manageUrl ? `<p style="margin-top:20px"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Gestionar mi turno</a></p>` : ""}
-    ${patientCalendarHtml(appointment, manageUrl)}
     ${
       appointment.triage_url
         ? `
@@ -333,6 +331,8 @@ export const patientFollowupHtml = ({ appointment, manageUrl = "" }) => `
         `
         : ""
     }
+    ${manageUrl ? `<p style="margin-top:24px"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Gestionar mi turno</a></p>` : ""}
+    ${patientCalendarHtml(appointment, manageUrl)}
   </div>
 `;
 
