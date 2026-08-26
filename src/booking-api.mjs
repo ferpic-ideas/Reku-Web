@@ -58,6 +58,8 @@ import {
 import {
   appointmentCalendarContent,
   appointmentCalendarFilename,
+  googleCalendarTemplateUrl,
+  isGoogleCalendarEmail,
 } from "./appointment-calendar.mjs";
 import { agreementBookingUrl } from "./agreement-domains.mjs";
 import {
@@ -1209,6 +1211,7 @@ const appointmentFromRow = (row) => ({
   end_time: String(row.end_time || "").slice(0, 5),
   payment_status: row.payment_status,
   status: row.status,
+  prefers_google_calendar: isGoogleCalendarEmail(row.patient_email),
 });
 
 const appointmentSelectionFromRow = (row, link) => ({
@@ -1303,6 +1306,7 @@ const mapManagedAppointment = (row) => ({
     name: row.professional_name || "",
   },
   reschedule_count: Number(row.reschedule_count || 0),
+  prefers_google_calendar: isGoogleCalendarEmail(row.patient_email),
   capabilities: patientAppointmentCapabilities(row),
   meet: patientMeetAccess(row),
 });
@@ -1313,6 +1317,7 @@ const loadManagedAppointment = async (appointmentId) =>
       SELECT
         appointment.id,
         appointment.patient_name,
+        appointment.patient_email,
         appointment.service_id,
         appointment.professional_id,
         to_char(appointment.appointment_date, 'YYYY-MM-DD') AS appointment_date,
@@ -1412,13 +1417,49 @@ const sendAppointmentCalendar = async (
   response.end(calendar);
 };
 
+const redirectAppointmentToGoogleCalendar = async (
+  response,
+  appointment,
+  { access = "management" } = {},
+) => {
+  if (appointment.status !== "confirmed") {
+    sendJson(response, 409, {
+      error: "Sólo podés agregar a Google Calendar un turno confirmado.",
+    });
+    return;
+  }
+  const manageLink = await createPatientAppointmentAccessLink({
+    appointmentId: appointment.id,
+  });
+  const calendarUrl = googleCalendarTemplateUrl({
+    appointment,
+    manageUrl: manageLink.url,
+    timeZone: config.googleCalendarTimeZone,
+  });
+  try {
+    await recordAudit("appointment.patient_google_calendar_opened", {
+      detail: {
+        appointment_id: Number(appointment.id),
+        access,
+      },
+    });
+  } catch {
+    // An audit failure must not prevent the patient from opening Google Calendar.
+  }
+  sendRedirect(response, calendarUrl);
+};
+
 const downloadManagedAppointmentCalendar = async (request, response) => {
   const { appointment } = await requireManagedAppointment(request);
   await sendAppointmentCalendar(response, appointment);
 };
 
-const downloadBookedAppointmentCalendar = async (
-  response,
+const openManagedAppointmentGoogleCalendar = async (request, response) => {
+  const { appointment } = await requireManagedAppointment(request);
+  await redirectAppointmentToGoogleCalendar(response, appointment);
+};
+
+const loadBookedAppointmentCalendar = async (
   appointmentId,
   link,
 ) => {
@@ -1429,6 +1470,9 @@ const downloadBookedAppointmentCalendar = async (
         to_char(appointment.appointment_date, 'YYYY-MM-DD') AS appointment_date,
         appointment.status,
         appointment.reschedule_count,
+        appointment.patient_email,
+        to_char(appointment.start_time, 'HH24:MI') AS start_time,
+        to_char(appointment.end_time, 'HH24:MI') AS end_time,
         ((appointment.appointment_date + appointment.start_time) AT TIME ZONE $3) AS starts_at,
         ((appointment.appointment_date + appointment.end_time) AT TIME ZONE $3) AS ends_at,
         service.name AS service_name,
@@ -1442,10 +1486,23 @@ const downloadBookedAppointmentCalendar = async (
     [appointmentId, link.id, config.googleCalendarTimeZone],
   );
   if (!appointment) {
-    sendJson(response, 404, { error: "Turno confirmado no encontrado." });
-    return;
+    const error = new Error("PATIENT_APPOINTMENT_NOT_FOUND");
+    error.statusCode = 404;
+    throw error;
   }
+  return appointment;
+};
+
+const downloadBookedAppointmentCalendar = async (response, appointmentId, link) => {
+  const appointment = await loadBookedAppointmentCalendar(appointmentId, link);
   await sendAppointmentCalendar(response, appointment, { access: "booking" });
+};
+
+const openBookedAppointmentGoogleCalendar = async (response, appointmentId, link) => {
+  const appointment = await loadBookedAppointmentCalendar(appointmentId, link);
+  await redirectAppointmentToGoogleCalendar(response, appointment, {
+    access: "booking",
+  });
 };
 
 const patientMeetUnavailableMessage = (appointment, access) => {
@@ -1890,6 +1947,7 @@ const refreshPaymentStatus = async (url, response, link) => {
         a.status,
         a.payment_id,
         a.payment_init_point,
+        a.patient_email,
         s.name AS service_name,
         s.duration_minutes AS service_duration_minutes,
         s.cost_amount AS service_cost_amount,
@@ -1946,6 +2004,7 @@ const refreshPaymentStatus = async (url, response, link) => {
       service_image_path: current.service_image_path,
       professional_name: current.professional_name,
       professional_photo_path: current.professional_photo_path,
+      patient_email: current.patient_email,
     };
   }
 
@@ -2061,6 +2120,13 @@ export const handleBookingApi = async (request, response, url) => {
       await downloadManagedAppointmentCalendar(request, response);
       return true;
     }
+    if (
+      pathname === "/api/booking/manage/google-calendar" &&
+      request.method === "GET"
+    ) {
+      await openManagedAppointmentGoogleCalendar(request, response);
+      return true;
+    }
     if (pathname === "/api/booking/manage/days" && request.method === "GET") {
       await listPatientManagementDays(request, url, response);
       return true;
@@ -2084,6 +2150,21 @@ export const handleBookingApi = async (request, response, url) => {
     const appointmentCalendarMatch = pathname.match(
       /^\/api\/booking\/appointments\/(\d+)\/calendar\.ics$/,
     );
+    const appointmentGoogleCalendarMatch = pathname.match(
+      /^\/api\/booking\/appointments\/(\d+)\/google-calendar$/,
+    );
+    if (appointmentGoogleCalendarMatch && request.method === "GET") {
+      const link = await requireAccessLinkForRequest(
+        request,
+        readToken(request, url),
+      );
+      await openBookedAppointmentGoogleCalendar(
+        response,
+        Number(appointmentGoogleCalendarMatch[1]),
+        link,
+      );
+      return true;
+    }
     if (appointmentCalendarMatch && request.method === "GET") {
       const link = await requireAccessLinkForRequest(
         request,

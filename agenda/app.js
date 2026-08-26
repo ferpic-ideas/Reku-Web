@@ -266,12 +266,20 @@
     </svg>
   `;
 
-  const calendarButton = (href) => `
+  const calendarButton = (href, label = 'Agregar a mi calendario') => `
     <a class="secondary-button calendar-button" href="${escapeHtml(href)}">
       ${calendarIcon()}
-      <span>Agregar a mi calendario</span>
+      <span>${escapeHtml(label)}</span>
     </a>
   `;
+
+  const calendarActions = ({ google = false, googleHref, calendarHref }) =>
+    google
+      ? `<div class="calendar-actions">
+          ${calendarButton(googleHref, 'Agregar a Google Calendar')}
+          <a class="calendar-alternative" href="${escapeHtml(calendarHref)}">Usar otro calendario</a>
+        </div>`
+      : calendarButton(calendarHref);
 
   async function loadPaymentReturn() {
     if (!returnAppointmentId) return false;
@@ -1175,7 +1183,17 @@
           }
           ${professionalName ? `<p><strong>Profesional:</strong> ${escapeHtml(professionalName)}</p>` : ''}
           ${serviceName ? `<p><strong>Práctica:</strong> ${escapeHtml(serviceName)}</p>` : ''}
-          ${isPaid && state.appointment?.id ? calendarButton(`/api/booking/appointments/${state.appointment.id}/calendar.ics`) : ''}
+          ${
+            isPaid && state.appointment?.id
+              ? calendarActions({
+                  google:
+                    state.appointment.prefers_google_calendar === true ||
+                    /@(gmail|googlemail)\.com$/i.test(String(state.patient?.email || '').trim()),
+                  googleHref: `/api/booking/appointments/${state.appointment.id}/google-calendar`,
+                  calendarHref: `/api/booking/appointments/${state.appointment.id}/calendar.ics`,
+                })
+              : ''
+          }
           ${isPaid ? renderDocumentsCard() : ''}
           ${isPaid ? renderTriageCard() : ''}
           ${
@@ -1305,7 +1323,15 @@
           <p><strong>Profesional:</strong> ${escapeHtml(appointment.professional.name)}</p>
           ${meetCard}
           <div class="management-actions">
-            ${appointment.status === 'confirmed' ? calendarButton('/api/booking/manage/calendar.ics') : ''}
+            ${
+              appointment.status === 'confirmed'
+                ? calendarActions({
+                    google: appointment.prefers_google_calendar === true,
+                    googleHref: '/api/booking/manage/google-calendar',
+                    calendarHref: '/api/booking/manage/calendar.ics',
+                  })
+                : ''
+            }
             ${appointment.payment_url && appointment.status === 'pending_payment' ? `<a class="primary-button" href="${escapeHtml(appointment.payment_url)}">Completar pago</a>` : ''}
             ${capabilities.can_reschedule ? '<button type="button" class="secondary-button" data-action="open-management-reschedule">Mover turno</button>' : ''}
             ${capabilities.can_cancel ? `<button type="button" class="danger-outline-button" data-action="cancel-management-appointment" ${management.submitting ? 'disabled' : ''}>Cancelar reserva</button>` : ''}

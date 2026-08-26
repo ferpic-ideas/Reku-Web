@@ -7,7 +7,11 @@ import { config } from "./config.mjs";
 import { ensureAppointmentTriage } from "./appointment-triage.mjs";
 import { isReHubConfigured } from "./rehub.mjs";
 import { createPatientAppointmentAccessLink } from "./patient-appointment-links.mjs";
-import { patientCalendarActionUrl } from "./appointment-calendar.mjs";
+import {
+  googleCalendarTemplateUrl,
+  isGoogleCalendarEmail,
+  patientCalendarActionUrl,
+} from "./appointment-calendar.mjs";
 
 const formatDate = (value) => {
   const [year, month, day] = String(value || "").split("-");
@@ -48,6 +52,34 @@ const professionalNotificationLead = (appointment) => {
 
 const patientMeetWindowText = () =>
   `Por seguridad, el acceso a la videollamada se habilita ${config.patientMeetEarlyMinutes} minutos antes del turno y permanece disponible hasta ${config.patientMeetLateMinutes} minutos después de su finalización.`;
+
+const patientCalendarTextLines = (appointment, manageUrl) => {
+  if (!manageUrl) return [];
+  if (!isGoogleCalendarEmail(appointment.patient_email)) {
+    return [`Agregar a mi calendario: ${patientCalendarActionUrl(manageUrl)}`];
+  }
+  return [
+    `Agregar a Google Calendar: ${googleCalendarTemplateUrl({
+      appointment,
+      manageUrl,
+      timeZone: config.googleCalendarTimeZone,
+    })}`,
+    `Usar otro calendario: ${patientCalendarActionUrl(manageUrl)}`,
+  ];
+};
+
+const patientCalendarHtml = (appointment, manageUrl) => {
+  if (!manageUrl) return "";
+  if (!isGoogleCalendarEmail(appointment.patient_email)) {
+    return `<p style="margin-top:18px"><a href="${escapeHtml(patientCalendarActionUrl(manageUrl))}" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a mi calendario</a></p>`;
+  }
+  const googleUrl = googleCalendarTemplateUrl({
+    appointment,
+    manageUrl,
+    timeZone: config.googleCalendarTimeZone,
+  });
+  return `<p style="margin-top:18px"><a href="${escapeHtml(googleUrl)}" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a Google Calendar</a><br><a href="${escapeHtml(patientCalendarActionUrl(manageUrl))}" style="display:inline-block;margin-top:9px;color:#64738a;text-decoration:underline;text-underline-offset:3px;font-size:13px">Usar otro calendario</a></p>`;
+};
 
 export const appointmentText = ({ appointment, link }) =>
   [
@@ -151,9 +183,7 @@ export const patientConfirmationText = ({ appointment, manageUrl = "" }) =>
           manageUrl,
         ]
       : []),
-    manageUrl
-      ? `Agregar a mi calendario: ${patientCalendarActionUrl(manageUrl)}`
-      : "",
+    ...patientCalendarTextLines(appointment, manageUrl),
     ...(appointment.triage_url
       ? [
           "",
@@ -191,11 +221,7 @@ export const patientConfirmationHtml = ({ appointment, manageUrl = "" }) => `
         ? `<p style="margin-top:20px"><a href="${escapeHtml(manageUrl)}" style="color:#18213f;text-decoration:underline;text-underline-offset:3px;font-weight:700">Gestionar o mover mi turno</a></p>`
         : ""
     }
-    ${
-      manageUrl
-        ? `<p style="margin-top:18px"><a href="${escapeHtml(patientCalendarActionUrl(manageUrl))}" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a mi calendario</a></p>`
-        : ""
-    }
+    ${patientCalendarHtml(appointment, manageUrl)}
     ${
       appointment.triage_url
         ? `
@@ -269,9 +295,7 @@ export const patientFollowupText = ({ appointment, manageUrl = "" }) =>
           manageUrl,
         ]
       : []),
-    manageUrl
-      ? `Agregar a mi calendario: ${patientCalendarActionUrl(manageUrl)}`
-      : "",
+    ...patientCalendarTextLines(appointment, manageUrl),
     ...(appointment.triage_url
       ? [
           "",
@@ -297,7 +321,7 @@ export const patientFollowupHtml = ({ appointment, manageUrl = "" }) => `
         : ""
     }
     ${manageUrl ? `<p style="margin-top:20px"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Gestionar mi turno</a></p>` : ""}
-    ${manageUrl ? `<p style="margin-top:12px"><a href="${escapeHtml(patientCalendarActionUrl(manageUrl))}" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a mi calendario</a></p>` : ""}
+    ${patientCalendarHtml(appointment, manageUrl)}
     ${
       appointment.triage_url
         ? `

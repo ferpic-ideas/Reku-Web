@@ -16,6 +16,35 @@ const escapeCalendarText = (value) =>
     .replace(/;/g, "\\;")
     .replace(/,/g, "\\,");
 
+const appointmentSummary = (appointment) => {
+  const serviceName = String(
+    appointment.service_name || appointment.service?.name || "Turno",
+  ).trim();
+  const professionalName = String(
+    appointment.professional_name || appointment.professional?.name || "",
+  ).trim();
+  return professionalName
+    ? `${serviceName} con ${professionalName} · Reku`
+    : `${serviceName} · Reku`;
+};
+
+const appointmentDescription = (manageUrl) =>
+  [
+    "Accedé a la videollamada y gestioná tu turno desde Reku:",
+    manageUrl,
+    "",
+    "El acceso a la videollamada se habilita únicamente dentro del horario permitido.",
+  ].join("\n");
+
+const googleCalendarDate = (date, time) => {
+  const dateValue = String(date || "");
+  const timeValue = String(time || "").slice(0, 5);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue) || !/^\d{2}:\d{2}$/.test(timeValue)) {
+    throw new Error("APPOINTMENT_CALENDAR_DATE_INVALID");
+  }
+  return `${dateValue.replace(/-/g, "")}T${timeValue.replace(":", "")}00`;
+};
+
 const foldCalendarLine = (line) => {
   const chunks = [];
   let current = "";
@@ -39,6 +68,30 @@ export const patientCalendarActionUrl = (manageUrl) => {
   return `${value}${separator}calendar=1`;
 };
 
+export const isGoogleCalendarEmail = (email) =>
+  /@(gmail|googlemail)\.com$/i.test(String(email || "").trim());
+
+export const googleCalendarTemplateUrl = ({
+  appointment,
+  manageUrl,
+  timeZone = "America/Argentina/Buenos_Aires",
+}) => {
+  const date = appointment.appointment_date || appointment.date;
+  const startTime = appointment.start_time;
+  const endTime = appointment.end_time;
+  const url = new URL("https://calendar.google.com/calendar/render");
+  url.searchParams.set("action", "TEMPLATE");
+  url.searchParams.set("text", appointmentSummary(appointment));
+  url.searchParams.set(
+    "dates",
+    `${googleCalendarDate(date, startTime)}/${googleCalendarDate(date, endTime)}`,
+  );
+  url.searchParams.set("details", appointmentDescription(manageUrl));
+  url.searchParams.set("location", "Videollamada online");
+  url.searchParams.set("ctz", timeZone);
+  return url.toString();
+};
+
 export const appointmentCalendarFilename = (appointment) =>
   `turno-reku-${String(appointment.appointment_date || appointment.date || "")
     .replace(/[^0-9-]/g, "") || "cita"}.ics`;
@@ -48,21 +101,8 @@ export const appointmentCalendarContent = ({
   manageUrl,
   generatedAt = new Date(),
 }) => {
-  const serviceName = String(
-    appointment.service_name || appointment.service?.name || "Turno",
-  ).trim();
-  const professionalName = String(
-    appointment.professional_name || appointment.professional?.name || "",
-  ).trim();
-  const summary = professionalName
-    ? `${serviceName} con ${professionalName} · Reku`
-    : `${serviceName} · Reku`;
-  const description = [
-    "Accedé a la videollamada y gestioná tu turno desde Reku:",
-    manageUrl,
-    "",
-    "El acceso a la videollamada se habilita únicamente dentro del horario permitido.",
-  ].join("\n");
+  const summary = appointmentSummary(appointment);
+  const description = appointmentDescription(manageUrl);
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",

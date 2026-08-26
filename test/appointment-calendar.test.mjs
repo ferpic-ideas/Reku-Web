@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   appointmentCalendarContent,
   appointmentCalendarFilename,
+  googleCalendarTemplateUrl,
+  isGoogleCalendarEmail,
   patientCalendarActionUrl,
 } from "../src/appointment-calendar.mjs";
 
@@ -22,6 +24,29 @@ test("calendar action preserves the private management token in the fragment", (
     patientCalendarActionUrl("https://www.reku.io/turnos/#manage=private"),
     "https://www.reku.io/turnos/#manage=private&calendar=1",
   );
+});
+
+test("Gmail patients receive a direct prefilled Google Calendar action", () => {
+  assert.equal(isGoogleCalendarEmail("patient@gmail.com"), true);
+  assert.equal(isGoogleCalendarEmail("patient@googlemail.com"), true);
+  assert.equal(isGoogleCalendarEmail("patient@example.com"), false);
+
+  const url = new URL(
+    googleCalendarTemplateUrl({
+      appointment: {
+        ...appointment,
+        start_time: "10:00",
+        end_time: "10:30",
+      },
+      manageUrl: "https://www.reku.io/turnos/#manage=protected",
+    }),
+  );
+  assert.equal(url.origin, "https://calendar.google.com");
+  assert.equal(url.searchParams.get("action"), "TEMPLATE");
+  assert.equal(url.searchParams.get("dates"), "20260827T100000/20260827T103000");
+  assert.equal(url.searchParams.get("ctz"), "America/Argentina/Buenos_Aires");
+  assert.match(url.searchParams.get("details"), /manage=protected/);
+  assert.doesNotMatch(url.toString(), /meet\.google\.com/);
 });
 
 test("patient calendar contains the appointment and only the protected Reku URL", () => {

@@ -505,6 +505,24 @@ button {
   box-shadow: 0 6px 16px rgba(24, 33, 63, 0.08);
 }
 
+.calendar-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.calendar-actions .calendar-button {
+  margin-bottom: 8px;
+}
+
+.calendar-alternative {
+  margin: 0 0 14px 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
+
 .calendar-button:hover,
 .calendar-button:focus-visible {
   border-color: var(--accent);

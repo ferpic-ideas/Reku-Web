@@ -51,6 +51,23 @@ test("confirmation email is the patient's no-account management access", () => {
   }
 });
 
+test("Gmail confirmations open Google Calendar and retain the universal fallback", () => {
+  const gmailAppointment = {
+    ...appointment,
+    patient_email: "paciente@gmail.com",
+  };
+  for (const content of [
+    patientConfirmationText({ appointment: gmailAppointment, manageUrl }),
+    patientConfirmationHtml({ appointment: gmailAppointment, manageUrl }),
+  ]) {
+    assert.match(content, /Agregar a Google Calendar/i);
+    assert.match(content, /calendar\.google\.com/);
+    assert.match(content, /Usar otro calendario/i);
+    assert.match(content, /calendar=1/);
+    assert.doesNotMatch(content, /meet\.google\.com/);
+  }
+});
+
 test("cobranded patient confirmations use the agreement plus Reku subject", () => {
   assert.equal(
     patientConfirmationSubject({
