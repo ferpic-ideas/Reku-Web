@@ -54,11 +54,29 @@ const sameOriginFrameHeaders = {
   ),
 };
 
-export const withSecurityHeaders = (headers = {}, { privateRoute = false } = {}) => ({
-  ...securityHeaders,
-  ...(privateRoute ? { "X-Robots-Tag": "noindex, nofollow" } : {}),
-  ...headers,
-});
+const adminAgreementPreviewHeaders = {
+  "Content-Security-Policy": `${securityHeaders["Content-Security-Policy"]}; frame-src 'self' https://*.reku.io`,
+};
+
+const agreementPreviewHeaders = {
+  "Content-Security-Policy": securityHeaders["Content-Security-Policy"].replace(
+    "frame-ancestors 'none'",
+    "frame-ancestors https://www.reku.io",
+  ),
+};
+
+export const withSecurityHeaders = (
+  headers = {},
+  { privateRoute = false, omitFrameOptions = false } = {},
+) => {
+  const result = {
+    ...securityHeaders,
+    ...(privateRoute ? { "X-Robots-Tag": "noindex, nofollow" } : {}),
+    ...headers,
+  };
+  if (omitFrameOptions) delete result["X-Frame-Options"];
+  return result;
+};
 
 export const sendJson = (response, statusCode, payload, extraHeaders = {}) => {
   response.writeHead(
@@ -343,7 +361,12 @@ const serveFile = async (
   request,
   response,
   filePath,
-  { cacheControl, privateRoute = false, extraHeaders = {} } = {},
+  {
+    cacheControl,
+    privateRoute = false,
+    extraHeaders = {},
+    omitFrameOptions = false,
+  } = {},
 ) => {
   const file = await readFile(filePath);
   const headers = withSecurityHeaders(
@@ -352,7 +375,7 @@ const serveFile = async (
       "Cache-Control": cacheControl || "public, max-age=60",
       ...extraHeaders,
     },
-    { privateRoute },
+    { privateRoute, omitFrameOptions },
   );
   response.writeHead(200, headers);
   response.end(request.method === "HEAD" ? undefined : file);
@@ -374,7 +397,12 @@ export const servePublicUpload = async (request, response, pathname) => {
   });
 };
 
-export const serveStatic = async (request, response, pathname) => {
+export const serveStatic = async (
+  request,
+  response,
+  pathname,
+  { agreementSubdomain = false } = {},
+) => {
   const filePath = await resolveStaticPath(pathname);
 
   if (!filePath) {
@@ -387,11 +415,24 @@ export const serveStatic = async (request, response, pathname) => {
       pathname.startsWith("/admin") ||
       pathname.startsWith("/profesional") ||
       pathname.startsWith("/profesional-turnos");
-    const allowsSameOriginFrame = pathname.startsWith("/agenda");
+    const isHtml = extname(filePath).toLowerCase() === ".html";
+    const isAgreementPreview =
+      agreementSubdomain && pathname.startsWith("/agenda") && isHtml;
+    const allowsSameOriginFrame =
+      !isAgreementPreview && pathname.startsWith("/agenda");
+    const allowsAgreementPreview = pathname.startsWith("/admin") && isHtml;
+    const extraHeaders = isAgreementPreview
+      ? agreementPreviewHeaders
+      : allowsSameOriginFrame
+        ? sameOriginFrameHeaders
+        : allowsAgreementPreview
+          ? adminAgreementPreviewHeaders
+          : {};
     await serveFile(request, response, filePath, {
       cacheControl: isPrivateRoute ? "no-store" : "public, max-age=60",
       privateRoute: isPrivateRoute,
-      extraHeaders: allowsSameOriginFrame ? sameOriginFrameHeaders : {},
+      extraHeaders,
+      omitFrameOptions: isAgreementPreview,
     });
   } catch {
     const notFoundPath = join(root, "404.html");

@@ -196,7 +196,9 @@ const server = createServer(async (request, response) => {
       }
 
       const staticPath = resolveStaticRequestPath(pathname);
-      await serveStatic(request, response, staticPath);
+      await serveStatic(request, response, staticPath, {
+        agreementSubdomain: Boolean(agreementPrefix),
+      });
       return;
     }
 
