@@ -253,7 +253,11 @@
       render();
       if (shouldDownloadCalendar) {
         window.requestAnimationFrame?.(() => {
-          window.location.assign('/api/booking/manage/calendar.ics');
+          window.location.assign(
+            state.management.appointment?.prefers_google_calendar === true
+              ? '/api/booking/manage/google-calendar'
+              : '/api/booking/manage/calendar.ics',
+          );
         });
       }
     }

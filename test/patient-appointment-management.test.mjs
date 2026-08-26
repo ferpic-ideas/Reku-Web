@@ -122,6 +122,10 @@ test("agenda exposes save-mail, gated Meet, reschedule, cancel and triage action
   assert.match(source, /\/api\/booking\/manage\/calendar\.ics/);
   assert.match(source, /Agregar a Google Calendar/);
   assert.match(source, /\/api\/booking\/manage\/google-calendar/);
+  assert.match(
+    source,
+    /shouldDownloadCalendar[\s\S]*prefers_google_calendar[\s\S]*manage\/google-calendar/,
+  );
   assert.match(source, /\/api\/booking\/manage\/meet/);
   assert.match(source, /La videollamada todavía no está disponible/);
   assert.match(source, /Tu turno es el/);
