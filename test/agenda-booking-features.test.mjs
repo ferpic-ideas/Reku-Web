@@ -27,6 +27,20 @@ test("the selected calendar day uses the same highlighted state as a selected ti
   assert.match(styles, /\.documents-submit-button\s*\{[^}]*background:\s*#e5e7eb/s);
 });
 
+test("success keeps documentation collapsed and confirms below its submit button", async () => {
+  const source = await readFile(new URL("../agenda/app.js", import.meta.url), "utf8");
+  const documentsCard = source.match(
+    /function renderDocumentsCard\(\)[\s\S]*?function renderTriageCard\(\)/,
+  )?.[0] || "";
+  assert.match(source, /documentsOpen: false/);
+  assert.match(documentsCard, /data-action="toggle-documents"/);
+  assert.match(documentsCard, /state\.documentsOpen \? `\s*<div class="documents-card"/);
+  assert.ok(
+    documentsCard.indexOf("documents-submit-button") <
+      documentsCard.indexOf("state.documentsMessage"),
+  );
+});
+
 test("selecting a day reveals its times and calendar actions open separately", async () => {
   const [source, styles] = await Promise.all([
     readFile(new URL("../agenda/app.js", import.meta.url), "utf8"),

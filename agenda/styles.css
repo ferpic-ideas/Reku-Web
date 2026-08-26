@@ -591,6 +591,28 @@ button {
   background: #f7f5ff;
 }
 
+.documents-section {
+  margin-top: 24px;
+}
+
+.documents-toggle-button {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  background: #e5e7eb;
+  color: var(--navy);
+  box-shadow: none;
+}
+
+.documents-toggle-button:not(:disabled):hover,
+.documents-toggle-button:not(:disabled):focus-visible {
+  border-color: #c2c7d0;
+  background: #d7dbe2;
+}
+
+.documents-section .documents-card {
+  margin-top: 12px;
+}
+
 .documents-card {
   display: grid;
   gap: 16px;

@@ -51,6 +51,7 @@
     triageLoading: false,
     triageError: '',
     documents: [],
+    documentsOpen: false,
     documentsUploading: false,
     documentsMessage: '',
     documentsError: '',
@@ -1179,38 +1180,48 @@
 
   function renderDocumentsCard() {
     return `
-      <div class="documents-card">
-        <div>
-          <span class="optional-label">Opcional</span>
-          <h3>Compartí documentación con tu fisio</h3>
-          <p>Podés subir la orden del traumatólogo, estudios o enlaces a imágenes.</p>
-        </div>
-        ${
-          state.documents.length
-            ? `<ul class="uploaded-documents">${state.documents
-                .map(
-                  (document) => `<li>${document.kind === 'link' ? 'Enlace' : 'Archivo'} · ${escapeHtml(document.name)}</li>`,
-                )
-                .join('')}</ul>`
-            : ''
-        }
-        ${state.documentsMessage ? `<div class="document-status ok">${escapeHtml(state.documentsMessage)}</div>` : ''}
-        ${state.documentsError ? `<div class="document-status error">${escapeHtml(state.documentsError)}</div>` : ''}
-        <form id="appointment-documents-form" class="documents-form">
-          <label>
-            Imágenes o PDF
-            <input name="documents" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple />
-            <span>Hasta 5 archivos y 10 MB en total.</span>
-            ${state.documentFiles.length ? `<span class="selected-document-files">Seleccionados: ${state.documentFiles.map((file) => escapeHtml(file.name)).join(', ')}</span>` : ''}
-          </label>
-          <label>
-            Links a estudios de imágenes
-            <textarea name="links" rows="3" placeholder="Pegá un link por línea">${escapeHtml(state.documentLinksDraft)}</textarea>
-          </label>
-          <button class="secondary-button documents-submit-button" type="submit" ${state.documentsUploading ? 'disabled' : ''}>${
-            state.documentsUploading ? 'Compartiendo…' : 'Compartir documentación'
-          }</button>
-        </form>
+      <div class="documents-section">
+        <button
+          type="button"
+          class="secondary-button documents-toggle-button"
+          data-action="toggle-documents"
+          aria-expanded="${state.documentsOpen ? 'true' : 'false'}"
+        >${state.documentsOpen ? 'Ocultar documentación' : 'Compartir documentación'}</button>
+        ${state.documentsOpen ? `
+          <div class="documents-card" id="appointment-documents-panel">
+            <div>
+              <span class="optional-label">Opcional</span>
+              <h3>Compartí documentación con tu fisio</h3>
+              <p>Podés subir la orden del traumatólogo, estudios o enlaces a imágenes.</p>
+            </div>
+            ${
+              state.documents.length
+                ? `<ul class="uploaded-documents">${state.documents
+                    .map(
+                      (document) => `<li>${document.kind === 'link' ? 'Enlace' : 'Archivo'} · ${escapeHtml(document.name)}</li>`,
+                    )
+                    .join('')}</ul>`
+                : ''
+            }
+            <form id="appointment-documents-form" class="documents-form">
+              <label>
+                Imágenes o PDF
+                <input name="documents" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple />
+                <span>Hasta 5 archivos y 10 MB en total.</span>
+                ${state.documentFiles.length ? `<span class="selected-document-files">Seleccionados: ${state.documentFiles.map((file) => escapeHtml(file.name)).join(', ')}</span>` : ''}
+              </label>
+              <label>
+                Links a estudios de imágenes
+                <textarea name="links" rows="3" placeholder="Pegá un link por línea">${escapeHtml(state.documentLinksDraft)}</textarea>
+              </label>
+              <button class="secondary-button documents-submit-button" type="submit" ${state.documentsUploading ? 'disabled' : ''}>${
+                state.documentsUploading ? 'Compartiendo…' : 'Compartir documentación'
+              }</button>
+              ${state.documentsMessage ? `<div class="document-status ok">${escapeHtml(state.documentsMessage)}</div>` : ''}
+              ${state.documentsError ? `<div class="document-status error">${escapeHtml(state.documentsError)}</div>` : ''}
+            </form>
+          </div>
+        ` : ''}
       </div>
     `;
   }
@@ -1614,11 +1625,29 @@
         }
         if (action === 'confirm-payment') await confirmPayment();
         if (action === 'retry-triage') await loadTriage();
+        if (action === 'toggle-documents') {
+          const openingDocuments = !state.documentsOpen;
+          state.documentsOpen = openingDocuments;
+          if (openingDocuments) {
+            state.documentsMessage = '';
+            state.documentsError = '';
+          }
+          render();
+          if (state.documentsOpen) {
+            window.requestAnimationFrame?.(() => {
+              document.getElementById('appointment-documents-panel')?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'nearest',
+              });
+            });
+          }
+        }
         if (action === 'restart-booking') {
           window.history.replaceState({}, '', '/turnos/');
           state.step = 2;
           state.appointment = null;
           state.documents = [];
+          state.documentsOpen = false;
           state.documentFiles = [];
           state.documentLinksDraft = '';
           state.documentsMessage = '';
