@@ -103,19 +103,19 @@ test("cobranded patient confirmations use the agreement plus Reku subject", () =
   );
 });
 
-test("patient confirmation puts management as a text link beside video access", () => {
+test("patient confirmation places protected video access after the questionnaire", () => {
   const withMeet = {
     ...appointment,
     google_meet_url: "https://meet.google.com/private-raw-url",
+    triage_url: "https://patient-dev2.rehub.cloud/opentriage/confirmation-order",
   };
   const text = patientConfirmationText({ appointment: withMeet, manageUrl });
   const html = patientConfirmationHtml({ appointment: withMeet, manageUrl });
 
-  assert.match(text, /videollamada[^\n]+\| Gestionar o mover mi turno:/i);
-  assert.match(
-    html,
-    /Acceder a la videollamada<\/a><\/td><td[^>]*><a[^>]*>Gestionar o mover mi turno<\/a>/,
-  );
+  assert.ok(text.indexOf("opentriage/confirmation-order") < text.indexOf("Acceder a la videollamada"));
+  assert.ok(html.indexOf("Cuestionario previo") < html.indexOf("Acceder a la videollamada"));
+  assert.ok(html.indexOf("Acceder a la videollamada") < html.indexOf("Por seguridad"));
+  assert.match(html, />Gestionar o mover mi turno<\/a>/);
   assert.match(html, /Confirmamos tu reserva\./);
   assert.doesNotMatch(html, /Confirmamos tu reserva en Reku/);
   assert.doesNotMatch(html, /background:#18213f[^>]*>Gestionar o mover mi turno/);
@@ -189,13 +189,16 @@ test("patient reminder leaves management and calendar actions at the end", () =>
     ...appointment,
     patient_email: "paciente@gmail.com",
     triage_url: "https://patient-dev2.rehub.cloud/opentriage/reminder-order",
+    google_meet_url: "https://meet.google.com/private-reminder-url",
   };
   const html = patientFollowupHtml({ appointment: reminder, manageUrl });
   const text = patientFollowupText({ appointment: reminder, manageUrl });
 
-  assert.ok(html.indexOf("Cuestionario previo") < html.indexOf("Gestionar mi turno"));
+  assert.ok(html.indexOf("Cuestionario previo") < html.indexOf("Acceder a la videollamada"));
+  assert.ok(html.indexOf("Acceder a la videollamada") < html.indexOf("Gestionar mi turno"));
   assert.ok(html.indexOf("Gestionar mi turno") < html.indexOf("Agregar a Google Calendar"));
-  assert.ok(text.indexOf("opentriage/reminder-order") < text.indexOf("Gestionar mi turno"));
+  assert.ok(text.indexOf("opentriage/reminder-order") < text.indexOf("Acceder a la videollamada"));
+  assert.ok(text.indexOf("Acceder a la videollamada") < text.indexOf("Gestionar mi turno"));
   assert.ok(text.indexOf("Gestionar mi turno") < text.indexOf("Agregar a Google Calendar"));
 });
 

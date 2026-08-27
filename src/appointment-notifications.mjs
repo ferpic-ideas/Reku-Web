@@ -53,6 +53,20 @@ const professionalNotificationLead = (appointment) => {
 const patientMeetWindowText = () =>
   `Por seguridad, el acceso a la videollamada se habilita ${config.patientMeetEarlyMinutes} minutos antes del turno y permanece disponible hasta ${config.patientMeetLateMinutes} minutos después de su finalización.`;
 
+const patientMeetTextLines = (appointment, manageUrl) =>
+  appointment.google_meet_url && manageUrl
+    ? [
+        "",
+        `Acceder a la videollamada: ${manageUrl}`,
+        patientMeetWindowText(),
+      ]
+    : [];
+
+const patientMeetHtml = (appointment, manageUrl) =>
+  appointment.google_meet_url && manageUrl
+    ? `<div style="margin-top:24px;padding:18px;border-radius:12px;background:#eef9fb"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Acceder a la videollamada</a><p style="margin:12px 0 0;color:#64738a;font-size:13px">${escapeHtml(patientMeetWindowText())}</p></div>`
+    : "";
+
 const patientCalendarTextLines = (appointment, manageUrl) => {
   if (!manageUrl) return [];
   if (!isGoogleCalendarEmail(appointment.patient_email)) {
@@ -172,11 +186,7 @@ export const patientConfirmationText = ({ appointment, manageUrl = "" }) =>
     `Horario: ${appointment.start_time} a ${appointment.end_time}`,
     `Servicio: ${appointment.service_name}`,
     `Profesional: ${appointment.professional_name}`,
-    appointment.google_meet_url ? patientMeetWindowText() : "",
-    appointment.google_meet_url && manageUrl
-      ? `Acceder a la videollamada desde Reku: ${manageUrl} | Gestionar o mover mi turno: ${manageUrl}`
-      : "",
-    ...(!appointment.google_meet_url && manageUrl
+    ...(manageUrl
       ? [
           "",
           "Gestionar o mover mi turno:",
@@ -191,6 +201,7 @@ export const patientConfirmationText = ({ appointment, manageUrl = "" }) =>
           appointment.triage_url,
         ]
       : []),
+    ...patientMeetTextLines(appointment, manageUrl),
     "",
     "Te enviaremos otro recordatorio aproximadamente 24 horas antes.",
     "",
@@ -211,16 +222,7 @@ export const patientConfirmationHtml = ({ appointment, manageUrl = "" }) => `
       <tr><td><strong>Servicio</strong></td><td>${escapeHtml(appointment.service_name)}</td></tr>
       <tr><td><strong>Profesional</strong></td><td>${escapeHtml(appointment.professional_name)}</td></tr>
     </table>
-    ${
-      appointment.google_meet_url && manageUrl
-        ? `<div style="margin-top:20px;padding:18px;border-radius:12px;background:#eef9fb"><h2 style="font-size:18px;margin:0 0 8px">Videollamada protegida</h2><p style="margin:0 0 14px">${escapeHtml(patientMeetWindowText())}</p><table role="presentation" cellpadding="0" cellspacing="0"><tr><td><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Acceder a la videollamada</a></td><td style="padding-left:14px"><a href="${escapeHtml(manageUrl)}" style="color:#18213f;text-decoration:underline;text-underline-offset:3px;font-weight:700;white-space:nowrap">Gestionar o mover mi turno</a></td></tr></table></div>`
-        : ""
-    }
-    ${
-      !appointment.google_meet_url && manageUrl
-        ? `<p style="margin-top:20px"><a href="${escapeHtml(manageUrl)}" style="color:#18213f;text-decoration:underline;text-underline-offset:3px;font-weight:700">Gestionar o mover mi turno</a></p>`
-        : ""
-    }
+    ${manageUrl ? `<p style="margin-top:20px"><a href="${escapeHtml(manageUrl)}" style="color:#18213f;text-decoration:underline;text-underline-offset:3px;font-weight:700">Gestionar o mover mi turno</a></p>` : ""}
     ${patientCalendarHtml(appointment, manageUrl)}
     ${
       appointment.triage_url
@@ -233,6 +235,7 @@ export const patientConfirmationHtml = ({ appointment, manageUrl = "" }) => `
         `
         : ""
     }
+    ${patientMeetHtml(appointment, manageUrl)}
     <p style="color:#64738a;font-size:13px">Te enviaremos un recordatorio aproximadamente 24 horas antes del turno.</p>
   </div>
 `;
@@ -284,10 +287,6 @@ export const patientFollowupText = ({ appointment, manageUrl = "" }) =>
     `Horario: ${appointment.start_time} a ${appointment.end_time}`,
     `Servicio: ${appointment.service_name}`,
     `Profesional: ${appointment.professional_name}`,
-    appointment.google_meet_url ? patientMeetWindowText() : "",
-    appointment.google_meet_url && manageUrl
-      ? `Acceder a la videollamada desde Reku: ${manageUrl}`
-      : "",
     ...(appointment.triage_url
       ? [
           "",
@@ -295,6 +294,7 @@ export const patientFollowupText = ({ appointment, manageUrl = "" }) =>
           appointment.triage_url,
         ]
       : []),
+    ...patientMeetTextLines(appointment, manageUrl),
     ...(manageUrl
       ? [
           "",
@@ -316,11 +316,6 @@ export const patientFollowupHtml = ({ appointment, manageUrl = "" }) => `
       <tr><td><strong>Profesional</strong></td><td>${escapeHtml(appointment.professional_name)}</td></tr>
     </table>
     ${
-      appointment.google_meet_url && manageUrl
-        ? `<div style="margin-top:20px;padding:18px;border-radius:12px;background:#eef9fb"><h2 style="font-size:18px;margin:0 0 8px">Acceso a la videollamada</h2><p style="margin:0 0 14px">${escapeHtml(patientMeetWindowText())}</p><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Acceder desde Reku</a></div>`
-        : ""
-    }
-    ${
       appointment.triage_url
         ? `
           <div style="margin-top:24px;padding:18px;border-radius:12px;background:#f4f1ff">
@@ -331,6 +326,7 @@ export const patientFollowupHtml = ({ appointment, manageUrl = "" }) => `
         `
         : ""
     }
+    ${patientMeetHtml(appointment, manageUrl)}
     ${manageUrl ? `<p style="margin-top:24px"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Gestionar mi turno</a></p>` : ""}
     ${patientCalendarHtml(appointment, manageUrl)}
   </div>
