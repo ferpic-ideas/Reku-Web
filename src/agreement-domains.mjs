@@ -11,6 +11,9 @@ const reservedPrefixes = new Set([
   "imap",
   "localhost",
   "mail",
+  "patient",
+  "patients",
+  "physios",
   "pop",
   "reku-web",
   "smtp",
@@ -19,6 +22,7 @@ const reservedPrefixes = new Set([
   "status",
   "support",
   "test",
+  "users",
   "www",
 ]);
 

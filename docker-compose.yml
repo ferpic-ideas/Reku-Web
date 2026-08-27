@@ -109,6 +109,13 @@ services:
       - traefik.http.routers.reku-web-www.tls.certresolver=letsencrypt
       - traefik.http.routers.reku-web-www.middlewares=reku-security-headers,reku-web-upload-limit
       - traefik.http.routers.reku-web-www.service=reku-web
+      - traefik.http.routers.reku-web-reserved-subdomains.rule=Host(`admin.reku.io`) || Host(`users.reku.io`) || Host(`physios.reku.io`) || Host(`patient.reku.io`) || Host(`patients.reku.io`) || Host(`app.reku.io`)
+      - traefik.http.routers.reku-web-reserved-subdomains.entrypoints=websecure
+      - traefik.http.routers.reku-web-reserved-subdomains.priority=200
+      - traefik.http.routers.reku-web-reserved-subdomains.tls.certresolver=reku-route53
+      - traefik.http.routers.reku-web-reserved-subdomains.tls.domains[0].main=*.reku.io
+      - traefik.http.routers.reku-web-reserved-subdomains.middlewares=reku-security-headers,reku-reserved-subdomains-to-www
+      - traefik.http.routers.reku-web-reserved-subdomains.service=reku-web
       - traefik.http.routers.reku-web-agreements.rule=Host(`*.reku.io`)
       - traefik.http.routers.reku-web-agreements.entrypoints=websecure
       - traefik.http.routers.reku-web-agreements.priority=10
@@ -124,6 +131,9 @@ services:
       - traefik.http.middlewares.reku-apex-to-www.redirectregex.regex=^https?://reku\.io/(.*)
       - traefik.http.middlewares.reku-apex-to-www.redirectregex.replacement=https://www.reku.io/$${1}
       - traefik.http.middlewares.reku-apex-to-www.redirectregex.permanent=true
+      - traefik.http.middlewares.reku-reserved-subdomains-to-www.redirectregex.regex=^https?://(admin|users|physios|patient|patients|app)\.reku\.io(/.*)?$
+      - traefik.http.middlewares.reku-reserved-subdomains-to-www.redirectregex.replacement=https://www.reku.io/
+      - traefik.http.middlewares.reku-reserved-subdomains-to-www.redirectregex.permanent=true
       - traefik.http.middlewares.reku-technical-to-www.redirectregex.regex=^https?://reku-web\.srv1699600\.hstgr\.cloud/(.*)
       - traefik.http.middlewares.reku-technical-to-www.redirectregex.replacement=https://www.reku.io/$${1}
       - traefik.http.middlewares.reku-technical-to-www.redirectregex.permanent=true

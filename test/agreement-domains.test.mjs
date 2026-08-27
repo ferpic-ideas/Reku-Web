@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   agreementBookingUrl,
@@ -19,6 +20,12 @@ test("agreement subdomain prefixes use a single safe DNS label", () => {
     "ypf-",
     "área",
     "a".repeat(64),
+    "admin",
+    "app",
+    "patient",
+    "patients",
+    "physios",
+    "users",
     "www",
   ]) {
     assert.equal(isValidAgreementSubdomainPrefix(prefix), false, prefix);
@@ -43,6 +50,24 @@ test("only direct Reku agreement subdomains are recognized", () => {
     agreementSubdomainPrefixFromHostname("ypf.reku.io.example", appUrl),
     "",
   );
+});
+
+test("reserved Reku product subdomains redirect to the public website", async () => {
+  const compose = await readFile(
+    new URL("../docker-compose.yml", import.meta.url),
+    "utf8",
+  );
+  const prefixes = ["admin", "users", "physios", "patient", "patients", "app"];
+
+  for (const prefix of prefixes) {
+    assert.match(compose, new RegExp(`Host\\(\\\`${prefix}\\.reku\\.io\\\`\\)`));
+  }
+  assert.match(compose, /reku-web-reserved-subdomains\.priority=200/);
+  assert.match(
+    compose,
+    /reku-reserved-subdomains-to-www\.redirectregex\.replacement=https:\/\/www\.reku\.io\//,
+  );
+  assert.match(compose, /reku-reserved-subdomains-to-www\.redirectregex\.permanent=true/);
 });
 
 test("agreement URLs prefer the dedicated subdomain and keep legacy fallback", () => {
