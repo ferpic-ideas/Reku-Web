@@ -476,7 +476,7 @@
               google.available
                 ? `<div class="google-data-notice">
                     <strong>Cómo usa Reku tu información de Google</strong>
-                    <p>Al conectar tu cuenta, Reku consulta únicamente los bloques libre/ocupado de tu calendario principal y puede crear, actualizar o eliminar eventos de turnos con Google Meet e invitación al paciente. Guarda el email de la cuenta, identificadores de conexión y tokens cifrados. Los datos obtenidos de Google no se venden ni se usan para publicidad o entrenamiento de modelos de IA. Podés revocar el acceso desde este panel.</p>
+                    <p>Al conectar tu cuenta, Reku consulta únicamente los bloques libre/ocupado de tu calendario principal y puede crear, actualizar o eliminar eventos de turnos con Google Meet e invitación al paciente. Guarda el email de la cuenta, identificadores de conexión y tokens cifrados. Los datos obtenidos de Google no se venden ni se usan para publicidad u otras finalidades ajenas a gestionar la agenda y la videollamada. Podés revocar el acceso desde este panel.</p>
                     <a href="/privacidad/#google">Ver Política de Privacidad</a>
                   </div>`
                 : ''
