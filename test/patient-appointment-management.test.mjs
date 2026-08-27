@@ -111,7 +111,10 @@ test("Meet access is limited to the appointment window", () => {
 });
 
 test("agenda keeps patient management focused on Meet, triage and studies", async () => {
-  const source = await readFile(new URL("../agenda/app.js", import.meta.url), "utf8");
+  const [source, styles] = await Promise.all([
+    readFile(new URL("../agenda/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../agenda/styles.css", import.meta.url), "utf8"),
+  ]);
   const managementView = source.match(
     /function renderAppointmentManagement\(\)[\s\S]*?function renderManagementCancelModal\(\)/,
   )?.[0] || "";
@@ -119,6 +122,12 @@ test("agenda keeps patient management focused on Meet, triage and studies", asyn
   assert.match(source, /data-action="cancel-management-appointment"/);
   assert.match(managementView, /Completar cuestionario previo/);
   assert.match(managementView, /data-action="toggle-management-documents"/);
+  assert.match(managementView, /class="secondary-button management-documents-toggle"/);
+  assert.match(managementView, /aria-expanded="\$\{management\.documentsOpen \? 'true' : 'false'\}"/);
+  assert.match(managementView, /management-documents-toggle-icon/);
+  assert.match(styles, /\.management-documents-toggle\s*\{[^}]*background:\s*#e9f8fb/s);
+  assert.match(styles, /\.management-documents-toggle:not\(:disabled\):hover,[\s\S]*?background:\s*#d7f0f5/);
+  assert.match(styles, /\[aria-expanded='true'\][^{]*management-documents-toggle-icon\s*\{[^}]*rotate\(180deg\)/s);
   assert.match(source, /management-documents-form/);
   assert.match(source, /\/api\/booking\/manage\/documents/);
   assert.doesNotMatch(managementView, /open-management-reschedule/);

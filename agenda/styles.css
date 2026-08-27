@@ -891,6 +891,37 @@ button {
   background: #e9f8fb;
 }
 
+.management-documents-toggle {
+  border: 1px solid #c7e8ee;
+  background: #e9f8fb;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.management-documents-toggle:not(:disabled):hover,
+.management-documents-toggle:not(:disabled):focus-visible {
+  border-color: #9fd5df;
+  background: #d7f0f5;
+  box-shadow: 0 7px 18px rgba(42, 135, 151, 0.14);
+}
+
+.management-documents-toggle-icon {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  transition: transform 160ms ease;
+}
+
+.management-documents-toggle[aria-expanded='true'] .management-documents-toggle-icon {
+  transform: rotate(180deg);
+}
+
 .danger-outline-button {
   min-height: 48px;
   display: inline-flex;

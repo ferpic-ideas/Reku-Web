@@ -1457,7 +1457,18 @@
             ${
               appointment.status === 'confirmed'
                 ? `${appointment.triage_url ? `<a class="primary-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Completar cuestionario previo</a>` : ''}
-                   <button type="button" class="secondary-button" data-action="toggle-management-documents">Enviar estudios</button>`
+                   <button
+                     type="button"
+                     class="secondary-button management-documents-toggle"
+                     data-action="toggle-management-documents"
+                     aria-expanded="${management.documentsOpen ? 'true' : 'false'}"
+                     aria-controls="management-documents-panel"
+                   >
+                     <span>${management.documentsOpen ? 'Ocultar estudios' : 'Enviar estudios'}</span>
+                     <svg class="management-documents-toggle-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                       <path d="m5 7.5 5 5 5-5" />
+                     </svg>
+                   </button>`
                 : ''
             }
             ${appointment.payment_url && appointment.status === 'pending_payment' ? `<a class="primary-button" href="${escapeHtml(appointment.payment_url)}">Completar pago</a>` : ''}
