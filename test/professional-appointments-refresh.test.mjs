@@ -247,3 +247,13 @@ test("all booking confirmations use custom application modals", async () => {
   assert.match(agendaSource, /function renderManagementCancelModal\(/);
   assert.match(professionalApiSource, /patient_id:\s*row\.patient_id/);
 });
+
+test("upcoming appointments separate each day with a full-width color band", async () => {
+  const styles = await readFile(
+    new URL("../profesional-turnos/styles.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(styles, /\.day-title\s*\{[^}]*width:\s*100%/s);
+  assert.match(styles, /\.day-title\s*\{[^}]*background:\s*#e4f4f7/s);
+  assert.match(styles, /\.day-title\s*\{[^}]*padding:\s*10px 14px/s);
+});
