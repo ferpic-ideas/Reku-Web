@@ -392,6 +392,55 @@ select:focus {
   padding: 22px;
 }
 
+.metric-card {
+  width: 100%;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(24, 33, 63, 0.1);
+}
+
+.metric-card:focus-visible {
+  outline: 3px solid rgba(108, 75, 244, 0.26);
+  outline-offset: 3px;
+}
+
+.metric-card-appointments {
+  border-color: #bfe5cc;
+  background: #ecf8f0;
+}
+
+.metric-card-appointments:hover {
+  border-color: #82c99b;
+}
+
+.metric-card-patients {
+  border-color: #bedcf2;
+  background: #edf6fc;
+}
+
+.metric-card-patients:hover {
+  border-color: #7db9e2;
+}
+
+.metric-card-blocks {
+  border-color: #f0c6c1;
+  background: #fff0ee;
+}
+
+.metric-card-blocks:hover {
+  border-color: #df9188;
+}
+
 .metric-card span {
   color: var(--muted);
   font-size: 14px;

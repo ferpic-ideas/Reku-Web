@@ -452,8 +452,7 @@
     `;
   }
 
-  function renderOverview() {
-    const upcoming = upcomingAppointments();
+  function renderGoogleIntegration() {
     const google = state.google || {};
     const googleDescription = !google.available
       ? 'Reku debe cargar las credenciales de la aplicación de Google antes de habilitar esta conexión.'
@@ -468,12 +467,6 @@
         ? '<button id="google-disconnect-button" class="secondary-button" type="button">Desconectar</button>'
         : '<button id="google-connect-button" class="primary-button" type="button">Conectar Google Calendar</button>';
     return `
-      ${pageHeader(`Hola, ${state.profile?.name || 'Profesional'}`, 'Este es el estado actual de tu agenda.')}
-      <section class="grid-cards">
-        <article class="card metric-card"><span>Próximos turnos</span><strong>${upcoming.length}</strong></article>
-        <article class="card metric-card"><span>Pacientes disponibles</span><strong>${state.patients.length}</strong></article>
-        <article class="card metric-card"><span>Bloqueos próximos</span><strong>${state.blocks.length}</strong></article>
-      </section>
       <section class="panel">
         <div class="integration-card">
           <div>
@@ -492,6 +485,25 @@
           ${googleAction}
         </div>
       </section>
+    `;
+  }
+
+  function renderOverview() {
+    const upcoming = upcomingAppointments();
+    return `
+      ${pageHeader(`Hola, ${state.profile?.name || 'Profesional'}`, 'Este es el estado actual de tu agenda.')}
+      <section class="grid-cards">
+        <button class="card metric-card metric-card-appointments" data-module="appointments" type="button" aria-label="Ver próximos turnos">
+          <span>Próximos turnos</span><strong>${upcoming.length}</strong>
+        </button>
+        <button class="card metric-card metric-card-patients" data-module="patients" type="button" aria-label="Ver pacientes disponibles">
+          <span>Pacientes disponibles</span><strong>${state.patients.length}</strong>
+        </button>
+        <button class="card metric-card metric-card-blocks" data-module="availability" type="button" aria-label="Ver bloqueos y horarios">
+          <span>Bloqueos próximos</span><strong>${state.blocks.length}</strong>
+        </button>
+      </section>
+      ${state.google?.connected ? '' : renderGoogleIntegration()}
       <section class="panel">
         <div class="panel-header"><h2>Próximos turnos</h2></div>
         ${renderAppointmentsTable(upcoming.slice(0, 8))}
@@ -996,6 +1008,7 @@
         <label>Nueva contraseña<input name="new_password" type="password" minlength="8" autocomplete="new-password" required /></label>
         <div class="form-actions span-two"><button class="secondary-button" type="submit">Actualizar contraseña</button></div>
       </form>
+      ${state.google?.connected ? renderGoogleIntegration() : ''}
     `;
   }
 

@@ -257,3 +257,42 @@ test("upcoming appointments separate each day with a full-width color band", asy
   assert.match(styles, /\.day-title\s*\{[^}]*background:\s*#e4f4f7/s);
   assert.match(styles, /\.day-title\s*\{[^}]*padding:\s*10px 14px/s);
 });
+
+test("professional overview metrics are colored shortcuts to their modules", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("../profesional/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../profesional/styles.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    source,
+    /metric-card-appointments[^>]*data-module="appointments"[^>]*aria-label="Ver próximos turnos"/,
+  );
+  assert.match(
+    source,
+    /metric-card-patients[^>]*data-module="patients"[^>]*aria-label="Ver pacientes disponibles"/,
+  );
+  assert.match(
+    source,
+    /metric-card-blocks[^>]*data-module="availability"[^>]*aria-label="Ver bloqueos y horarios"/,
+  );
+  assert.match(styles, /\.metric-card-appointments\s*\{[^}]*background:\s*#ecf8f0/s);
+  assert.match(styles, /\.metric-card-patients\s*\{[^}]*background:\s*#edf6fc/s);
+  assert.match(styles, /\.metric-card-blocks\s*\{[^}]*background:\s*#fff0ee/s);
+});
+
+test("connected Google Calendar settings move from overview to the end of profile", async () => {
+  const source = await readFile(
+    new URL("../profesional/app.js", import.meta.url),
+    "utf8",
+  );
+
+  const overview = source.match(/function renderOverview\(\)\s*\{[\s\S]*?\n  \}/)?.[0] || "";
+  const profile = source.match(/function renderProfile\(\)\s*\{[\s\S]*?\n  \}/)?.[0] || "";
+
+  assert.match(overview, /state\.google\?\.connected \? '' : renderGoogleIntegration\(\)/);
+  assert.match(profile, /state\.google\?\.connected \? renderGoogleIntegration\(\) : ''/);
+  assert.ok(
+    profile.lastIndexOf("renderGoogleIntegration()") > profile.lastIndexOf('id="password-form"'),
+  );
+});
