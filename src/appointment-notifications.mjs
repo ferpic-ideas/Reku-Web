@@ -57,14 +57,15 @@ const patientMeetTextLines = (appointment, manageUrl) =>
   appointment.google_meet_url && manageUrl
     ? [
         "",
-        `Acceder a la videollamada: ${manageUrl}`,
+        "Ingresar a la videollamada",
+        `Ingresar: ${manageUrl}`,
         patientMeetWindowText(),
       ]
     : [];
 
 const patientMeetHtml = (appointment, manageUrl) =>
   appointment.google_meet_url && manageUrl
-    ? `<div style="margin-top:24px;padding:18px;border-radius:12px;background:#eef9fb"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Acceder a la videollamada</a><p style="margin:12px 0 0;color:#64738a;font-size:13px">${escapeHtml(patientMeetWindowText())}</p></div>`
+    ? `<div style="margin-top:24px;padding:18px;border-radius:12px;background:#eef9fb"><h2 style="font-size:18px;margin:0 0 14px">Ingresar a la videollamada</h2><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Ingresar</a><p style="margin:12px 0 0;color:#64738a;font-size:13px">${escapeHtml(patientMeetWindowText())}</p></div>`
     : "";
 
 const patientCalendarTextLines = (appointment, manageUrl) => {

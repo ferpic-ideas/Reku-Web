@@ -112,9 +112,11 @@ test("patient confirmation places protected video access after the questionnaire
   const text = patientConfirmationText({ appointment: withMeet, manageUrl });
   const html = patientConfirmationHtml({ appointment: withMeet, manageUrl });
 
-  assert.ok(text.indexOf("opentriage/confirmation-order") < text.indexOf("Acceder a la videollamada"));
-  assert.ok(html.indexOf("Cuestionario previo") < html.indexOf("Acceder a la videollamada"));
-  assert.ok(html.indexOf("Acceder a la videollamada") < html.indexOf("Por seguridad"));
+  assert.ok(text.indexOf("opentriage/confirmation-order") < text.indexOf("Ingresar a la videollamada"));
+  assert.ok(html.indexOf("Cuestionario previo") < html.indexOf("Ingresar a la videollamada"));
+  assert.ok(html.indexOf("Ingresar a la videollamada") < html.indexOf("Por seguridad"));
+  assert.match(html, /<h2[^>]*>Ingresar a la videollamada<\/h2>/);
+  assert.match(html, /<a[^>]*>Ingresar<\/a>/);
   assert.match(html, />Gestionar o mover mi turno<\/a>/);
   assert.match(html, /Confirmamos tu reserva\./);
   assert.doesNotMatch(html, /Confirmamos tu reserva en Reku/);
@@ -194,11 +196,11 @@ test("patient reminder leaves management and calendar actions at the end", () =>
   const html = patientFollowupHtml({ appointment: reminder, manageUrl });
   const text = patientFollowupText({ appointment: reminder, manageUrl });
 
-  assert.ok(html.indexOf("Cuestionario previo") < html.indexOf("Acceder a la videollamada"));
-  assert.ok(html.indexOf("Acceder a la videollamada") < html.indexOf("Gestionar mi turno"));
+  assert.ok(html.indexOf("Cuestionario previo") < html.indexOf("Ingresar a la videollamada"));
+  assert.ok(html.indexOf("Ingresar a la videollamada") < html.indexOf("Gestionar mi turno"));
   assert.ok(html.indexOf("Gestionar mi turno") < html.indexOf("Agregar a Google Calendar"));
-  assert.ok(text.indexOf("opentriage/reminder-order") < text.indexOf("Acceder a la videollamada"));
-  assert.ok(text.indexOf("Acceder a la videollamada") < text.indexOf("Gestionar mi turno"));
+  assert.ok(text.indexOf("opentriage/reminder-order") < text.indexOf("Ingresar a la videollamada"));
+  assert.ok(text.indexOf("Ingresar a la videollamada") < text.indexOf("Gestionar mi turno"));
   assert.ok(text.indexOf("Gestionar mi turno") < text.indexOf("Agregar a Google Calendar"));
 });
 
