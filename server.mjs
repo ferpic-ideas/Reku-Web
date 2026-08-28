@@ -140,6 +140,30 @@ const server = createServer(async (request, response) => {
     }
 
     if (
+      (request.method === "GET" || request.method === "HEAD") &&
+      (pathname === "/integraciones/api" || pathname === "/integraciones/api/")
+    ) {
+      sendRedirect(response, "/api/docs/", 308);
+      return;
+    }
+
+    if (
+      pathname === "/api/docs" &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      sendRedirect(response, "/api/docs/", 308);
+      return;
+    }
+
+    if (
+      pathname.startsWith("/api/docs/") &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      await serveStatic(request, response, resolveStaticRequestPath(pathname));
+      return;
+    }
+
+    if (
       pathname.startsWith("/api/public/agreements/") &&
       (request.method === "GET" || request.method === "HEAD")
     ) {

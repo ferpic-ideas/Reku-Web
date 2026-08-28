@@ -236,6 +236,11 @@ const publicMounts = [
     extensions: new Set([".html", ".css", ".json"]),
   },
   {
+    prefix: "/api/docs/",
+    directory: join(root, "integraciones", "api"),
+    extensions: new Set([".html", ".css", ".json"]),
+  },
+  {
     prefix: "/privacidad/",
     directory: join(root, "privacidad"),
     extensions: new Set([".html"]),
@@ -275,6 +280,10 @@ export const resolveStaticRequestPath = (pathname) => {
 
   if (pathname === "/integraciones/api" || pathname === "/integraciones/api/") {
     return "/integraciones/api/index.html";
+  }
+
+  if (pathname === "/api/docs" || pathname === "/api/docs/") {
+    return "/api/docs/index.html";
   }
 
   const isBookingPage =
