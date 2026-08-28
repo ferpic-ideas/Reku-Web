@@ -231,6 +231,11 @@ const publicMounts = [
     extensions: new Set([".html", ".css", ".js"]),
   },
   {
+    prefix: "/integraciones/api/",
+    directory: join(root, "integraciones", "api"),
+    extensions: new Set([".html", ".css", ".json"]),
+  },
+  {
     prefix: "/privacidad/",
     directory: join(root, "privacidad"),
     extensions: new Set([".html"]),
@@ -266,6 +271,10 @@ export const resolveStaticRequestPath = (pathname) => {
 
   if (pathname === "/congreso-cokiba" || pathname === "/congreso-cokiba/") {
     return "/congreso-cokiba/index.html";
+  }
+
+  if (pathname === "/integraciones/api" || pathname === "/integraciones/api/") {
+    return "/integraciones/api/index.html";
   }
 
   const isBookingPage =

@@ -73,6 +73,16 @@ import {
   mapAdminAppointmentDocument,
   streamAdminAppointmentDocument,
 } from "./appointment-documents.mjs";
+import {
+  createAgreementApiCredential,
+  listAgreementApiCredentials,
+  revokeAgreementApiCredential,
+} from "./agreement-api.mjs";
+import {
+  generateAgreementSettlement,
+  getAgreementSettlementPreview,
+  streamAgreementSettlementPdf,
+} from "./agreement-settlements.mjs";
 
 const canDeleteRecords = (user) => hasPermission(user, "records.delete");
 const canManageSystem = (user) => hasPermission(user, "users.write");
@@ -578,7 +588,11 @@ const listAgreements = async (response) => {
       COUNT(DISTINCT professional_agreement.professional_id) FILTER (
         WHERE professional.active = TRUE
           AND professional.deleted_at IS NULL
-      )::int AS professional_count
+      )::int AS professional_count,
+      COUNT(DISTINCT api_credential.id) FILTER (
+        WHERE api_credential.active = TRUE
+          AND api_credential.revoked_at IS NULL
+      )::int AS active_api_credentials
     FROM agreements a
     LEFT JOIN nomina_entries n ON n.agreement_id = a.id
     LEFT JOIN patient_intakes p ON p.agreement_id = a.id
@@ -586,6 +600,8 @@ const listAgreements = async (response) => {
       ON professional_agreement.agreement_id = a.id
     LEFT JOIN professionals professional
       ON professional.id = professional_agreement.professional_id
+    LEFT JOIN agreement_api_credentials api_credential
+      ON api_credential.agreement_id = a.id
     WHERE a.deleted_at IS NULL
     GROUP BY a.id
     ORDER BY a.created_at DESC
@@ -609,6 +625,8 @@ const mapAgreement = (row) => ({
   nomina_count: Number(row.nomina_count || 0),
   intake_count: Number(row.intake_count || 0),
   professional_count: Number(row.professional_count || 0),
+  active_api_credentials: Number(row.active_api_credentials || 0),
+  api_available: row.type === "Pago",
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -800,6 +818,76 @@ const downloadAgreementQr = async (response, id) => {
     ),
   );
   response.end(png);
+};
+
+const listAdminAgreementApiCredentials = async (response, agreementId) => {
+  const agreement = await getAgreementById(agreementId);
+  if (!agreement) {
+    sendJson(response, 404, { error: "Acuerdo no encontrado." });
+    return;
+  }
+  const credentials = await listAgreementApiCredentials(agreementId);
+  sendJson(response, 200, {
+    agreement: {
+      id: Number(agreement.id),
+      name: agreement.name,
+      type: agreement.type,
+      api_available: agreement.type === "Pago",
+    },
+    credentials,
+  });
+};
+
+const createAdminAgreementApiCredential = async (
+  request,
+  response,
+  user,
+  agreementId,
+) => {
+  const payload = await parseJsonBody(request);
+  const result = await createAgreementApiCredential({
+    agreementId,
+    name: payload.name,
+    userId: user.id,
+  });
+  sendJson(response, 201, result);
+};
+
+const revokeAdminAgreementApiCredential = async (
+  response,
+  user,
+  agreementId,
+  credentialId,
+) => {
+  await revokeAgreementApiCredential({
+    agreementId,
+    credentialId,
+    userId: user.id,
+  });
+  sendJson(response, 200, { ok: true });
+};
+
+const previewAdminAgreementSettlement = async (url, response) => {
+  const preview = await getAgreementSettlementPreview({
+    agreementId: url.searchParams.get("agreement_id"),
+    month: url.searchParams.get("month"),
+  });
+  sendJson(response, 200, { settlement: preview });
+};
+
+const generateAdminAgreementSettlement = async (request, response, user) => {
+  const payload = await parseJsonBody(request);
+  const result = await generateAgreementSettlement({
+    agreementId: payload.agreement_id,
+    month: payload.month,
+    userId: user.id,
+  });
+  sendJson(response, 201, {
+    settlement: {
+      ...result.settlement,
+      pdf_url: `/api/admin/settlements/${result.settlement.id}/pdf`,
+    },
+  });
 };
 
 const listPatientIntakes = async (url, response) => {
@@ -2086,6 +2174,10 @@ const mapAppointment = (row) => ({
   amount: Number(row.amount || 0),
   payment_status: row.payment_status,
   payment_provider: row.payment_provider || "",
+  payment_reference: row.payment_reference || "",
+  booking_channel: row.booking_channel || "web",
+  agreement_api_external_id: row.agreement_api_external_id || "",
+  agreement_api_public_id: row.agreement_api_public_id || "",
   status: row.status,
   cancelled_at: row.cancelled_at || null,
   cancellation_reason: row.cancellation_reason || "",
@@ -2476,7 +2568,11 @@ const cancelAdminAppointment = async (request, response, user, appointmentId) =>
     const paidWithMercadoPago =
       current.payment_status === "approved" &&
       current.payment_provider === "mercadopago";
-    const refundStatus = paidWithMercadoPago ? "pending" : "not_required";
+    const refundStatus = paidWithMercadoPago
+      ? "pending"
+      : current.booking_channel === "agreement_api"
+        ? "external_management"
+        : "not_required";
     const updated = await client.query(
       `
         UPDATE appointments
@@ -2576,11 +2672,11 @@ const dashboard = async (response) => {
       ) AS contacts,
       (SELECT COUNT(*)::int FROM patients WHERE active = TRUE) AS patients,
       (SELECT COUNT(*)::int FROM patient_intakes) AS patient_intakes,
-      (SELECT COUNT(*)::int FROM appointments WHERE payment_status IN ('approved', 'nomina')) AS appointments_confirmed,
+      (SELECT COUNT(*)::int FROM appointments WHERE payment_status IN ('approved', 'nomina', 'agreement_api_paid')) AS appointments_confirmed,
       (SELECT COUNT(*)::int FROM appointments WHERE payment_status = 'pending') AS appointments_pending,
       (SELECT COALESCE(SUM(amount), 0)::numeric
        FROM appointments
-       WHERE payment_status IN ('approved', 'paid_simulated', 'free')) AS revenue,
+       WHERE payment_status IN ('approved', 'paid_simulated', 'free', 'agreement_api_paid')) AS revenue,
       (SELECT COUNT(*)::int FROM services WHERE deleted_at IS NULL AND active = TRUE) AS services,
       (SELECT COUNT(*)::int FROM professionals WHERE deleted_at IS NULL AND active = TRUE) AS professionals,
       (SELECT COUNT(*)::int FROM schedule_blocks WHERE block_date >= CURRENT_DATE) AS upcoming_blocks
@@ -2772,6 +2868,38 @@ export const handleAdminApi = async (request, response, url) => {
       return true;
     }
 
+    const agreementApiCredentialsMatch = pathname.match(
+      /^\/api\/admin\/agreements\/(\d+)\/api-credentials$/,
+    );
+    if (agreementApiCredentialsMatch && request.method === "GET") {
+      await listAdminAgreementApiCredentials(
+        response,
+        Number(agreementApiCredentialsMatch[1]),
+      );
+      return true;
+    }
+    if (agreementApiCredentialsMatch && request.method === "POST") {
+      await createAdminAgreementApiCredential(
+        request,
+        response,
+        user,
+        Number(agreementApiCredentialsMatch[1]),
+      );
+      return true;
+    }
+    const agreementApiCredentialRevokeMatch = pathname.match(
+      /^\/api\/admin\/agreements\/(\d+)\/api-credentials\/(\d+)\/revoke$/,
+    );
+    if (agreementApiCredentialRevokeMatch && request.method === "POST") {
+      await revokeAdminAgreementApiCredential(
+        response,
+        user,
+        Number(agreementApiCredentialRevokeMatch[1]),
+        Number(agreementApiCredentialRevokeMatch[2]),
+      );
+      return true;
+    }
+
     const agreementMatch = pathname.match(/^\/api\/admin\/agreements\/(\d+)$/);
     if (agreementMatch && request.method === "PUT") {
       await updateAgreement(request, response, user, Number(agreementMatch[1]));
@@ -2860,6 +2988,22 @@ export const handleAdminApi = async (request, response, url) => {
 
     if (pathname === "/api/admin/appointments" && request.method === "GET") {
       await listAppointments(response);
+      return true;
+    }
+
+    if (pathname === "/api/admin/settlements/preview" && request.method === "GET") {
+      await previewAdminAgreementSettlement(url, response);
+      return true;
+    }
+    if (pathname === "/api/admin/settlements" && request.method === "POST") {
+      await generateAdminAgreementSettlement(request, response, user);
+      return true;
+    }
+    const settlementPdfMatch = pathname.match(
+      /^\/api\/admin\/settlements\/(\d+)\/pdf$/,
+    );
+    if (settlementPdfMatch && request.method === "GET") {
+      await streamAgreementSettlementPdf(response, Number(settlementPdfMatch[1]));
       return true;
     }
     const appointmentDocumentMatch = pathname.match(
@@ -3007,6 +3151,10 @@ export const handleAdminApi = async (request, response, url) => {
 
     return false;
   } catch (error) {
+    if (error.publicMessage) {
+      sendJson(response, error.statusCode || 422, { error: error.publicMessage });
+      return true;
+    }
     if (error.code === "23505") {
       sendJson(response, 409, {
         error:

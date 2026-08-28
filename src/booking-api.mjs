@@ -80,6 +80,7 @@ const settledPaymentStatuses = new Set([
   "paid_simulated",
   "nomina",
   "free",
+  "agreement_api_paid",
 ]);
 const parseJsonBody = async (request) => {
   const body = await readBody(request);
@@ -595,7 +596,7 @@ const listProfessionals = async (url, response, agreementId = null) => {
   sendJson(response, 200, { professionals: result.rows.map(mapProfessional) });
 };
 
-const loadEligibleProfessionals = async (serviceId, agreementId = null) => {
+export const loadEligibleProfessionals = async (serviceId, agreementId = null) => {
   const result = await query(
     `
       SELECT
@@ -636,7 +637,7 @@ const loadEligibleProfessionals = async (serviceId, agreementId = null) => {
   return result.rows;
 };
 
-const loadService = async (serviceId) =>
+export const loadService = async (serviceId) =>
   one(
     `
       SELECT *
@@ -648,7 +649,7 @@ const loadService = async (serviceId) =>
     [serviceId],
   );
 
-const loadProfessional = async (professionalId) =>
+export const loadProfessional = async (professionalId) =>
   one(
     `
       SELECT *
@@ -660,7 +661,7 @@ const loadProfessional = async (professionalId) =>
     [professionalId],
   );
 
-const professionalSupportsService = async (
+export const professionalSupportsService = async (
   professionalId,
   serviceId,
   agreementId = null,

@@ -25,6 +25,11 @@
     services: [],
     professionals: [],
     appointments: [],
+    agreementApiCredentials: [],
+    settlement: null,
+    settlementAgreementId: '',
+    settlementMonth: new Date().toISOString().slice(0, 7),
+    settlementLoading: false,
     scheduleBlocks: [],
     auditEvents: [],
     mercadoPagoSettings: null,
@@ -65,6 +70,7 @@
     { id: 'booking-test', label: 'Probar Agenda', icon: 'booking-test' },
     { type: 'divider' },
     { id: 'appointments', label: 'Turnos', icon: 'appointments' },
+    { id: 'settlements', label: 'Liquidaciones', icon: 'settlements' },
     { id: 'patient-intakes', label: 'Pacientes', icon: 'patient-intakes' },
     { id: 'contacts', label: 'Contactos', icon: 'contacts' },
   ];
@@ -78,6 +84,7 @@
     blocks: '/admin/bloquear-horario',
     'booking-test': '/admin/probar-agenda',
     appointments: '/admin/turnos',
+    settlements: '/admin/liquidaciones',
     'patient-intakes': '/admin/alta-pacientes',
     contacts: '/admin/contactos',
     users: '/admin/usuarios',
@@ -98,6 +105,7 @@
     blocks: 'schedule_blocks.read',
     'booking-test': 'booking_links.create',
     appointments: 'appointments.read',
+    settlements: 'settlements.read',
     'patient-intakes': 'patient_intakes.read',
     contacts: 'contacts.read',
     users: 'users.read',
@@ -159,6 +167,13 @@
       <path d="M16 14h.01" />
       <path d="M8 18h.01" />
       <path d="M12 18h.01" />
+    `,
+    settlements: `
+      <path d="M6 2h9l4 4v16H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" />
+      <path d="M14 2v5h5" />
+      <path d="M8 12h8" />
+      <path d="M8 16h8" />
+      <path d="M8 8h2" />
     `,
     'patient-intakes': `
       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -283,6 +298,9 @@
       if (nextModule === 'audit') {
         await loadAuditEvents();
       }
+      if (nextModule === 'settlements') {
+        await loadSettlementPreview();
+      }
     }
 
     render();
@@ -365,6 +383,7 @@
       paid_simulated: 'Pago simulado',
       free: 'Sin costo',
       nomina: 'Nómina',
+      agreement_api_paid: 'Pagado por acuerdo (API)',
       preference_error: 'Error al crear pago',
       calendar_error: 'Error de calendario',
       expired: 'Reserva vencida',
@@ -390,7 +409,7 @@
   const appointmentPaymentMatches = (item, filter) => {
     if (!filter) return true;
     if (filter === 'pending') return item.payment_status === 'pending';
-    if (filter === 'confirmed') return ['approved', 'nomina'].includes(item.payment_status);
+    if (filter === 'confirmed') return ['approved', 'nomina', 'agreement_api_paid'].includes(item.payment_status);
     return true;
   };
 
@@ -498,6 +517,9 @@
       }
       if (state.active === 'audit') {
         await loadAuditEvents();
+      }
+      if (state.active === 'settlements') {
+        await loadSettlementPreview();
       }
     } catch {
       state.user = null;
@@ -680,6 +702,7 @@
     if (state.active === 'services') return renderServices();
     if (state.active === 'professionals') return renderProfessionals();
     if (state.active === 'appointments') return renderAppointments();
+    if (state.active === 'settlements') return renderSettlements();
     if (state.active === 'blocks') return renderScheduleBlocks();
     if (state.active === 'booking-test') return renderBookingTest();
     if (state.active === 'users') return renderUsers();
@@ -792,6 +815,81 @@
   function renderDialog() {
     if (!state.dialog) return '';
 
+    if (state.dialog.type === 'agreement-api-revoke-confirm') {
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-panel" role="dialog" aria-modal="true">
+            <h2>Revocar credencial API</h2>
+            <p class="muted">El sistema que usa este token dejará de poder operar inmediatamente. Los turnos ya creados se conservan.</p>
+            <div class="modal-actions">
+              <button type="button" class="secondary-button" data-action="manage-agreement-api" data-id="${state.dialog.agreementId}">Volver</button>
+              <button type="button" class="danger-button" data-action="confirm-revoke-agreement-api">Revocar</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (state.dialog.type === 'agreement-api') {
+      const agreement = state.agreements.find(
+        (item) => Number(item.id) === Number(state.dialog.agreementId),
+      );
+      if (!agreement) return '';
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-panel modal-panel-wide" role="dialog" aria-modal="true">
+            <div class="modal-header">
+              <div>
+                <h2>API · ${escapeHtml(agreement.name)}</h2>
+                <p class="muted">Credenciales para reservar, modificar y cancelar turnos desde el sistema del acuerdo.</p>
+              </div>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            ${state.dialog.revealedToken
+              ? `<div class="api-token-reveal">
+                  <strong>Copiá este token ahora</strong>
+                  <p>Por seguridad no se volverá a mostrar completo.</p>
+                  <div class="copy-inline api-token-value">
+                    <code>${escapeHtml(state.dialog.revealedToken)}</code>
+                    <button type="button" class="secondary-button" data-action="copy-field" data-copy="${escapeHtml(state.dialog.revealedToken)}">Copiar</button>
+                  </div>
+                </div>`
+              : ''}
+            <div class="api-credentials-list">
+              <div class="modal-header compact-modal-header">
+                <h3>Credenciales</h3>
+                <a href="/integraciones/api/" target="_blank" rel="noopener">Ver documentación</a>
+              </div>
+              ${state.agreementApiCredentials.length
+                ? state.agreementApiCredentials.map((credential) => `
+                    <div class="api-credential-row">
+                      <div>
+                        <strong>${escapeHtml(credential.name)}</strong>
+                        <code>${escapeHtml(credential.token_prefix)}…</code>
+                        <span class="muted">Creada ${escapeHtml(formatDate(credential.created_at))}${credential.last_used_at ? ` · Último uso ${escapeHtml(formatDate(credential.last_used_at))}` : ' · Nunca usada'}</span>
+                      </div>
+                      ${credential.active
+                        ? `<button type="button" class="danger-button" data-action="revoke-agreement-api" data-id="${credential.id}" data-agreement-id="${agreement.id}">Revocar</button>`
+                        : '<span class="pill">Revocada</span>'}
+                    </div>
+                  `).join('')
+                : '<div class="empty-state">Todavía no hay credenciales para este acuerdo.</div>'}
+            </div>
+            ${can('agreements.write')
+              ? `<form id="agreement-api-credential-form" class="api-credential-form">
+                  <input type="hidden" name="agreement_id" value="${agreement.id}" />
+                  <label>
+                    Nombre de la integración
+                    <input name="name" value="Integración principal" maxlength="80" required />
+                  </label>
+                  <button type="submit" class="primary-button">Generar token</button>
+                </form>`
+              : ''}
+          </div>
+        </div>
+      `;
+    }
+
     if (state.dialog.type === 'user-form') {
       return `
         <div class="modal-backdrop">
@@ -866,7 +964,7 @@
     if (state.dialog.type === 'appointment-view') {
       const appointment = selectedAppointment();
       if (!appointment) return '';
-      const isPaidAppointment = ['approved', 'paid_simulated', 'free', 'nomina'].includes(
+      const isPaidAppointment = ['approved', 'paid_simulated', 'free', 'nomina', 'agreement_api_paid'].includes(
         appointment.payment_status,
       );
       const detailPaymentClass =
@@ -892,10 +990,13 @@
               ${detailRow('Tipo de acuerdo', appointment.agreement_type || 'Sin dato')}
               ${detailRow('Identificador', appointment.identificador || 'Sin dato')}
               ${detailRow('Pago', paymentStatusLabel(appointment.payment_status))}
+              ${appointment.booking_channel === 'agreement_api' ? detailRow('Canal', 'API del acuerdo') : ''}
+              ${appointment.agreement_api_external_id ? detailCopyRow('ID externo', appointment.agreement_api_external_id) : ''}
+              ${appointment.payment_reference ? detailCopyRow('Referencia de pago', appointment.payment_reference) : ''}
               ${detailRow('Monto', formatMoney(appointment.amount))}
               ${detailRow('Estado', appointmentStatusLabel(appointment))}
               ${appointment.cancellation_reason ? detailRow('Motivo de cancelación', appointment.cancellation_reason) : ''}
-              ${appointment.refund_status && appointment.refund_status !== 'not_required' ? detailRow('Devolución', appointment.refund_status === 'approved' ? 'Completada' : appointment.refund_status === 'failed' ? 'Fallida / requiere reintento' : 'Pendiente') : ''}
+              ${appointment.refund_status && appointment.refund_status !== 'not_required' ? detailRow('Devolución', appointment.refund_status === 'approved' ? 'Completada' : appointment.refund_status === 'failed' ? 'Fallida / requiere reintento' : appointment.refund_status === 'external_management' ? 'A cargo del acuerdo' : 'Pendiente') : ''}
               ${appointment.refund_error ? detailRow('Error de devolución', appointment.refund_error) : ''}
               ${appointment.google_sync_status ? detailRow('Google Calendar', appointment.google_sync_status) : ''}
               ${appointment.google_meet_url ? detailCopyRow('Google Meet', appointment.google_meet_url) : ''}
@@ -1701,6 +1802,84 @@
     `;
   }
 
+  function renderSettlements() {
+    const eligibleAgreements = state.agreements.filter((agreement) => agreement.type === 'Pago');
+    const settlement = state.settlement;
+    const appointments = settlement?.appointments || [];
+    return `
+      <section class="panel settlement-panel">
+        <div class="toolbar appointments-toolbar">
+          <div class="toolbar-actions">
+            <label>
+              Acuerdo
+              <select id="settlement-agreement-filter">
+                ${eligibleAgreements.length
+                  ? eligibleAgreements.map((agreement) => `<option value="${agreement.id}">${escapeHtml(agreement.name)}</option>`).join('')
+                  : '<option value="">No hay acuerdos habilitados</option>'}
+              </select>
+            </label>
+            <label>
+              Mes
+              <input id="settlement-month-filter" type="month" value="${escapeHtml(state.settlementMonth)}" />
+            </label>
+          </div>
+          <div class="toolbar-actions toolbar-end-actions">
+            ${settlement?.generated_settlement
+              ? `<a class="secondary-button" href="/api/admin/settlements/${settlement.generated_settlement.id}/pdf" target="_blank" rel="noopener">Descargar PDF actual</a>`
+              : ''}
+            ${can('settlements.write') && state.settlementAgreementId
+              ? '<button type="button" class="primary-button" data-action="generate-settlement">Generar PDF</button>'
+              : ''}
+          </div>
+        </div>
+        ${state.settlementLoading
+          ? '<div class="empty-state">Cargando liquidación…</div>'
+          : !settlement
+            ? '<div class="empty-state">Seleccioná un acuerdo y un mes.</div>'
+            : `
+              <div class="settlement-summary-grid">
+                <article><span>Turnos facturables</span><strong>${settlement.totals.appointments}</strong></article>
+                <article><span>Cancelados</span><strong>${settlement.totals.cancelled}</strong></article>
+                <article><span>Total</span><strong>${escapeHtml(formatMoney(settlement.totals.amount))}</strong></article>
+              </div>
+              <p class="field-help">Incluye únicamente turnos creados por la API del acuerdo. Los cancelados quedan visibles para conciliación pero no suman al total.</p>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Horario</th>
+                      <th>Paciente</th>
+                      <th>Profesional</th>
+                      <th>Práctica</th>
+                      <th>ID externo</th>
+                      <th>Estado</th>
+                      <th>Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${appointments.length
+                      ? appointments.map((appointment) => `
+                          <tr>
+                            <td>${escapeHtml(appointment.date)}</td>
+                            <td>${escapeHtml(appointment.start_time)} - ${escapeHtml(appointment.end_time)}</td>
+                            <td><strong>${escapeHtml(appointment.patient_name)}</strong><br /><span class="muted">${escapeHtml(appointment.patient_email)}</span></td>
+                            <td>${escapeHtml(appointment.professional_name)}</td>
+                            <td>${escapeHtml(appointment.service_name)}</td>
+                            <td><code>${escapeHtml(appointment.external_id)}</code></td>
+                            <td><span class="pill">${appointment.billable ? 'Confirmado' : 'Cancelado'}</span></td>
+                            <td>${appointment.billable ? escapeHtml(formatMoney(appointment.amount)) : '—'}</td>
+                          </tr>
+                        `).join('')
+                      : '<tr><td colspan="8">No hay turnos por API en este período.</td></tr>'}
+                  </tbody>
+                </table>
+              </div>
+            `}
+      </section>
+    `;
+  }
+
   function renderAppointmentProfessionalOptions() {
     const options = new Map();
     state.professionals.forEach((professional) => {
@@ -2358,6 +2537,9 @@
         <td>
           <div class="table-actions">
             <button type="button" class="secondary-button" data-action="copy-url" data-slug="${escapeHtml(agreement.slug)}" data-prefix="${escapeHtml(agreement.subdomain_prefix || '')}">Get URL</button>
+            ${agreement.api_available && can('agreements.write')
+              ? `<button type="button" class="secondary-button" data-action="manage-agreement-api" data-id="${agreement.id}">API${Number(agreement.active_api_credentials || 0) ? ` (${Number(agreement.active_api_credentials)})` : ''}</button>`
+              : ''}
             <a
               class="secondary-button"
               href="/api/admin/agreements/${agreement.id}/qr"
@@ -2963,6 +3145,9 @@
     bindActionElements();
 
     document.getElementById('agreement-form')?.addEventListener('submit', handleAgreementSubmit);
+    document
+      .getElementById('agreement-api-credential-form')
+      ?.addEventListener('submit', handleAgreementApiCredentialSubmit);
     document.getElementById('nomina-form')?.addEventListener('submit', handleNominaSubmit);
     document.getElementById('nomina-csv-form')?.addEventListener('submit', handleNominaCsvSubmit);
     document.getElementById('service-form')?.addEventListener('submit', handleServiceSubmit);
@@ -3174,6 +3359,38 @@
       });
     }
 
+    const settlementAgreementFilter = document.getElementById('settlement-agreement-filter');
+    if (settlementAgreementFilter) {
+      settlementAgreementFilter.value = state.settlementAgreementId;
+      settlementAgreementFilter.addEventListener('change', async () => {
+        state.settlementAgreementId = settlementAgreementFilter.value;
+        state.settlementLoading = true;
+        render();
+        try {
+          await loadSettlementPreview();
+        } catch (error) {
+          setStatus(error.message, 'error');
+        }
+        render();
+      });
+    }
+
+    const settlementMonthFilter = document.getElementById('settlement-month-filter');
+    if (settlementMonthFilter) {
+      settlementMonthFilter.value = state.settlementMonth;
+      settlementMonthFilter.addEventListener('change', async () => {
+        state.settlementMonth = settlementMonthFilter.value;
+        state.settlementLoading = true;
+        render();
+        try {
+          await loadSettlementPreview();
+        } catch (error) {
+          setStatus(error.message, 'error');
+        }
+        render();
+      });
+    }
+
     const scheduleBlockDateFilter = document.getElementById('schedule-block-date-filter');
     if (scheduleBlockDateFilter) {
       scheduleBlockDateFilter.value = state.scheduleBlockDateFilter;
@@ -3221,6 +3438,7 @@
       if (action === 'refresh') {
         state.userMenuOpen = false;
         await loadData();
+        if (state.active === 'settlements') await loadSettlementPreview();
         setStatus('Datos actualizados.', 'ok');
         return;
       }
@@ -3319,6 +3537,34 @@
       if (action === 'edit-agreement') {
         state.editingAgreementId = id;
         state.dialog = { type: 'agreement-form' };
+        render();
+        return;
+      }
+      if (action === 'manage-agreement-api') {
+        await openAgreementApiCredentials(id);
+        return;
+      }
+      if (action === 'revoke-agreement-api') {
+        state.dialog = {
+          type: 'agreement-api-revoke-confirm',
+          agreementId: Number(event.currentTarget.dataset.agreementId),
+          credentialId: id,
+        };
+        render();
+        return;
+      }
+      if (action === 'confirm-revoke-agreement-api') {
+        const { agreementId, credentialId } = state.dialog || {};
+        await api(`/api/admin/agreements/${agreementId}/api-credentials/${credentialId}/revoke`, {
+          method: 'POST',
+        });
+        await loadData();
+        await openAgreementApiCredentials(agreementId);
+        setStatus('Credencial revocada.', 'ok');
+        return;
+      }
+      if (action === 'generate-settlement') {
+        await generateSettlementPdf();
         render();
         return;
       }
@@ -3535,6 +3781,50 @@
     if (!can('audit.read')) return;
     const payload = await api('/api/admin/audit');
     state.auditEvents = payload.audit_events || [];
+  }
+
+  async function loadSettlementPreview() {
+    if (!can('settlements.read')) return;
+    const eligibleAgreements = state.agreements.filter((agreement) => agreement.type === 'Pago');
+    if (!eligibleAgreements.some((agreement) => String(agreement.id) === String(state.settlementAgreementId))) {
+      state.settlementAgreementId = eligibleAgreements[0] ? String(eligibleAgreements[0].id) : '';
+    }
+    if (!state.settlementAgreementId || !state.settlementMonth) {
+      state.settlement = null;
+      return;
+    }
+    state.settlementLoading = true;
+    try {
+      const params = new URLSearchParams({
+        agreement_id: state.settlementAgreementId,
+        month: state.settlementMonth,
+      });
+      const payload = await api(`/api/admin/settlements/preview?${params.toString()}`);
+      state.settlement = payload.settlement || null;
+    } finally {
+      state.settlementLoading = false;
+    }
+  }
+
+  async function generateSettlementPdf() {
+    if (!state.settlementAgreementId || !state.settlementMonth) return;
+    const payload = await api('/api/admin/settlements', {
+      method: 'POST',
+      body: {
+        agreement_id: state.settlementAgreementId,
+        month: state.settlementMonth,
+      },
+    });
+    await loadSettlementPreview();
+    const pdfUrl = payload.settlement?.pdf_url;
+    if (pdfUrl) {
+      const link = document.createElement('a');
+      link.href = pdfUrl;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.click();
+    }
+    setStatus('Liquidación generada. El PDF se abrió en una nueva pestaña.', 'ok');
   }
 
   function addAvailabilityRange(button) {
@@ -3876,6 +4166,34 @@
         ? ` ${error.payload.errors.join(' ')}`
         : '';
       setStatus(`${error.message}${details}`, 'error');
+    }
+  }
+
+  async function openAgreementApiCredentials(agreementId, { revealedToken = '' } = {}) {
+    const payload = await api(`/api/admin/agreements/${agreementId}/api-credentials`);
+    state.agreementApiCredentials = payload.credentials || [];
+    state.dialog = {
+      type: 'agreement-api',
+      agreementId: Number(agreementId),
+      revealedToken,
+    };
+    render();
+  }
+
+  async function handleAgreementApiCredentialSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const agreementId = Number(form.agreement_id.value);
+    try {
+      const payload = await api(`/api/admin/agreements/${agreementId}/api-credentials`, {
+        method: 'POST',
+        body: { name: form.name.value },
+      });
+      await loadData();
+      await openAgreementApiCredentials(agreementId, { revealedToken: payload.token || '' });
+      setStatus('Token generado. Copialo antes de cerrar esta ventana.', 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
     }
   }
 

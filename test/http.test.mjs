@@ -88,6 +88,10 @@ test("static request routing exposes only declared application entrypoints", () 
   );
   assert.equal(resolveStaticRequestPath("/terminos"), "/terminos/index.html");
   assert.equal(resolveStaticRequestPath("/terminos/"), "/terminos/index.html");
+  assert.equal(
+    resolveStaticRequestPath("/integraciones/api/"),
+    "/integraciones/api/index.html",
+  );
   assert.equal(resolveStaticRequestPath("/turnos/"), "/turnos/index.html");
   assert.equal(
     resolveStaticRequestPath("/congreso-cokiba"),
@@ -147,6 +151,10 @@ test("static resolver serves only declared public files and mounts", async () =>
     /terminos\/index\.html$/,
   );
   assert.match(await resolveStaticPath("/legal/styles.css"), /legal\/styles\.css$/);
+  assert.match(
+    await resolveStaticPath("/integraciones/api/openapi.json"),
+    /integraciones\/api\/openapi\.json$/,
+  );
 });
 
 test("legal pages identify the operator and disclose Google data use", async () => {

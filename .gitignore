@@ -5,6 +5,7 @@ uploads/
 private-uploads/
 backups/
 logs/
+tmp/
 ses-key.txt
 reku-admin-password.txt
 reku-mp.txt

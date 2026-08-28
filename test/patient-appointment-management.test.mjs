@@ -15,7 +15,13 @@ const futureAppointment = {
 };
 
 test("only future settled appointments can be rescheduled", () => {
-  for (const paymentStatus of ["approved", "paid_simulated", "nomina", "free"]) {
+  for (const paymentStatus of [
+    "approved",
+    "paid_simulated",
+    "nomina",
+    "free",
+    "agreement_api_paid",
+  ]) {
     const capabilities = patientAppointmentCapabilities({
       ...futureAppointment,
       payment_status: paymentStatus,

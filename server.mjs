@@ -5,6 +5,10 @@ import {
   validatePublicAgreementRoute,
 } from "./src/admin-api.mjs";
 import { handleBookingApi } from "./src/booking-api.mjs";
+import {
+  cleanupAgreementApiIdempotency,
+  handleAgreementApi,
+} from "./src/agreement-api.mjs";
 import { handleProfessionalApi } from "./src/professional-api.mjs";
 import {
   assertSafeStartup,
@@ -41,6 +45,7 @@ const runCalendarMaintenance = () =>
     retryPendingPaymentNotifications(),
     retryPendingGoogleAppointmentNotifications(),
     sendUpcomingAppointmentFollowups(),
+    cleanupAgreementApiIdempotency(),
   ]).catch((error) => {
     console.error("Google Calendar maintenance failed", { message: error.message });
   });
@@ -154,6 +159,19 @@ const server = createServer(async (request, response) => {
       const handled = await handleBookingApi(request, response, requestUrl);
       if (!handled) {
         sendJson(response, 404, { error: "Endpoint no encontrado." });
+      }
+      return;
+    }
+
+    if (pathname.startsWith("/api/partners/v1/")) {
+      const handled = await handleAgreementApi(request, response, requestUrl);
+      if (!handled) {
+        sendJson(response, 404, {
+          error: {
+            code: "endpoint_not_found",
+            message: "Endpoint no encontrado.",
+          },
+        });
       }
       return;
     }

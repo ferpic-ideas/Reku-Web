@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#18213f" />
+    <title>API de turnos para acuerdos | Reku</title>
+    <link rel="icon" href="../../favicon-32x32.png" sizes="32x32" type="image/png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="https://www.reku.io" aria-label="Ir a Reku">
+        <img src="../../images/logo-reku.svg" alt="Reku" />
+        <span>Developers</span>
+      </a>
+      <div class="header-actions">
+        <span class="version-badge">API v1</span>
+        <a class="openapi-link" href="./openapi.json" target="_blank" rel="noopener">Ver OpenAPI <span aria-hidden="true">↗</span></a>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow"><span></span> Integraciones para acuerdos</span>
+        <h1>Reservá turnos en Reku<br /><em>desde tu sistema.</em></h1>
+        <p>Una API simple y segura para consultar disponibilidad, confirmar turnos ya pagados, reprogramarlos y cancelarlos.</p>
+        <div class="hero-badges" aria-label="Características principales">
+          <span>Server-to-server</span>
+          <span>REST + JSON</span>
+          <span>Idempotencia</span>
+        </div>
+      </div>
+      <div class="hero-code" aria-label="Ejemplo de conexión">
+        <div class="code-window-header">
+          <span class="window-dots"><i></i><i></i><i></i></span>
+          <span>Primera consulta</span>
+        </div>
+        <pre><code><span class="code-keyword">GET</span> /api/partners/v1/services
+
+<span class="code-muted">Authorization:</span> Bearer rku_ag_••••••••
+<span class="code-muted">Accept:</span> application/json</code></pre>
+        <div class="code-status"><span></span> Servicio disponible</div>
+      </div>
+    </section>
+
+    <main class="docs-layout">
+      <nav class="toc" aria-label="Contenido">
+        <p>En esta guía</p>
+        <a href="#inicio"><span>01</span> Inicio rápido</a>
+        <a href="#seguridad"><span>02</span> Seguridad</a>
+        <a href="#flujo"><span>03</span> Flujo recomendado</a>
+        <a href="#endpoints"><span>04</span> Endpoints</a>
+        <a href="#errores"><span>05</span> Errores y reintentos</a>
+        <div class="toc-support">
+          <strong>¿Necesitás ayuda?</strong>
+          <a href="mailto:hola@reku.io">hola@reku.io</a>
+        </div>
+      </nav>
+
+      <div class="docs-content">
+        <section id="inicio">
+          <div class="section-heading">
+            <span class="section-number">01</span>
+            <div><span class="section-kicker">Empezá acá</span><h2>Inicio rápido</h2></div>
+          </div>
+          <p class="section-intro">La API es server-to-server. El token debe permanecer en tu backend y nunca incluirse en JavaScript público, una app móvil ni una URL.</p>
+          <div class="callout base-url">
+            <span>Base URL</span>
+            <code>https://www.reku.io/api/partners/v1</code>
+          </div>
+
+          <div class="quick-step">
+            <span class="step-marker">1</span>
+            <div><h3>Ver prácticas habilitadas</h3><p>Obtené el catálogo disponible para tu acuerdo.</p></div>
+          </div>
+          <pre><code>curl https://www.reku.io/api/partners/v1/services \
+  -H <span class="code-string">"Authorization: Bearer rku_ag_REEMPLAZAR"</span></code></pre>
+
+          <div class="quick-step">
+            <span class="step-marker">2</span>
+            <div><h3>Consultar disponibilidad</h3><p>Buscá horarios para una práctica en un rango de fechas.</p></div>
+          </div>
+          <pre><code>curl <span class="code-string">"https://www.reku.io/api/partners/v1/availability?service_id=2&amp;from=2026-09-01&amp;to=2026-09-07"</span> \
+  -H <span class="code-string">"Authorization: Bearer rku_ag_REEMPLAZAR"</span></code></pre>
+
+          <div class="quick-step">
+            <span class="step-marker">3</span>
+            <div><h3>Confirmar un turno pagado</h3><p>Creá la reserva después de haber confirmado el pago en tu plataforma.</p></div>
+          </div>
+          <pre><code>curl https://www.reku.io/api/partners/v1/appointments \
+  -X <span class="code-keyword">POST</span> \
+  -H <span class="code-string">"Authorization: Bearer rku_ag_REEMPLAZAR"</span> \
+  -H <span class="code-string">"Content-Type: application/json"</span> \
+  -H <span class="code-string">"Idempotency-Key: reserva-ORD-90821"</span> \
+  -d <span class="code-string">'{
+    "external_id": "ORD-90821",
+    "service_id": 2,
+    "professional_id": 7,
+    "date": "2026-09-03",
+    "start_time": "15:30",
+    "payment_reference": "PAY-44339",
+    "patient": {
+      "first_name": "Ana",
+      "last_name": "Pérez",
+      "email": "ana@example.com",
+      "phone": "+5491160000000"
+    }
+  }'</span></code></pre>
+          <div class="success-callout">
+            <span class="success-icon" aria-hidden="true">✓</span>
+            <p>Una respuesta <code>201 Created</code> confirma el turno. Reku lo registra como pagado por el acuerdo, reserva el horario, gestiona Google Calendar/Meet y envía las notificaciones habituales.</p>
+          </div>
+        </section>
+
+        <section id="seguridad">
+          <div class="section-heading">
+            <span class="section-number">02</span>
+            <div><span class="section-kicker">Buenas prácticas</span><h2>Seguridad</h2></div>
+          </div>
+          <div class="security-grid">
+            <article><span aria-hidden="true">🔒</span><h3>Siempre HTTPS</h3><p>Autenticá cada solicitud con <code>Authorization: Bearer …</code>.</p></article>
+            <article><span aria-hidden="true">◉</span><h3>Datos aislados</h3><p>Cada credencial sólo accede a los recursos de su propio acuerdo.</p></article>
+            <article><span aria-hidden="true">↻</span><h3>Rotación simple</h3><p>Los tokens pueden coexistir durante una rotación y revocarse desde el Admin.</p></article>
+            <article><span aria-hidden="true">⌁</span><h3>Límites seguros</h3><p>El rate limiting funciona por credencial e IP e informa <code>Retry-After</code>.</p></article>
+          </div>
+          <div class="warning"><strong>No expongas el token.</strong><span>Guardalo en un secret manager o variable de entorno protegida. Nunca lo registres en logs ni lo envíes al navegador.</span></div>
+          <p class="privacy-note">El acuerdo debe informar al paciente que compartirá sus datos con Reku para gestionar el turno.</p>
+        </section>
+
+        <section id="flujo">
+          <div class="section-heading">
+            <span class="section-number">03</span>
+            <div><span class="section-kicker">Implementación</span><h2>Flujo recomendado</h2></div>
+          </div>
+          <ol class="flow-list">
+            <li><span>1</span><div><strong>Obtené las prácticas</strong><p>Consultá <code>GET /services</code>.</p></div></li>
+            <li><span>2</span><div><strong>Elegí el horario</strong><p>Consultá profesionales o directamente la disponibilidad.</p></div></li>
+            <li><span>3</span><div><strong>Procesá el pago</strong><p>El cobro se realiza íntegramente en tu sistema.</p></div></li>
+            <li><span>4</span><div><strong>Confirmá la reserva</strong><p>Después del pago, ejecutá <code>POST /appointments</code>. Un <code>201</code> significa turno confirmado y pago externo declarado.</p></div></li>
+            <li><span>5</span><div><strong>Guardá los identificadores</strong><p>Persistí el <code>data.id</code> de Reku junto con tu <code>external_id</code>.</p></div></li>
+            <li><span>6</span><div><strong>Gestioná cambios</strong><p>Reprogramá con <code>PATCH /appointments/{id}</code> o cancelá con <code>POST /appointments/{id}/cancel</code>.</p></div></li>
+          </ol>
+          <div class="warning"><strong>Orden recomendado:</strong><span>no cobres y confirmes en paralelo. Si el horario deja de estar disponible, Reku responde <code>409 slot_unavailable</code> y tu sistema debe ofrecer otro horario o resolver el pago según su política.</span></div>
+        </section>
+
+        <section id="endpoints">
+          <div class="section-heading">
+            <span class="section-number">04</span>
+            <div><span class="section-kicker">Referencia</span><h2>Endpoints</h2></div>
+          </div>
+          <p class="section-intro">Todos los endpoints parten de la Base URL y devuelven JSON.</p>
+          <div class="endpoint"><div><span class="method get">GET</span><code>/agreement</code></div><p>Datos del acuerdo, zona horaria y capacidades habilitadas.</p></div>
+          <div class="endpoint"><div><span class="method get">GET</span><code>/services</code></div><p>Prácticas que tienen al menos un profesional activo asignado al acuerdo.</p></div>
+          <div class="endpoint"><div><span class="method get">GET</span><code>/professionals?service_id={id}</code></div><p>Profesionales habilitados para la práctica y el acuerdo.</p></div>
+          <div class="endpoint"><div><span class="method get">GET</span><code>/availability?service_id={id}&amp;date=YYYY-MM-DD</code></div><p>Slots de un día. También admite <code>from</code>/<code>to</code> —máximo 31 días— y <code>professional_id</code> opcional.</p></div>
+          <div class="endpoint"><div><span class="method post">POST</span><code>/appointments</code></div><p>Confirma una reserva ya pagada. <code>professional_id</code> es opcional; si se omite, Reku asigna el primer profesional disponible.</p></div>
+          <div class="endpoint"><div><span class="method get">GET</span><code>/appointments</code></div><p>Lista paginada. Filtros: <code>from</code>, <code>to</code>, <code>status</code>, <code>external_id</code>, <code>page</code> y <code>limit</code>.</p></div>
+          <div class="endpoint"><div><span class="method get">GET</span><code>/appointments/{id}</code></div><p>Detalle de un turno propio del acuerdo.</p></div>
+          <div class="endpoint"><div><span class="method patch">PATCH</span><code>/appointments/{id}</code></div><p>Modifica paciente, práctica, profesional, fecha u horario. Requiere un nuevo <code>Idempotency-Key</code>.</p></div>
+          <div class="endpoint"><div><span class="method post">POST</span><code>/appointments/{id}/cancel</code></div><p>Cancela un turno futuro. Body: <code>{ "reason": "…" }</code>. El acuerdo gestiona cualquier devolución en su sistema.</p></div>
+          <a class="openapi-cta" href="./openapi.json" target="_blank" rel="noopener"><span><strong>Contrato OpenAPI completo</strong><small>Esquemas, parámetros y respuestas listos para importar.</small></span><span aria-hidden="true">→</span></a>
+        </section>
+
+        <section id="errores">
+          <div class="section-heading">
+            <span class="section-number">05</span>
+            <div><span class="section-kicker">Observabilidad</span><h2>Errores y reintentos</h2></div>
+          </div>
+          <p class="section-intro">Todas las respuestas incluyen <code>X-Request-Id</code>. Conservá ese valor para que soporte pueda rastrear la operación.</p>
+          <pre><code>{
+  <span class="code-string">"error"</span>: {
+    <span class="code-string">"code"</span>: <span class="code-string">"slot_unavailable"</span>,
+    <span class="code-string">"message"</span>: <span class="code-string">"Ese horario ya no está disponible."</span>,
+    <span class="code-string">"request_id"</span>: <span class="code-string">"…"</span>
+  }
+}</code></pre>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>HTTP</th><th>Qué significa</th><th>Acción</th></tr></thead>
+              <tbody>
+                <tr><td><span class="status-code client">400</span></td><td>JSON o Idempotency-Key inválido.</td><td>Corregir la solicitud.</td></tr>
+                <tr><td><span class="status-code client">401</span></td><td>Token ausente, inválido o revocado.</td><td>Revisar o rotar la credencial.</td></tr>
+                <tr><td><span class="status-code client">404</span></td><td>Recurso inexistente o ajeno al acuerdo.</td><td>Revisar el ID.</td></tr>
+                <tr><td><span class="status-code conflict">409</span></td><td>Horario ocupado o conflicto de idempotencia.</td><td>Consultar disponibilidad.</td></tr>
+                <tr><td><span class="status-code client">422</span></td><td>Datos válidos como JSON pero incorrectos.</td><td>Corregir campos.</td></tr>
+                <tr><td><span class="status-code rate">429</span></td><td>Límite temporal superado.</td><td>Esperar <code>Retry-After</code>.</td></tr>
+                <tr><td><span class="status-code server">5xx</span></td><td>Error transitorio de Reku.</td><td>Reintentar con la misma clave y backoff.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="info-callout"><span aria-hidden="true">i</span><p>Un mismo <code>Idempotency-Key</code> con el mismo body devuelve la respuesta original y el header <code>Idempotent-Replayed: true</code>. Si se reutiliza con otro body, devuelve <code>409 idempotency_conflict</code>.</p></div>
+        </section>
+      </div>
+    </main>
+
+    <footer>
+      <img src="../../images/logo-reku.svg" alt="Reku" />
+      <p>API de acuerdos v1 · <a href="mailto:hola@reku.io">hola@reku.io</a></p>
+    </footer>
+  </body>
+</html>

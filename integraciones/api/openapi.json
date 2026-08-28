@@ -1,0 +1,175 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Reku API de acuerdos",
+    "version": "1.0.0",
+    "description": "API server-to-server para consultar disponibilidad y operar turnos pagados por acuerdos no nominados."
+  },
+  "servers": [{ "url": "https://www.reku.io/api/partners/v1" }],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/agreement": {
+      "get": {
+        "summary": "Obtener el acuerdo autenticado",
+        "responses": { "200": { "description": "Acuerdo y capacidades" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/services": {
+      "get": {
+        "summary": "Listar prácticas habilitadas",
+        "responses": { "200": { "description": "Lista de prácticas" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/professionals": {
+      "get": {
+        "summary": "Listar profesionales habilitados",
+        "parameters": [{ "name": "service_id", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "responses": { "200": { "description": "Lista de profesionales" }, "422": { "$ref": "#/components/responses/ValidationError" } }
+      }
+    },
+    "/availability": {
+      "get": {
+        "summary": "Consultar disponibilidad",
+        "description": "Usar date para un día o from/to para un rango máximo de 31 días.",
+        "parameters": [
+          { "name": "service_id", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "professional_id", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": { "200": { "description": "Días y slots disponibles" }, "422": { "$ref": "#/components/responses/ValidationError" } }
+      }
+    },
+    "/appointments": {
+      "get": {
+        "summary": "Listar turnos del acuerdo",
+        "parameters": [
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["confirmed", "cancelled"] } },
+          { "name": "external_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 25 } }
+        ],
+        "responses": { "200": { "description": "Lista paginada de turnos" } }
+      },
+      "post": {
+        "summary": "Confirmar un turno ya pagado",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateAppointment" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Turno confirmado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppointmentResponse" } } } },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/appointments/{appointmentId}": {
+      "parameters": [{ "$ref": "#/components/parameters/AppointmentId" }],
+      "get": {
+        "summary": "Obtener un turno",
+        "responses": { "200": { "description": "Detalle del turno", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppointmentResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "patch": {
+        "summary": "Modificar o reprogramar un turno",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateAppointment" } } } },
+        "responses": { "200": { "description": "Turno actualizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppointmentResponse" } } } }, "409": { "$ref": "#/components/responses/Conflict" } }
+      }
+    },
+    "/appointments/{appointmentId}/cancel": {
+      "post": {
+        "summary": "Cancelar un turno",
+        "parameters": [
+          { "$ref": "#/components/parameters/AppointmentId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["reason"], "properties": { "reason": { "type": "string", "maxLength": 500 } } } } } },
+        "responses": { "200": { "description": "Turno cancelado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppointmentResponse" } } } }, "409": { "$ref": "#/components/responses/Conflict" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "Reku agreement token" }
+    },
+    "parameters": {
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "minLength": 8, "maxLength": 128 } },
+      "AppointmentId": { "name": "appointmentId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^apt_[a-f0-9]{32}$" } }
+    },
+    "schemas": {
+      "Patient": {
+        "type": "object",
+        "required": ["first_name", "last_name", "email", "phone"],
+        "properties": {
+          "first_name": { "type": "string", "maxLength": 100 },
+          "last_name": { "type": "string", "maxLength": 100 },
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "phone": { "type": "string", "maxLength": 50 }
+        }
+      },
+      "CreateAppointment": {
+        "type": "object",
+        "required": ["external_id", "service_id", "date", "start_time", "patient"],
+        "properties": {
+          "external_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$" },
+          "service_id": { "type": "integer", "minimum": 1 },
+          "professional_id": { "type": "integer", "minimum": 1, "description": "Opcional. Si se omite, Reku asigna el primer profesional disponible." },
+          "date": { "type": "string", "format": "date" },
+          "start_time": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" },
+          "payment_reference": { "type": "string", "maxLength": 200, "description": "Referencia del pago en el sistema del acuerdo. Si se omite, se usa external_id." },
+          "patient": { "$ref": "#/components/schemas/Patient" }
+        }
+      },
+      "UpdateAppointment": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "service_id": { "type": "integer", "minimum": 1 },
+          "professional_id": { "type": "integer", "minimum": 1 },
+          "date": { "type": "string", "format": "date" },
+          "start_time": { "type": "string" },
+          "payment_reference": { "type": "string", "maxLength": 200 },
+          "patient": { "$ref": "#/components/schemas/Patient" }
+        }
+      },
+      "AppointmentResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "external_id": { "type": "string" },
+              "status": { "type": "string", "enum": ["confirmed", "cancelled"] },
+              "patient": { "$ref": "#/components/schemas/Patient" },
+              "schedule": { "type": "object" },
+              "service": { "type": "object" },
+              "professional": { "type": "object" },
+              "payment": { "type": "object" },
+              "settlement": { "type": "object" }
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "request_id": { "type": "string", "format": "uuid" } } } }
+      }
+    },
+    "responses": {
+      "Unauthorized": { "description": "Token inválido o revocado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "ValidationError": { "description": "Datos inválidos", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Conflict": { "description": "Conflicto de disponibilidad, estado o idempotencia", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotFound": { "description": "Recurso no encontrado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  }
+}

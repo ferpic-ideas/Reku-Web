@@ -146,3 +146,22 @@ test("admin route policy fails closed for missing and unknown routes", () => {
     { message: "PERMISSION_DENIED" },
   );
 });
+
+test("settlements and agreement credentials are protected by dedicated permissions", () => {
+  assert.equal(
+    requiredPermissionForRequest("POST", "/api/admin/agreements/4/api-credentials"),
+    "agreements.write",
+  );
+  assert.equal(
+    requiredPermissionForRequest("POST", "/api/admin/agreements/4/api-credentials/9/revoke"),
+    "agreements.write",
+  );
+  assert.equal(
+    requiredPermissionForRequest("GET", "/api/admin/settlements/preview"),
+    "settlements.read",
+  );
+  assert.equal(
+    requiredPermissionForRequest("POST", "/api/admin/settlements"),
+    "settlements.write",
+  );
+});
