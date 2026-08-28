@@ -171,6 +171,33 @@ export const normalizeSubmission = (params) => {
     };
   }
 
+  if (formName === "booking-help") {
+    return {
+      formName,
+      to: config.patientIntakeToEmail,
+      subject: "Ayuda para sacar turno - Reku",
+      replyTo: getTrimmed(params, "email").toLowerCase(),
+      values: {
+        nombre: getTrimmed(params, "nombre"),
+        apellido: getTrimmed(params, "apellido"),
+        telefono: getTrimmed(params, "telefono"),
+        email: getTrimmed(params, "email").toLowerCase(),
+        motivo: getTrimmed(params, "motivo"),
+        acuerdo: getTrimmed(params, "acuerdo").slice(0, 180),
+        pagina: getTrimmed(params, "pagina").slice(0, 500),
+      },
+      labels: {
+        nombre: "Nombre",
+        apellido: "Apellido",
+        telefono: "Teléfono",
+        email: "Mail",
+        motivo: "Motivo de consulta",
+        acuerdo: "Acuerdo",
+        pagina: "Página de origen",
+      },
+    };
+  }
+
   if (formName === "alta-pacientes") {
     return buildPatientIntakeSubmission({
       agreementSlug: getTrimmed(params, "agreement_slug"),
@@ -213,6 +240,14 @@ export const validateBaseSubmission = (submission) => {
     if (!values.rol) errors.rol = "Seleccioná tu rol en la organización.";
     if (!values.pacientes) {
       errors.pacientes = "Seleccioná cuántos pacientes atienden al mes.";
+    }
+  }
+
+  if (formName === "booking-help") {
+    if (!values.motivo) {
+      errors.motivo = "Contanos brevemente en qué necesitás ayuda.";
+    } else if (values.motivo.length > 2_000) {
+      errors.motivo = "El motivo no puede superar los 2000 caracteres.";
     }
   }
 
@@ -358,6 +393,21 @@ const handleCongressRegistration = async (submission, request, response) => {
   }
 };
 
+const handleBookingHelp = async (submission, response) => {
+  const email = buildContactEmail(submission);
+  const result = await sendEmail({
+    formName: submission.formName,
+    to: submission.to,
+    replyTo: submission.replyTo,
+    ...email,
+  });
+  sendJson(response, 200, {
+    ok: true,
+    id: result?.id,
+    message: "Recibimos tu consulta. Te vamos a contactar a la brevedad.",
+  });
+};
+
 const handlePatientIntake = async (submission, agreement, request, response) => {
   await savePatientIntakeAndNotify({
     submission,
@@ -395,7 +445,7 @@ export const handleFormSubmission = async (request, response) => {
     const agreement = await loadSubmissionAgreement(submission);
     const baseErrors = validateBaseSubmission(submission);
 
-    if (["contact", "congreso-cokiba"].includes(submission.formName)) {
+    if (["contact", "congreso-cokiba", "booking-help"].includes(submission.formName)) {
       await enforceContactRateLimits({
         clientIp: getClientIp(request),
         email: submission.values.email,
@@ -432,6 +482,17 @@ export const handleFormSubmission = async (request, response) => {
       await handleCongressRegistration(submission, request, response);
       await recordAudit("congreso_cokiba.registration_created", {
         detail: { email: submission.values.email },
+      });
+      return;
+    }
+
+    if (submission.formName === "booking-help") {
+      await handleBookingHelp(submission, response);
+      await recordAudit("booking_help.created", {
+        detail: {
+          email: submission.values.email,
+          agreement: submission.values.acuerdo,
+        },
       });
       return;
     }

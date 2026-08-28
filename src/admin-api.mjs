@@ -574,10 +574,18 @@ const listAgreements = async (response) => {
     SELECT
       a.*,
       COUNT(DISTINCT n.id)::int AS nomina_count,
-      COUNT(DISTINCT p.id)::int AS intake_count
+      COUNT(DISTINCT p.id)::int AS intake_count,
+      COUNT(DISTINCT professional_agreement.professional_id) FILTER (
+        WHERE professional.active = TRUE
+          AND professional.deleted_at IS NULL
+      )::int AS professional_count
     FROM agreements a
     LEFT JOIN nomina_entries n ON n.agreement_id = a.id
     LEFT JOIN patient_intakes p ON p.agreement_id = a.id
+    LEFT JOIN professional_agreements professional_agreement
+      ON professional_agreement.agreement_id = a.id
+    LEFT JOIN professionals professional
+      ON professional.id = professional_agreement.professional_id
     WHERE a.deleted_at IS NULL
     GROUP BY a.id
     ORDER BY a.created_at DESC
@@ -600,6 +608,7 @@ const mapAgreement = (row) => ({
   payment_treatment_url: row.payment_treatment_url || "",
   nomina_count: Number(row.nomina_count || 0),
   intake_count: Number(row.intake_count || 0),
+  professional_count: Number(row.professional_count || 0),
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -1423,6 +1432,7 @@ const mapProfessional = (row) => ({
   bio: row.bio || "",
   phone: row.phone || "",
   services: row.services || [],
+  agreements: row.agreements || [],
   availability: row.availability || [],
   has_user: Boolean(
     row.user_id && row.user_role === "professional" && row.user_is_active,
@@ -1436,6 +1446,12 @@ const mapProfessional = (row) => ({
   invitation_email_error: row.invitation_email_error || "",
   calendar_connected: row.google_calendar_status === "active",
   calendar_status: row.google_calendar_status || "not_connected",
+  notifications_connected: Boolean(
+    config.webPushVapidPublicKey &&
+      config.webPushVapidPrivateKey &&
+      Number(row.push_mobile_devices || 0) > 0,
+  ),
+  push_mobile_devices: Number(row.push_mobile_devices || 0),
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -1448,6 +1464,7 @@ const professionalSelect = `
     pu.role AS user_role,
     pu.is_active AS user_is_active,
     pgc.status AS google_calendar_status,
+    COALESCE(push_devices.mobile_devices, 0)::int AS push_mobile_devices,
     pending_invitation.id AS invitation_id,
     pending_invitation.expires_at AS invitation_expires_at,
     pending_invitation.sent_at AS invitation_sent_at,
@@ -1462,6 +1479,19 @@ const professionalSelect = `
       ),
       '[]'::json
     ) AS services,
+    COALESCE(
+      (
+        SELECT json_agg(
+          json_build_object('id', agreement.id, 'name', agreement.name)
+          ORDER BY agreement.name
+        )
+        FROM professional_agreements relation
+        INNER JOIN agreements agreement ON agreement.id = relation.agreement_id
+        WHERE relation.professional_id = p.id
+          AND agreement.deleted_at IS NULL
+      ),
+      '[]'::json
+    ) AS agreements,
     COALESCE(
       (
         SELECT json_agg(
@@ -1480,6 +1510,13 @@ const professionalSelect = `
   FROM professionals p
   LEFT JOIN users pu ON pu.professional_id = p.id
   LEFT JOIN professional_google_connections pgc ON pgc.professional_id = p.id
+  LEFT JOIN LATERAL (
+    SELECT COUNT(*)::int AS mobile_devices
+    FROM professional_push_subscriptions subscription
+    WHERE subscription.professional_id = p.id
+      AND subscription.active = TRUE
+      AND subscription.device_kind = 'mobile'
+  ) push_devices ON TRUE
   LEFT JOIN LATERAL (
     SELECT invitation.id, invitation.expires_at, invitation.sent_at, invitation.email_error
     FROM professional_invitations invitation
@@ -1513,7 +1550,13 @@ const getProfessionalMapped = async (id) => {
   return result.rows[0] ? mapProfessional(result.rows[0]) : null;
 };
 
-const replaceProfessionalRelations = async (client, professionalId, serviceIds, availability) => {
+const replaceProfessionalRelations = async (
+  client,
+  professionalId,
+  serviceIds,
+  agreementIds,
+  availability,
+) => {
   await client.query("DELETE FROM professional_services WHERE professional_id = $1", [
     professionalId,
   ]);
@@ -1525,6 +1568,20 @@ const replaceProfessionalRelations = async (client, professionalId, serviceIds, 
         ON CONFLICT DO NOTHING
       `,
       [professionalId, serviceId],
+    );
+  }
+
+  await client.query("DELETE FROM professional_agreements WHERE professional_id = $1", [
+    professionalId,
+  ]);
+  for (const agreementId of agreementIds) {
+    await client.query(
+      `
+        INSERT INTO professional_agreements (professional_id, agreement_id)
+        VALUES ($1, $2)
+        ON CONFLICT DO NOTHING
+      `,
+      [professionalId, agreementId],
     );
   }
 
@@ -1554,6 +1611,9 @@ const professionalPayloadFromMultipart = async (request) => {
   const serviceIds = [
     ...new Set(parseJsonArray(fields.service_ids).map((value) => parsePositiveInteger(value))),
   ];
+  const agreementIds = [
+    ...new Set(parseJsonArray(fields.agreement_ids).map((value) => parsePositiveInteger(value))),
+  ];
   const availability = normalizeAvailability(fields.availability);
   const password = String(fields.account_password || "");
 
@@ -1572,6 +1632,11 @@ const professionalPayloadFromMultipart = async (request) => {
     error.statusCode = 422;
     throw error;
   }
+  if (!agreementIds.length) {
+    const error = new Error("PROFESSIONAL_AGREEMENT_REQUIRED");
+    error.statusCode = 422;
+    throw error;
+  }
   if (!availability.length) {
     const error = new Error("PROFESSIONAL_AVAILABILITY_REQUIRED");
     error.statusCode = 422;
@@ -1587,6 +1652,7 @@ const professionalPayloadFromMultipart = async (request) => {
       bio,
       phone,
       serviceIds,
+      agreementIds,
       availability,
       active: fields.active !== "false",
       remove_photo: fields.remove_photo === "true",
@@ -1625,6 +1691,7 @@ const createProfessional = async (request, response, user) => {
       client,
       id,
       payload.fields.serviceIds,
+      payload.fields.agreementIds,
       payload.fields.availability,
     );
     const account = await syncProfessionalUser(client, {
@@ -1825,6 +1892,7 @@ const updateProfessional = async (request, response, user, id) => {
       client,
       id,
       payload.fields.serviceIds,
+      payload.fields.agreementIds,
       payload.fields.availability,
     );
     if (current.invitation_pending && !passwordHash) {
@@ -2149,6 +2217,8 @@ const listAdminAppointmentSlots = async (url, response, appointmentId) => {
     date: appointmentDate,
     excludeAppointmentId: appointmentId,
     minimumNoticeMinutes: 0,
+    agreementId: appointment.agreement_id ? Number(appointment.agreement_id) : null,
+    selectionValidated: professionalId === Number(appointment.professional_id),
   });
   if (
     professionalId === Number(appointment.professional_id) &&
@@ -2185,6 +2255,8 @@ const updateAdminAppointment = async (request, response, user, appointmentId) =>
     date: appointmentDate,
     excludeAppointmentId: appointmentId,
     minimumNoticeMinutes: 0,
+    agreementId: initial.agreement_id ? Number(initial.agreement_id) : null,
+    selectionValidated: professionalId === Number(initial.professional_id),
   });
   if (!slots.includes(startTime)) {
     throw appointmentManagementError("ADMIN_APPOINTMENT_SLOT_TAKEN");
@@ -2215,6 +2287,16 @@ const updateAdminAppointment = async (request, response, user, appointmentId) =>
           AND professional.active = TRUE
           AND professional.deleted_at IS NULL
           AND (
+            relation.professional_id = $4
+            OR $5::bigint IS NULL
+            OR EXISTS (
+              SELECT 1
+              FROM professional_agreements professional_agreement
+              WHERE professional_agreement.professional_id = professional.id
+                AND professional_agreement.agreement_id = $5
+            )
+          )
+          AND (
             $3::boolean = FALSE
             OR EXISTS (
               SELECT 1
@@ -2224,7 +2306,13 @@ const updateAdminAppointment = async (request, response, user, appointmentId) =>
             )
           )
       `,
-      [professionalId, current.service_id, config.googleCalendarRequired],
+      [
+        professionalId,
+        current.service_id,
+        config.googleCalendarRequired,
+        current.professional_id,
+        current.agreement_id,
+      ],
     );
     if (!eligible.rows[0]) {
       throw appointmentManagementError("ADMIN_APPOINTMENT_PROFESSIONAL_INVALID", 422);
@@ -2286,6 +2374,16 @@ const updateAdminAppointment = async (request, response, user, appointmentId) =>
             professional_followup_notified_at = NULL,
             professional_followup_notification_message_id = NULL,
             professional_followup_notification_error = NULL,
+            patient_waiting_started_at = NULL,
+            patient_waiting_last_seen_at = NULL,
+            patient_waiting_professional_attempted_at = NULL,
+            patient_waiting_professional_notified_at = NULL,
+            patient_waiting_professional_message_id = NULL,
+            patient_waiting_professional_error = NULL,
+            patient_waiting_escalation_attempted_at = NULL,
+            patient_waiting_escalated_at = NULL,
+            patient_waiting_escalation_message_id = NULL,
+            patient_waiting_escalation_error = NULL,
             google_calendar_event_id = CASE WHEN $6 THEN NULL ELSE google_calendar_event_id END,
             google_calendar_event_url = CASE WHEN $6 THEN NULL ELSE google_calendar_event_url END,
             google_meet_url = CASE WHEN $6 THEN NULL ELSE google_meet_url END,
@@ -2956,6 +3054,10 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (error.message === "PROFESSIONAL_SERVICE_REQUIRED") {
       sendJson(response, 422, { error: "Seleccioná al menos un servicio." });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_AGREEMENT_REQUIRED") {
+      sendJson(response, 422, { error: "Seleccioná al menos un acuerdo." });
       return true;
     }
     if (error.message === "PROFESSIONAL_AVAILABILITY_REQUIRED") {

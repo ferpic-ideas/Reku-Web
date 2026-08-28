@@ -824,6 +824,28 @@ tr:hover td {
   background: #fff3d6;
 }
 
+.agreement-professional-count,
+.agreement-professional-warning {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.agreement-professional-count {
+  color: #17685f;
+  background: #dff6f1;
+}
+
+.agreement-professional-warning {
+  color: #805b12;
+  background: #fff3d6;
+}
+
 .access-statuses {
   display: grid;
   justify-items: start;

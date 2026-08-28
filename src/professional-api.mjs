@@ -34,6 +34,14 @@ import {
   mapAppointmentDocument,
   streamProfessionalAppointmentDocument,
 } from "./appointment-documents.mjs";
+import {
+  disableProfessionalPushSubscription,
+  getProfessionalPushStatus,
+  isProfessionalPushSubscriptionActive,
+  saveProfessionalPushSubscription,
+  sendPushToProfessional,
+} from "./web-push.mjs";
+import { sendProfessionalPushActivationEmail } from "./professional-push-notifications.mjs";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -1148,6 +1156,108 @@ export const handleProfessionalApi = async (request, response, url) => {
       return true;
     }
     if (
+      pathname === "/api/professional/notifications/push" &&
+      request.method === "GET"
+    ) {
+      sendJson(response, 200, {
+        push: await getProfessionalPushStatus(account.user.professional_id),
+      });
+      return true;
+    }
+    if (
+      pathname === "/api/professional/notifications/push/subscriptions" &&
+      request.method === "POST"
+    ) {
+      const payload = await parseJsonBody(request);
+      const push = await saveProfessionalPushSubscription({
+        professionalId: account.user.professional_id,
+        userId: account.user.id,
+        subscription: payload.subscription,
+        deviceLabel: payload.device_label,
+        deviceKind: payload.device_kind,
+        userAgent: request.headers["user-agent"] || "",
+      });
+      sendJson(response, 200, { ok: true, push });
+      return true;
+    }
+    if (
+      pathname === "/api/professional/notifications/push/subscriptions/check" &&
+      request.method === "POST"
+    ) {
+      const payload = await parseJsonBody(request);
+      sendJson(response, 200, {
+        active: await isProfessionalPushSubscriptionActive({
+          professionalId: account.user.professional_id,
+          endpoint: payload.endpoint,
+        }),
+      });
+      return true;
+    }
+    if (
+      pathname === "/api/professional/notifications/push/subscriptions" &&
+      request.method === "DELETE"
+    ) {
+      const payload = await parseJsonBody(request);
+      const push = await disableProfessionalPushSubscription({
+        professionalId: account.user.professional_id,
+        userId: account.user.id,
+        endpoint: payload.endpoint,
+      });
+      sendJson(response, 200, { ok: true, push });
+      return true;
+    }
+    const pushSubscriptionMatch = pathname.match(
+      /^\/api\/professional\/notifications\/push\/subscriptions\/(\d+)$/,
+    );
+    if (pushSubscriptionMatch && request.method === "DELETE") {
+      const push = await disableProfessionalPushSubscription({
+        professionalId: account.user.professional_id,
+        userId: account.user.id,
+        subscriptionId: Number(pushSubscriptionMatch[1]),
+      });
+      sendJson(response, 200, { ok: true, push });
+      return true;
+    }
+    if (
+      pathname === "/api/professional/notifications/push/test" &&
+      request.method === "POST"
+    ) {
+      const result = await sendPushToProfessional(
+        account.user.professional_id,
+        {
+          title: "Notificaciones de Reku activadas",
+          body: "Este teléfono ya puede avisarte cuando un paciente esté esperando.",
+          url: "/profesional/?module=profile",
+          tag: "reku-push-test",
+        },
+        {
+          actorUserId: account.user.id,
+          eventType: "professional.push.test_sent",
+        },
+      );
+      sendJson(response, 200, {
+        ok: result.delivered > 0,
+        message:
+          result.delivered > 0
+            ? "Enviamos una notificación de prueba."
+            : "No pudimos entregar la prueba. Revisá los permisos del teléfono.",
+        result,
+        push: await getProfessionalPushStatus(account.user.professional_id),
+      });
+      return true;
+    }
+    if (
+      pathname === "/api/professional/notifications/push/activation-email" &&
+      request.method === "POST"
+    ) {
+      await sendProfessionalPushActivationEmail({ account });
+      sendJson(response, 200, {
+        ok: true,
+        message: `Te enviamos el enlace a ${account.professional.email || account.user.email}.`,
+      });
+      return true;
+    }
+    if (
       pathname === "/api/professional/integrations/google" &&
       request.method === "GET"
     ) {
@@ -1299,6 +1409,30 @@ export const handleProfessionalApi = async (request, response, url) => {
       sendJson(response, 403, { error: "La sesión no pudo validar la operación." });
       return true;
     }
+    if (error.message === "PUSH_NOT_CONFIGURED") {
+      sendJson(response, 503, {
+        error: "Las notificaciones todavía no están habilitadas por Reku.",
+      });
+      return true;
+    }
+    if (error.message === "PUSH_SUBSCRIPTION_INVALID") {
+      sendJson(response, 422, {
+        error: "El navegador devolvió una suscripción inválida. Probá nuevamente.",
+      });
+      return true;
+    }
+    if (error.message === "PUSH_SUBSCRIPTION_CONFLICT") {
+      sendJson(response, 409, {
+        error: "Ese dispositivo está asociado a otra cuenta profesional.",
+      });
+      return true;
+    }
+    if (error.message === "PUSH_ACTIVATION_EMAIL_RATE_LIMITED") {
+      sendJson(response, 429, {
+        error: "Ya enviamos el enlace. Revisá tu mail o esperá unos minutos para reenviarlo.",
+      });
+      return true;
+    }
     if (error.message === "APPOINTMENT_NOT_CANCELLABLE") {
       sendJson(response, 409, { error: "Ese turno ya no se puede cancelar." });
       return true;
@@ -1323,7 +1457,7 @@ export const handleProfessionalApi = async (request, response, url) => {
       ["EMAIL_SEND_FAILED", "EMAIL_CONFIGURATION_MISSING"].includes(error.message)
     ) {
       sendJson(response, 502, {
-        error: "No se pudo enviar el recordatorio. Probá nuevamente en unos minutos.",
+        error: "No se pudo enviar el mail. Probá nuevamente en unos minutos.",
       });
       return true;
     }

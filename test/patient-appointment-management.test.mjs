@@ -110,7 +110,7 @@ test("Meet access is limited to the appointment window", () => {
   );
 });
 
-test("agenda keeps patient management focused on Meet, triage and studies", async () => {
+test("agenda exposes the allowed patient management actions", async () => {
   const [source, styles] = await Promise.all([
     readFile(new URL("../agenda/app.js", import.meta.url), "utf8"),
     readFile(new URL("../agenda/styles.css", import.meta.url), "utf8"),
@@ -130,7 +130,9 @@ test("agenda keeps patient management focused on Meet, triage and studies", asyn
   assert.match(styles, /\[aria-expanded='true'\][^{]*management-documents-toggle-icon\s*\{[^}]*rotate\(180deg\)/s);
   assert.match(source, /management-documents-form/);
   assert.match(source, /\/api\/booking\/manage\/documents/);
-  assert.doesNotMatch(managementView, /open-management-reschedule/);
+  assert.match(managementView, /open-management-reschedule/);
+  assert.match(managementView, /capabilities\.can_reschedule/);
+  assert.match(managementView, />Mover turno<\/button>/);
   assert.doesNotMatch(managementView, /calendarActions\(/);
   assert.match(source, /\/api\/booking\/manage\/calendar\.ics/);
   assert.match(source, /\/api\/booking\/manage\/google-calendar/);

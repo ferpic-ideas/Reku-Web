@@ -40,6 +40,10 @@ import {
   getGoogleBusyRanges,
   holdAppointmentOnGoogleCalendar,
 } from "./google-calendar.mjs";
+import {
+  getPatientMeetWaitingRoomStatus,
+  patientMeetTimeAccess,
+} from "./patient-meet-waiting.mjs";
 import { ensureAppointmentTriage } from "./appointment-triage.mjs";
 import { parseMultipartForm } from "./uploads.mjs";
 import {
@@ -552,7 +556,7 @@ const exchangeBookingAccess = async (request, payload, response, url) => {
   );
 };
 
-const listProfessionals = async (url, response) => {
+const listProfessionals = async (url, response, agreementId = null) => {
   const serviceId = Number(url.searchParams.get("service_id"));
   if (!serviceId) {
     sendJson(response, 422, { error: "Seleccioná un servicio." });
@@ -567,7 +571,16 @@ const listProfessionals = async (url, response) => {
         AND p.deleted_at IS NULL
         AND p.active = TRUE
         AND (
-          $2::boolean = FALSE
+          $2::bigint IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM professional_agreements pa
+            WHERE pa.professional_id = p.id
+              AND pa.agreement_id = $2
+          )
+        )
+        AND (
+          $3::boolean = FALSE
           OR EXISTS (
             SELECT 1
             FROM professional_google_connections pgc
@@ -577,12 +590,12 @@ const listProfessionals = async (url, response) => {
         )
       ORDER BY p.name ASC
     `,
-    [serviceId, config.googleCalendarRequired],
+    [serviceId, agreementId, config.googleCalendarRequired],
   );
   sendJson(response, 200, { professionals: result.rows.map(mapProfessional) });
 };
 
-const loadEligibleProfessionals = async (serviceId) => {
+const loadEligibleProfessionals = async (serviceId, agreementId = null) => {
   const result = await query(
     `
       SELECT
@@ -598,7 +611,16 @@ const loadEligibleProfessionals = async (serviceId) => {
         AND p.deleted_at IS NULL
         AND p.active = TRUE
         AND (
-          $2::boolean = FALSE
+          $2::bigint IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM professional_agreements pa
+            WHERE pa.professional_id = p.id
+              AND pa.agreement_id = $2
+          )
+        )
+        AND (
+          $3::boolean = FALSE
           OR EXISTS (
             SELECT 1
             FROM professional_google_connections pgc
@@ -609,7 +631,7 @@ const loadEligibleProfessionals = async (serviceId) => {
       GROUP BY p.id
       ORDER BY COUNT(upcoming.id), p.name, p.id
     `,
-    [serviceId, config.googleCalendarRequired],
+    [serviceId, agreementId, config.googleCalendarRequired],
   );
   return result.rows;
 };
@@ -638,7 +660,11 @@ const loadProfessional = async (professionalId) =>
     [professionalId],
   );
 
-const professionalSupportsService = async (professionalId, serviceId) =>
+const professionalSupportsService = async (
+  professionalId,
+  serviceId,
+  agreementId = null,
+) =>
   one(
     `
       SELECT 1
@@ -649,7 +675,16 @@ const professionalSupportsService = async (professionalId, serviceId) =>
         AND p.active = TRUE
         AND p.deleted_at IS NULL
         AND (
-          $3::boolean = FALSE
+          $3::bigint IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM professional_agreements pa
+            WHERE pa.professional_id = p.id
+              AND pa.agreement_id = $3
+          )
+        )
+        AND (
+          $4::boolean = FALSE
           OR EXISTS (
             SELECT 1
             FROM professional_google_connections pgc
@@ -658,7 +693,7 @@ const professionalSupportsService = async (professionalId, serviceId) =>
           )
         )
     `,
-    [professionalId, serviceId, config.googleCalendarRequired],
+    [professionalId, serviceId, agreementId, config.googleCalendarRequired],
   );
 
 export const computeSlots = async ({
@@ -670,6 +705,7 @@ export const computeSlots = async ({
   selectionValidated = false,
   excludeAppointmentId = null,
   minimumNoticeMinutes = 30,
+  agreementId = null,
 }) => {
   const parsedDate = new Date(`${date}T00:00:00Z`);
   if (
@@ -685,7 +721,8 @@ export const computeSlots = async ({
   const service = preloadedService || (await loadService(serviceId));
   if (
     !service ||
-    (!selectionValidated && !(await professionalSupportsService(professionalId, serviceId)))
+    (!selectionValidated &&
+      !(await professionalSupportsService(professionalId, serviceId, agreementId)))
   ) {
     const error = new Error("BOOKING_SELECTION_INVALID");
     error.statusCode = 422;
@@ -764,10 +801,10 @@ export const computeSlots = async ({
   return { service, slots };
 };
 
-const computeFirstAvailableSlots = async ({ serviceId, date }) => {
+const computeFirstAvailableSlots = async ({ serviceId, date, agreementId = null }) => {
   const [service, professionals] = await Promise.all([
     loadService(serviceId),
-    loadEligibleProfessionals(serviceId),
+    loadEligibleProfessionals(serviceId, agreementId),
   ]);
   if (!service) {
     const error = new Error("BOOKING_SELECTION_INVALID");
@@ -784,6 +821,7 @@ const computeFirstAvailableSlots = async ({ serviceId, date }) => {
           date,
           preloadedService: service,
           selectionValidated: true,
+          agreementId,
         })
       ).slots,
     })),
@@ -806,12 +844,12 @@ export const mapFirstAvailableSlotProfessionals = ({ slots, availability }) =>
     }),
   );
 
-const listSlots = async (url, response) => {
+const listSlots = async (url, response, agreementId = null) => {
   const serviceId = Number(url.searchParams.get("service_id"));
   const requestedProfessionalId = String(url.searchParams.get("professional_id") || "");
   const date = String(url.searchParams.get("date") || "");
   if (requestedProfessionalId === firstAvailableProfessionalId) {
-    const result = await computeFirstAvailableSlots({ serviceId, date });
+    const result = await computeFirstAvailableSlots({ serviceId, date, agreementId });
     sendJson(response, 200, {
       slots: result.slots,
       slot_professionals: mapFirstAvailableSlotProfessionals(result),
@@ -822,11 +860,12 @@ const listSlots = async (url, response) => {
     serviceId,
     professionalId: Number(requestedProfessionalId),
     date,
+    agreementId,
   });
   sendJson(response, 200, { slots, slot_professionals: {} });
 };
 
-const listDays = async (url, response) => {
+const listDays = async (url, response, agreementId = null) => {
   const serviceId = Number(url.searchParams.get("service_id"));
   const requestedProfessionalId = String(url.searchParams.get("professional_id") || "");
   const firstAvailable = requestedProfessionalId === firstAvailableProfessionalId;
@@ -846,7 +885,7 @@ const listDays = async (url, response) => {
       : `${year}-${String(monthNumber + 1).padStart(2, "0")}-01`;
   const service = await loadService(serviceId);
   const professionals = firstAvailable
-    ? await loadEligibleProfessionals(serviceId)
+    ? await loadEligibleProfessionals(serviceId, agreementId)
     : [{ id: professionalId }];
   if (!service || !professionals.length) {
     sendJson(response, 200, { days: [] });
@@ -876,6 +915,7 @@ const listDays = async (url, response) => {
           externalBusyRanges: googleBusyByProfessional.get(id)?.[date] || [],
           preloadedService: service,
           selectionValidated: firstAvailable,
+          agreementId,
         });
       }),
     );
@@ -887,6 +927,7 @@ const listDays = async (url, response) => {
 
 const createAppointment = async (payload, response, url, link) => {
   const serviceId = Number(payload.service_id);
+  const agreementId = link.agreement?.id || null;
   const automaticProfessional =
     payload.first_available === true ||
     String(payload.professional_id || "") === firstAvailableProfessionalId;
@@ -907,14 +948,19 @@ const createAppointment = async (payload, response, url, link) => {
   let service;
   let candidates;
   if (automaticProfessional) {
-    const availability = await computeFirstAvailableSlots({ serviceId, date });
+    const availability = await computeFirstAvailableSlots({ serviceId, date, agreementId });
     service = availability.service;
     candidates = availability.availability
       .filter((item) => item.slots.includes(startTime))
       .map((item) => item.professional);
   } else {
     const professionalId = Number(payload.professional_id);
-    const availability = await computeSlots({ serviceId, professionalId, date });
+    const availability = await computeSlots({
+      serviceId,
+      professionalId,
+      date,
+      agreementId,
+    });
     service = availability.service;
     const professional = availability.slots.includes(startTime)
       ? await loadProfessional(professionalId)
@@ -1250,41 +1296,8 @@ export const patientAppointmentCapabilities = (appointment) => {
 
 export const patientMeetAccess = (
   appointment,
-  {
-    now = Date.now(),
-    earlyMinutes = config.patientMeetEarlyMinutes,
-    lateMinutes = config.patientMeetLateMinutes,
-  } = {},
-) => {
-  const startsAt = new Date(appointment.starts_at || "");
-  const endsAt = new Date(appointment.ends_at || "");
-  const hasValidSchedule =
-    Number.isFinite(startsAt.getTime()) && Number.isFinite(endsAt.getTime());
-  const availableFrom = hasValidSchedule
-    ? new Date(startsAt.getTime() - earlyMinutes * 60_000)
-    : null;
-  const availableUntil = hasValidSchedule
-    ? new Date(endsAt.getTime() + lateMinutes * 60_000)
-    : null;
-  let state = "not_configured";
-
-  if (appointment.status !== "confirmed") state = "unavailable";
-  else if (!appointment.google_meet_url) state = "not_configured";
-  else if (!hasValidSchedule) state = "unavailable";
-  else if (now < availableFrom.getTime()) state = "upcoming";
-  else if (now <= availableUntil.getTime()) state = "available";
-  else state = "finished";
-
-  return {
-    available: state === "available",
-    state,
-    available_from: availableFrom?.toISOString() || null,
-    available_until: availableUntil?.toISOString() || null,
-    early_minutes: earlyMinutes,
-    late_minutes: lateMinutes,
-    time_zone: config.googleCalendarTimeZone,
-  };
-};
+  options = {},
+) => patientMeetTimeAccess(appointment, options);
 
 const mapManagedAppointment = (row) => ({
   id: Number(row.id),
@@ -1540,16 +1553,36 @@ const patientMeetUnavailableMessage = (appointment, access) => {
   if (access.state === "not_configured") {
     return `La videollamada todavía no fue habilitada. ${schedule}`;
   }
+  if (access.state === "waiting_early") {
+    return `Ya estás en la sala de espera. ${schedule} El ingreso se habilitará cuando comience la videollamada.`;
+  }
+  if (access.state === "waiting_professional") {
+    return `Tu profesional todavía no ingresó. Debería llegar en cualquier momento y ya estamos avisándole que estás esperando. ${schedule}`;
+  }
+  if (access.state === "checking") {
+    return `Estamos verificando si la videollamada ya comenzó. Esperá unos segundos; esta pantalla se actualiza automáticamente. ${schedule}`;
+  }
   return `La videollamada no está disponible para este turno. ${schedule}`;
+};
+
+const getPatientManagedMeetStatus = async (request, response) => {
+  enforcePatientAppointmentOrigin(request);
+  const { appointment } = await requireManagedAppointment(request);
+  const waitingRoom = await getPatientMeetWaitingRoomStatus({ appointment });
+  sendJson(response, 200, {
+    appointment: mapManagedAppointment(appointment),
+    waiting_room: waitingRoom,
+  });
 };
 
 const enterPatientManagedMeet = async (request, response) => {
   const { session, appointment } = await requireManagedAppointment(request);
-  const access = patientMeetAccess(appointment);
-  if (!access.available) {
+  const access = await getPatientMeetWaitingRoomStatus({ appointment });
+  if (!access.can_enter) {
     sendJson(response, 409, {
       error: patientMeetUnavailableMessage(appointment, access),
       appointment: mapManagedAppointment(appointment),
+      waiting_room: access,
     });
     return;
   }
@@ -1722,6 +1755,16 @@ const reschedulePatientAppointment = async (request, response) => {
             professional_followup_notified_at = NULL,
             professional_followup_notification_message_id = NULL,
             professional_followup_notification_error = NULL,
+            patient_waiting_started_at = NULL,
+            patient_waiting_last_seen_at = NULL,
+            patient_waiting_professional_attempted_at = NULL,
+            patient_waiting_professional_notified_at = NULL,
+            patient_waiting_professional_message_id = NULL,
+            patient_waiting_professional_error = NULL,
+            patient_waiting_escalation_attempted_at = NULL,
+            patient_waiting_escalated_at = NULL,
+            patient_waiting_escalation_message_id = NULL,
+            patient_waiting_escalation_error = NULL,
             updated_at = NOW()
         WHERE id = $1
       `,
@@ -2152,6 +2195,13 @@ export const handleBookingApi = async (request, response, url) => {
       return true;
     }
     if (
+      pathname === "/api/booking/manage/meet-status" &&
+      request.method === "POST"
+    ) {
+      await getPatientManagedMeetStatus(request, response);
+      return true;
+    }
+    if (
       pathname === "/api/booking/manage/calendar.ics" &&
       request.method === "GET"
     ) {
@@ -2263,15 +2313,15 @@ export const handleBookingApi = async (request, response, url) => {
       return true;
     }
     if (pathname === "/api/booking/professionals" && request.method === "GET") {
-      await listProfessionals(url, response);
+      await listProfessionals(url, response, link.agreement?.id || null);
       return true;
     }
     if (pathname === "/api/booking/days" && request.method === "GET") {
-      await listDays(url, response);
+      await listDays(url, response, link.agreement?.id || null);
       return true;
     }
     if (pathname === "/api/booking/slots" && request.method === "GET") {
-      await listSlots(url, response);
+      await listSlots(url, response, link.agreement?.id || null);
       return true;
     }
     if (pathname === "/api/booking/payment-status" && request.method === "GET") {

@@ -12,6 +12,7 @@ export const mimeTypes = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -217,7 +218,7 @@ const publicMounts = [
   {
     prefix: "/profesional/",
     directory: join(root, "profesional"),
-    extensions: new Set([".html", ".css", ".js"]),
+    extensions: new Set([".html", ".css", ".js", ".webmanifest", ".png"]),
   },
   {
     prefix: "/alta-pacientes/",

@@ -177,7 +177,9 @@ const server = createServer(async (request, response) => {
 
     if (
       request.method === "POST" &&
-      ["/", "/congreso-cokiba", "/congreso-cokiba/"].includes(pathname)
+      ["/", "/congreso-cokiba", "/congreso-cokiba/", "/turnos", "/turnos/"].includes(
+        pathname,
+      )
     ) {
       await handleFormSubmission(request, response);
       return;

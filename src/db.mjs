@@ -264,6 +264,15 @@ export const initDb = async () => {
       PRIMARY KEY (professional_id, service_id)
     );
 
+    CREATE TABLE IF NOT EXISTS professional_agreements (
+      professional_id BIGINT NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
+      agreement_id BIGINT NOT NULL REFERENCES agreements(id) ON DELETE CASCADE,
+      PRIMARY KEY (professional_id, agreement_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS professional_agreements_agreement_idx
+      ON professional_agreements (agreement_id, professional_id);
+
     CREATE TABLE IF NOT EXISTS professional_availability (
       id BIGSERIAL PRIMARY KEY,
       professional_id BIGINT NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
@@ -399,6 +408,19 @@ export const initDb = async () => {
       professional_followup_notified_at TIMESTAMPTZ,
       professional_followup_notification_message_id TEXT,
       professional_followup_notification_error TEXT,
+      patient_waiting_started_at TIMESTAMPTZ,
+      patient_waiting_last_seen_at TIMESTAMPTZ,
+      patient_waiting_professional_attempted_at TIMESTAMPTZ,
+      patient_waiting_professional_notified_at TIMESTAMPTZ,
+      patient_waiting_professional_message_id TEXT,
+      patient_waiting_professional_error TEXT,
+      patient_waiting_professional_push_attempted_at TIMESTAMPTZ,
+      patient_waiting_professional_push_notified_at TIMESTAMPTZ,
+      patient_waiting_professional_push_error TEXT,
+      patient_waiting_escalation_attempted_at TIMESTAMPTZ,
+      patient_waiting_escalated_at TIMESTAMPTZ,
+      patient_waiting_escalation_message_id TEXT,
+      patient_waiting_escalation_error TEXT,
       cancelled_at TIMESTAMPTZ,
       cancelled_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
       cancellation_reason TEXT,
@@ -447,7 +469,20 @@ export const initDb = async () => {
       ADD COLUMN IF NOT EXISTS patient_followup_notification_error TEXT,
       ADD COLUMN IF NOT EXISTS professional_followup_notified_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS professional_followup_notification_message_id TEXT,
-      ADD COLUMN IF NOT EXISTS professional_followup_notification_error TEXT;
+      ADD COLUMN IF NOT EXISTS professional_followup_notification_error TEXT,
+      ADD COLUMN IF NOT EXISTS patient_waiting_started_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS patient_waiting_last_seen_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS patient_waiting_professional_attempted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS patient_waiting_professional_notified_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS patient_waiting_professional_message_id TEXT,
+      ADD COLUMN IF NOT EXISTS patient_waiting_professional_error TEXT,
+      ADD COLUMN IF NOT EXISTS patient_waiting_professional_push_attempted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS patient_waiting_professional_push_notified_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS patient_waiting_professional_push_error TEXT,
+      ADD COLUMN IF NOT EXISTS patient_waiting_escalation_attempted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS patient_waiting_escalated_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS patient_waiting_escalation_message_id TEXT,
+      ADD COLUMN IF NOT EXISTS patient_waiting_escalation_error TEXT;
 
     UPDATE appointments a
       SET patient_name = CASE
@@ -513,6 +548,9 @@ export const initDb = async () => {
     CREATE INDEX IF NOT EXISTS appointments_professional_followup_pending_idx
       ON appointments (appointment_date, start_time)
       WHERE status = 'confirmed' AND professional_followup_notified_at IS NULL;
+    CREATE INDEX IF NOT EXISTS appointments_patient_waiting_idx
+      ON appointments (appointment_date, start_time)
+      WHERE status = 'confirmed' AND patient_waiting_started_at IS NOT NULL;
     CREATE INDEX IF NOT EXISTS appointments_payment_reference_idx
       ON appointments (payment_external_reference)
       WHERE payment_external_reference IS NOT NULL;
@@ -535,6 +573,30 @@ export const initDb = async () => {
       ON audit_events (created_at DESC);
     CREATE INDEX IF NOT EXISTS audit_events_actor_user_id_idx
       ON audit_events (actor_user_id);
+
+    CREATE TABLE IF NOT EXISTS professional_push_subscriptions (
+      id BIGSERIAL PRIMARY KEY,
+      professional_id BIGINT NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
+      user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      device_label TEXT NOT NULL DEFAULT '',
+      device_kind TEXT NOT NULL DEFAULT 'desktop'
+        CHECK (device_kind IN ('mobile', 'desktop')),
+      user_agent TEXT NOT NULL DEFAULT '',
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_success_at TIMESTAMPTZ,
+      last_failure_at TIMESTAMPTZ,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      disabled_at TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS professional_push_subscriptions_professional_idx
+      ON professional_push_subscriptions (professional_id, active, device_kind);
   `);
 
   await runMigrations(pool);

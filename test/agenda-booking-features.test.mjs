@@ -24,7 +24,7 @@ test("the selected calendar day uses the same highlighted state as a selected ti
   assert.match(styles, /\.date-button\.available\.active\s*\{[^}]*border-color:\s*var\(--accent\)/s);
   assert.match(styles, /\.date-button\.available\.active\s*\{[^}]*background:\s*var\(--accent-soft\)/s);
   assert.match(styles, /\.date-button\.available\.active\s*\{[^}]*color:\s*var\(--accent\)/s);
-  assert.match(styles, /\.documents-submit-button\s*\{[^}]*background:\s*#e5e7eb/s);
+  assert.match(styles, /\.documents-submit-button\s*\{[^}]*background:\s*#dff5e8/s);
 });
 
 test("success keeps documentation collapsed and confirms below its submit button", async () => {

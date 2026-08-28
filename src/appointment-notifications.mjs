@@ -174,7 +174,11 @@ export const professionalFollowupHtml = ({ appointment, link }) => `
   </div>
 `;
 
-export const patientConfirmationText = ({ appointment, manageUrl = "" }) =>
+export const patientConfirmationText = ({
+  appointment,
+  manageUrl = "",
+  meetUrl = manageUrl,
+}) =>
   [
     isRescheduled(appointment)
       ? "Tu turno en Reku fue reprogramado"
@@ -202,14 +206,18 @@ export const patientConfirmationText = ({ appointment, manageUrl = "" }) =>
           appointment.triage_url,
         ]
       : []),
-    ...patientMeetTextLines(appointment, manageUrl),
+    ...patientMeetTextLines(appointment, meetUrl),
     "",
     "Te enviaremos otro recordatorio aproximadamente 24 horas antes.",
     "",
     "Te esperamos.",
   ].join("\n");
 
-export const patientConfirmationHtml = ({ appointment, manageUrl = "" }) => `
+export const patientConfirmationHtml = ({
+  appointment,
+  manageUrl = "",
+  meetUrl = manageUrl,
+}) => `
   <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
     <h1 style="font-size:24px;margin:0 0 16px">${isRescheduled(appointment) ? "Tu turno fue reprogramado" : "Tu turno quedó confirmado"}</h1>
     <p>${isRescheduled(appointment) ? "Actualizamos tu reserva." : "Confirmamos tu reserva."}</p>
@@ -236,7 +244,7 @@ export const patientConfirmationHtml = ({ appointment, manageUrl = "" }) => `
         `
         : ""
     }
-    ${patientMeetHtml(appointment, manageUrl)}
+    ${patientMeetHtml(appointment, meetUrl)}
     <p style="color:#64738a;font-size:13px">Te enviaremos un recordatorio aproximadamente 24 horas antes del turno.</p>
   </div>
 `;
@@ -280,7 +288,11 @@ export const patientPendingPaymentHtml = ({ appointment, manageUrl = "" }) => `
   </div>
 `;
 
-export const patientFollowupText = ({ appointment, manageUrl = "" }) =>
+export const patientFollowupText = ({
+  appointment,
+  manageUrl = "",
+  meetUrl = manageUrl,
+}) =>
   [
     "Recordatorio: tu turno en Reku es en aproximadamente 24 horas",
     "",
@@ -295,7 +307,7 @@ export const patientFollowupText = ({ appointment, manageUrl = "" }) =>
           appointment.triage_url,
         ]
       : []),
-    ...patientMeetTextLines(appointment, manageUrl),
+    ...patientMeetTextLines(appointment, meetUrl),
     ...(manageUrl
       ? [
           "",
@@ -306,7 +318,11 @@ export const patientFollowupText = ({ appointment, manageUrl = "" }) =>
     ...patientCalendarTextLines(appointment, manageUrl),
   ].join("\n");
 
-export const patientFollowupHtml = ({ appointment, manageUrl = "" }) => `
+export const patientFollowupHtml = ({
+  appointment,
+  manageUrl = "",
+  meetUrl = manageUrl,
+}) => `
   <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
     <h1 style="font-size:24px;margin:0 0 16px">Recordatorio de tu turno</h1>
     <p>Tu consulta con Reku es en aproximadamente 24 horas.</p>
@@ -327,7 +343,7 @@ export const patientFollowupHtml = ({ appointment, manageUrl = "" }) => `
         `
         : ""
     }
-    ${patientMeetHtml(appointment, manageUrl)}
+    ${patientMeetHtml(appointment, meetUrl)}
     ${manageUrl ? `<p style="margin-top:24px"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Gestionar mi turno</a></p>` : ""}
     ${patientCalendarHtml(appointment, manageUrl)}
   </div>
@@ -616,8 +632,16 @@ export const notifyPatientForAppointment = async (appointmentId) => {
       formName: "turno-paciente",
       to: appointment.patient_email,
       subject,
-      text: patientConfirmationText({ appointment, manageUrl: manageLink.url }),
-      html: patientConfirmationHtml({ appointment, manageUrl: manageLink.url }),
+      text: patientConfirmationText({
+        appointment,
+        manageUrl: manageLink.url,
+        meetUrl: manageLink.meet_url,
+      }),
+      html: patientConfirmationHtml({
+        appointment,
+        manageUrl: manageLink.url,
+        meetUrl: manageLink.meet_url,
+      }),
     });
 
     await query(
@@ -744,8 +768,16 @@ export const notifyPatientAppointmentFollowup = async (appointmentId) => {
       formName: "recordatorio-turno-paciente",
       to: appointment.patient_email,
       subject: `Recordatorio turno Reku - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`,
-      text: patientFollowupText({ appointment, manageUrl: manageLink.url }),
-      html: patientFollowupHtml({ appointment, manageUrl: manageLink.url }),
+      text: patientFollowupText({
+        appointment,
+        manageUrl: manageLink.url,
+        meetUrl: manageLink.meet_url,
+      }),
+      html: patientFollowupHtml({
+        appointment,
+        manageUrl: manageLink.url,
+        meetUrl: manageLink.meet_url,
+      }),
     });
     await query(
       `

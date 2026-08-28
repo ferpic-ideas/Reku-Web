@@ -61,6 +61,11 @@ export const config = {
   professionalInvitationTtlHours: Number(
     process.env.PROFESSIONAL_INVITATION_TTL_HOURS || 72,
   ),
+  webPushVapidPublicKey: (process.env.WEB_PUSH_VAPID_PUBLIC_KEY || "").trim(),
+  webPushVapidPrivateKey: (process.env.WEB_PUSH_VAPID_PRIVATE_KEY || "").trim(),
+  webPushVapidSubject: (
+    process.env.WEB_PUSH_VAPID_SUBJECT || "mailto:hola@reku.io"
+  ).trim(),
   mercadoPagoWebhookMaxAgeSeconds: Number(
     process.env.MP_WEBHOOK_MAX_AGE_SECONDS || 300,
   ),
@@ -164,6 +169,23 @@ export const assertSafeStartup = () => {
     throw new Error(
       "GOOGLE_CALENDAR_REQUIRED needs Google OAuth client credentials",
     );
+  }
+  const webPushConfigured = Boolean(
+    config.webPushVapidPublicKey || config.webPushVapidPrivateKey,
+  );
+  if (
+    webPushConfigured &&
+    (!config.webPushVapidPublicKey || !config.webPushVapidPrivateKey)
+  ) {
+    throw new Error(
+      "WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY must be configured together",
+    );
+  }
+  if (
+    webPushConfigured &&
+    !/^(mailto:|https:\/\/)/i.test(config.webPushVapidSubject)
+  ) {
+    throw new Error("WEB_PUSH_VAPID_SUBJECT must be a mailto: or https:// URL");
   }
   const rehubKeyConfigured = Boolean(
     config.rehubPublicKeyBase64 || config.rehubPublicKeyPath,

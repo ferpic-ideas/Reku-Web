@@ -29,7 +29,7 @@
       <article class="legal-article">
         <p class="eyebrow">Información legal</p>
         <h1>Política de Privacidad</h1>
-        <p class="updated">Última actualización: 26 de agosto de 2026.</p>
+        <p class="updated">Última actualización: 28 de agosto de 2026.</p>
         <p class="lead">
           Esta política explica cómo Reku recopila, utiliza, conserva y comparte
           datos personales al operar su sitio web, sus portales de gestión, su
@@ -90,6 +90,12 @@
               IP, fecha y hora de solicitudes, errores e información básica del
               navegador o dispositivo.
             </li>
+            <li>
+              Si el profesional activa notificaciones, datos técnicos de Web Push
+              como el endpoint de entrega, claves públicas de la suscripción,
+              tipo y nombre del dispositivo y fechas de última actividad. Reku no
+              accede al contenido personal del teléfono.
+            </li>
           </ul>
         </section>
 
@@ -131,6 +137,12 @@
               profesional, incluidos fecha, horario, nombre de la práctica,
               invitación al email del paciente y enlace de Google Meet.
             </li>
+            <li>
+              Estado activo o inactivo de la sala de Google Meet asociada al turno,
+              exclusivamente para saber si la videollamada ya comenzó. Reku no
+              solicita por esta función la identidad de participantes, audio,
+              video, chat ni transcripciones.
+            </li>
           </ul>
 
           <h3>Cómo usamos esa información</h3>
@@ -139,6 +151,10 @@
             <li>Crear reservas temporales mientras se completa un pago.</li>
             <li>Crear, actualizar o cancelar el evento asociado a un turno.</li>
             <li>Generar la reunión de Google Meet e invitar al paciente.</li>
+            <li>
+              Habilitar el ingreso del paciente cuando la sala de Meet esté activa
+              y gestionar avisos si la consulta todavía no comenzó.
+            </li>
             <li>Mostrar al profesional el estado de su conexión y sincronización.</li>
           </ul>
 
@@ -150,7 +166,9 @@
             tokens de acceso y actualización se almacenan cifrados. La información
             libre/ocupado se mantiene temporalmente en memoria durante un período
             breve para operar la agenda y no se utiliza para crear un historial de
-            eventos personales.
+            eventos personales. El estado activo o inactivo de Meet también se
+            consulta y conserva en memoria sólo durante unos segundos; Reku guarda
+            únicamente los registros operativos de espera y los avisos enviados.
           </p>
 
           <h3>Compartición y usos prohibidos</h3>
@@ -194,6 +212,10 @@
             <li>prestar, administrar y mejorar las funciones contratadas;</li>
             <li>registrar pacientes, profesionales, instituciones y servicios;</li>
             <li>gestionar disponibilidad, reservas, pagos, cancelaciones y avisos;</li>
+            <li>
+              avisar al profesional en sus dispositivos autorizados cuando un
+              paciente esté esperando para una videollamada;
+            </li>
             <li>habilitar la atención y el seguimiento de rehabilitación;</li>
             <li>responder consultas y solicitudes comerciales o de soporte;</li>
             <li>proteger cuentas, prevenir abusos e investigar incidentes;</li>
@@ -217,6 +239,11 @@
           </p>
           <ul>
             <li>Google, para Calendar, Meet y las invitaciones asociadas;</li>
+            <li>
+              los servicios de notificaciones push del navegador y del sistema
+              operativo elegidos por el profesional, exclusivamente para entregar
+              los avisos que éste activó;
+            </li>
             <li>Mercado Pago, para procesar pagos y devoluciones;</li>
             <li>proveedores de email, hosting, infraestructura, seguridad y soporte;</li>
             <li>

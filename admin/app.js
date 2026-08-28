@@ -781,7 +781,11 @@
         (professional.active &&
           (professional.services || []).some(
             (service) => Number(service.id) === Number(appointment.service_id),
-          )),
+          ) &&
+          (!appointment.agreement_id ||
+            (professional.agreements || []).some(
+              (agreement) => Number(agreement.id) === Number(appointment.agreement_id),
+            ))),
     );
   }
 
@@ -1363,6 +1367,7 @@
         has_user: false,
         user_email: '',
         services: [],
+        agreements: [],
         availability: [],
       }
     );
@@ -1377,6 +1382,20 @@
           <label class="check-row compact-check">
             <input type="checkbox" name="service_ids" value="${service.id}" ${selected.has(service.id) ? 'checked' : ''} />
             ${escapeHtml(service.name)}
+          </label>
+        `,
+      )
+      .join('');
+  }
+
+  function agreementsForProfessional(item) {
+    const selected = new Set((item.agreements || []).map((agreement) => Number(agreement.id)));
+    return state.agreements
+      .map(
+        (agreement) => `
+          <label class="check-row compact-check">
+            <input type="checkbox" name="agreement_ids" value="${agreement.id}" ${selected.has(agreement.id) ? 'checked' : ''} />
+            ${escapeHtml(agreement.name)}
           </label>
         `,
       )
@@ -1512,6 +1531,10 @@
           <strong>Servicios que atiende</strong>
           ${servicesForProfessional(item) || '<p class="muted">Primero cargá servicios activos.</p>'}
         </div>
+        <div class="span-two checkbox-grid">
+          <strong>Acuerdos que atiende</strong>
+          ${agreementsForProfessional(item) || '<p class="muted">Primero cargá acuerdos.</p>'}
+        </div>
         ${renderAvailabilityEditor(item)}
         <div class="form-actions span-two">
           <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
@@ -1535,6 +1558,7 @@
                 <th>Mail</th>
                 <th>Accesos</th>
                 <th>Servicios</th>
+                <th>Acuerdos</th>
                 <th>Horarios</th>
                 <th>Estado</th>
                 <th>Acciones</th>
@@ -1544,7 +1568,7 @@
               ${
                 state.professionals.length
                   ? state.professionals.map(renderProfessionalRow).join('')
-                  : '<tr><td colspan="7">No hay profesionales cargados.</td></tr>'
+                  : '<tr><td colspan="8">No hay profesionales cargados.</td></tr>'
               }
             </tbody>
           </table>
@@ -1554,6 +1578,15 @@
   }
 
   function renderProfessionalRow(professional) {
+    const calendarConnected = Boolean(professional.calendar_connected);
+    const notificationsConnected = Boolean(professional.notifications_connected);
+    const connectionStatus = calendarConnected && notificationsConnected
+      ? { label: 'All connected', className: 'active' }
+      : calendarConnected
+        ? { label: 'Calendar connected', className: 'pending' }
+        : notificationsConnected
+          ? { label: 'Notif connected', className: 'pending' }
+          : { label: 'Nothing connected', className: 'missing' };
     return `
       <tr>
         <td>
@@ -1568,12 +1601,13 @@
             <span class="account-status ${professional.has_user ? 'active' : 'missing'}">
               Cuenta ${professional.has_user ? 'activa' : 'pendiente'}
             </span>
-            <span class="account-status ${professional.calendar_connected ? 'active' : 'pending'}">
-              Calendar ${professional.calendar_connected ? 'conectado' : 'pendiente'}
+            <span class="account-status ${connectionStatus.className}" title="Calendar: ${calendarConnected ? 'conectado' : 'pendiente'} · Notificaciones: ${notificationsConnected ? 'conectadas' : 'pendientes'}">
+              ${connectionStatus.label}
             </span>
           </div>
         </td>
         <td>${(professional.services || []).map((service) => escapeHtml(service.name)).join(', ') || 'Sin servicios'}</td>
+        <td>${(professional.agreements || []).map((agreement) => escapeHtml(agreement.name)).join(', ') || 'Sin acuerdos'}</td>
         <td>${renderAvailabilitySummary(professional.availability)}</td>
         <td>${professional.active ? 'Activo' : 'Inactivo'}</td>
         <td>
@@ -2285,11 +2319,12 @@
                 <th>Cobranded</th>
                 <th>Archivos</th>
                 <th>Altas</th>
+                <th>Profesionales</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${agreements.length ? agreements.map(renderAgreementRow).join('') : '<tr><td colspan="8">No hay acuerdos para esos filtros.</td></tr>'}
+              ${agreements.length ? agreements.map(renderAgreementRow).join('') : '<tr><td colspan="9">No hay acuerdos para esos filtros.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -2315,6 +2350,11 @@
           ${agreement.pdf_url ? `<a href="${escapeHtml(agreement.pdf_url)}" target="_blank" rel="noreferrer">PDF</a>` : 'Sin PDF'}
         </td>
         <td>${agreement.intake_count || 0}</td>
+        <td>
+          ${Number(agreement.professional_count || 0) > 0
+            ? `<span class="agreement-professional-count">${Number(agreement.professional_count)} asignado${Number(agreement.professional_count) === 1 ? '' : 's'}</span>`
+            : '<span class="agreement-professional-warning" title="Los pacientes de este acuerdo no podrán reservar hasta asignar un profesional.">⚠ Sin profesionales</span>'}
+        </td>
         <td>
           <div class="table-actions">
             <button type="button" class="secondary-button" data-action="copy-url" data-slug="${escapeHtml(agreement.slug)}" data-prefix="${escapeHtml(agreement.subdomain_prefix || '')}">Get URL</button>
@@ -3671,6 +3711,10 @@
     data.set(
       'service_ids',
       JSON.stringify(Array.from(form.querySelectorAll('input[name="service_ids"]:checked')).map((input) => input.value)),
+    );
+    data.set(
+      'agreement_ids',
+      JSON.stringify(Array.from(form.querySelectorAll('input[name="agreement_ids"]:checked')).map((input) => input.value)),
     );
     data.set('availability', JSON.stringify(collectAvailability(form)));
     data.set('active', form.active.checked ? 'true' : 'false');

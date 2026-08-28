@@ -17,15 +17,19 @@
     ['profile', 'Mi perfil'],
   ];
   const appointmentsPollIntervalMs = 5 * 60 * 1000;
+  const initialQuery = new URLSearchParams(window.location.search);
+  const requestedModule = initialQuery.get('module');
+  const requestedAppointmentId = Number(initialQuery.get('appointment')) || null;
   let appointmentsPollTimer = null;
   let appointmentsRefreshPromise = null;
   let meetWindowTimer = null;
+  let waitingCounterTimer = null;
   const state = {
     loading: true,
     user: null,
     profile: null,
     services: [],
-    active: 'overview',
+    active: modules.some(([key]) => key === requestedModule) ? requestedModule : 'overview',
     csrf: '',
     appointments: [],
     appointmentsRefreshing: false,
@@ -37,9 +41,26 @@
     blocksMessage: '',
     blocksMessageType: '',
     google: { available: false, connected: false, status: 'not_configured' },
+    push: {
+      configured: false,
+      public_key: '',
+      active_devices: 0,
+      active_mobile_devices: 0,
+      devices: [],
+      supported: false,
+      permission: 'default',
+      current_device_active: false,
+      current_endpoint: '',
+      show_install_guide: false,
+      busy: false,
+      message: '',
+      message_type: '',
+    },
     patientSearch: '',
     selectedPatientId: null,
-    selectedAppointmentId: null,
+    selectedAppointmentId: requestedAppointmentId,
+    waitingAppointmentId: initialQuery.get('waiting') === '1' ? requestedAppointmentId : null,
+    pushActivationRequested: initialQuery.get('activar-notificaciones') === '1',
     patientDetailMessage: '',
     patientDetailMessageType: '',
     sendingTriageReminderId: null,
@@ -85,6 +106,29 @@
     const value = new Date(`${appointment.date}T${appointment[field]}:00-03:00`).getTime();
     return Number.isFinite(value) ? value : null;
   };
+
+  const formatWaitingDelay = (startsAt) => {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startsAt) / 1000));
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = String(elapsedSeconds % 60).padStart(2, '0');
+    return `Demora del profesional: ${minutes}:${seconds}`;
+  };
+
+  function syncWaitingCounter() {
+    if (waitingCounterTimer !== null) {
+      window.clearInterval(waitingCounterTimer);
+      waitingCounterTimer = null;
+    }
+    const counter = document.querySelector?.('[data-waiting-counter]');
+    if (!counter) return;
+    const startsAt = Number(counter.dataset.startsAt);
+    if (!Number.isFinite(startsAt)) return;
+    const update = () => {
+      counter.textContent = formatWaitingDelay(startsAt);
+    };
+    update();
+    waitingCounterTimer = window.setInterval(update, 1000);
+  }
 
   const isFutureAppointment = (appointment) => {
     const startsAt = appointmentTime(appointment, 'start_time');
@@ -165,13 +209,14 @@
   }
 
   async function loadData() {
-    const [profile, availability, blocks, patients, appointments, google] = await Promise.all([
+    const [profile, availability, blocks, patients, appointments, google, push] = await Promise.all([
       api('/api/professional/profile'),
       api('/api/professional/availability'),
       api('/api/professional/blocks'),
       api('/api/professional/patients'),
       api('/api/professional/appointments'),
       api('/api/professional/integrations/google'),
+      api('/api/professional/notifications/push').catch(() => ({ push: state.push })),
     ]);
     state.profile = profile.profile;
     state.services = profile.services || [];
@@ -180,6 +225,65 @@
     state.patients = patients.patients || [];
     state.appointments = appointments.appointments || [];
     state.google = google.google || state.google;
+    state.push = { ...state.push, ...(push.push || {}) };
+    await refreshPushDeviceState();
+  }
+
+  const isIosDevice = () =>
+    typeof navigator !== 'undefined' &&
+    (/iphone|ipad|ipod/i.test(navigator.userAgent || '') ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+  const isMobileDevice = () =>
+    isIosDevice() ||
+    (typeof navigator !== 'undefined' && /android|mobile/i.test(navigator.userAgent || ''));
+  const isStandaloneApp = () =>
+    window.matchMedia?.('(display-mode: standalone)').matches ||
+    window.navigator?.standalone === true;
+
+  const pushSupported = () =>
+    typeof navigator !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window &&
+    'Notification' in window;
+
+  async function ensurePushServiceWorker() {
+    if (!pushSupported()) return null;
+    const registration = await navigator.serviceWorker.register(
+      '/profesional/service-worker.js',
+      { scope: '/profesional/' },
+    );
+    await navigator.serviceWorker.ready;
+    return registration;
+  }
+
+  async function refreshPushDeviceState() {
+    state.push.supported = pushSupported();
+    state.push.permission = 'Notification' in window ? Notification.permission : 'unsupported';
+    state.push.current_device_active = false;
+    state.push.current_endpoint = '';
+    if (!state.push.configured || !state.push.supported) return;
+    try {
+      const registration = await ensurePushServiceWorker();
+      const subscription = await registration?.pushManager.getSubscription();
+      state.push.current_endpoint = subscription?.endpoint || '';
+      if (subscription && state.push.permission !== 'granted' && state.csrf) {
+        const payload = await api('/api/professional/notifications/push/subscriptions', {
+          method: 'DELETE',
+          body: { endpoint: subscription.endpoint },
+        });
+        state.push = { ...state.push, ...(payload.push || {}) };
+        return;
+      }
+      if (subscription && state.csrf) {
+        const status = await api(
+          '/api/professional/notifications/push/subscriptions/check',
+          { method: 'POST', body: { endpoint: subscription.endpoint } },
+        );
+        state.push.current_device_active = Boolean(status.active);
+      }
+    } catch {
+      state.push.current_device_active = false;
+    }
   }
 
   function stopAppointmentsPolling() {
@@ -456,6 +560,8 @@
     const google = state.google || {};
     const googleDescription = !google.available
       ? 'Reku debe cargar las credenciales de la aplicación de Google antes de habilitar esta conexión.'
+      : google.needs_meet_reauthorization
+        ? `Tu calendario${google.google_email ? ` (${google.google_email})` : ''} sigue conectado, pero necesitamos una autorización adicional para detectar cuándo se abrió la videollamada y habilitar el ingreso del paciente.`
       : google.connected
         ? `Calendario principal conectado${google.google_email ? ` con ${google.google_email}` : ''}. Los nuevos turnos generan una sala de Meet y bloquean ese horario.`
         : google.status === 'error'
@@ -463,6 +569,8 @@
           : 'Autorizá el calendario principal de tu cuenta personal. Reku sólo solicita acceso a eventos propios y disponibilidad.';
     const googleAction = !google.available
       ? '<span class="badge">Configuración pendiente</span>'
+      : google.needs_meet_reauthorization
+        ? '<button id="google-connect-button" class="primary-button" type="button">Habilitar sala de espera</button>'
       : google.connected
         ? '<button id="google-disconnect-button" class="secondary-button" type="button">Desconectar</button>'
         : '<button id="google-connect-button" class="primary-button" type="button">Conectar Google Calendar</button>';
@@ -476,7 +584,7 @@
               google.available
                 ? `<div class="google-data-notice">
                     <strong>Cómo usa Reku tu información de Google</strong>
-                    <p>Al conectar tu cuenta, Reku consulta únicamente los bloques libre/ocupado de tu calendario principal y puede crear, actualizar o eliminar eventos de turnos con Google Meet e invitación al paciente. Guarda el email de la cuenta, identificadores de conexión y tokens cifrados. Los datos obtenidos de Google no se venden ni se usan para publicidad u otras finalidades ajenas a gestionar la agenda y la videollamada. Podés revocar el acceso desde este panel.</p>
+                    <p>Al conectar tu cuenta, Reku consulta los bloques libre/ocupado de tu calendario principal, puede crear, actualizar o eliminar eventos de turnos con Google Meet e invitación al paciente, y verifica si la sala del turno está activa para habilitar el ingreso. No consulta la identidad de los participantes, audio, video, chat ni transcripciones. Guarda el email de la cuenta, identificadores de conexión y tokens cifrados. Los datos obtenidos de Google no se venden ni se usan para publicidad u otras finalidades ajenas a gestionar la agenda y la videollamada. Podés revocar el acceso desde este panel.</p>
                     <a href="/privacidad/#google">Ver Política de Privacidad</a>
                   </div>`
                 : ''
@@ -484,6 +592,77 @@
           </div>
           ${googleAction}
         </div>
+      </section>
+    `;
+  }
+
+  function renderPushIntegration({ attention = false } = {}) {
+    const push = state.push || {};
+    if (!push.configured && !push.active_devices) return '';
+    const mobile = isMobileDevice();
+    const iosNeedsInstall = mobile && isIosDevice() && !isStandaloneApp();
+    const permissionDenied = push.permission === 'denied';
+    const needsPhone = Number(push.active_mobile_devices || 0) === 0;
+    const devices = push.devices || [];
+    let description = 'Recibí un aviso inmediato cuando un paciente esté esperando para entrar a la videollamada.';
+    if (push.current_device_active) {
+      description = 'Las notificaciones están activas en este dispositivo.';
+    } else if (!push.supported && mobile) {
+      description = 'Este navegador no admite notificaciones Web Push. Probá con Safari actualizado en iPhone o Chrome en Android.';
+    } else if (permissionDenied) {
+      description = 'Las notificaciones están bloqueadas en este dispositivo. Habilitalas desde la configuración del sitio o del teléfono y volvé a intentar.';
+    }
+    return `
+      <section class="panel push-panel ${attention ? 'push-panel-attention' : ''}" id="push-notifications-panel">
+        <div class="integration-card">
+          <div>
+            <span class="eyebrow">Avisos importantes</span>
+            <h2>Notificaciones en el teléfono</h2>
+            <p class="muted">${escapeHtml(description)}</p>
+            ${needsPhone ? '<p class="push-warning">Falta activar al menos un teléfono para no perder avisos de pacientes en espera.</p>' : '<p class="push-success">Ya hay un teléfono activo.</p>'}
+          </div>
+          <div class="push-primary-actions">
+            ${
+              mobile && !push.current_device_active && push.supported && !permissionDenied
+                ? `<button id="push-enable-button" class="primary-button" type="button" ${push.busy ? 'disabled' : ''}>${iosNeedsInstall ? 'Ver cómo activarlas' : 'Activar en este teléfono'}</button>`
+                : ''
+            }
+            ${
+              !mobile || !push.current_device_active
+                ? `<button id="push-activation-email-button" class="secondary-button" type="button" ${push.busy ? 'disabled' : ''}>Enviarme el link al celular</button>`
+                : ''
+            }
+            ${push.current_device_active ? `<button id="push-test-button" class="primary-button" type="button" ${push.busy ? 'disabled' : ''}>Enviar prueba</button>` : ''}
+            ${push.current_device_active ? `<button id="push-disable-current-button" class="secondary-button" type="button" ${push.busy ? 'disabled' : ''}>Desactivar en este dispositivo</button>` : ''}
+          </div>
+        </div>
+        ${
+          (push.show_install_guide || iosNeedsInstall) && mobile && isIosDevice()
+            ? `<div class="push-install-guide">
+                <strong>Activación en iPhone</strong>
+                <ol>
+                  <li>Abrí esta página en Safari.</li>
+                  <li>Tocá Compartir y luego “Agregar a inicio”.</li>
+                  <li>Abrí Reku desde el ícono nuevo de la pantalla de inicio.</li>
+                  <li>Volvé a tocar “Activar en este teléfono” y aceptá el permiso.</li>
+                </ol>
+              </div>`
+            : ''
+        }
+        ${push.message ? `<div class="status-message ${escapeHtml(push.message_type)}">${escapeHtml(push.message)}</div>` : ''}
+        ${
+          devices.length
+            ? `<div class="push-devices">
+                <strong>Dispositivos activos</strong>
+                ${devices.map((device) => `
+                  <div class="push-device-row">
+                    <div><span>${escapeHtml(device.label)}</span><small>${device.kind === 'mobile' ? 'Teléfono' : 'Computadora'} · última actividad ${escapeHtml(formatDateTime(device.last_success_at || device.last_seen_at))}</small></div>
+                    <button class="link-button push-device-remove" data-action="remove-push-device" data-id="${device.id}" type="button" ${push.busy ? 'disabled' : ''}>Quitar</button>
+                  </div>
+                `).join('')}
+              </div>`
+            : ''
+        }
       </section>
     `;
   }
@@ -504,6 +683,7 @@
         </button>
       </section>
       ${state.google?.connected ? '' : renderGoogleIntegration()}
+      ${state.push?.configured && (Number(state.push.active_mobile_devices || 0) === 0 || state.pushActivationRequested) ? renderPushIntegration({ attention: true }) : ''}
       <section class="panel">
         <div class="panel-header"><h2>Próximos turnos</h2></div>
         ${renderAppointmentsTable(upcoming.slice(0, 8))}
@@ -647,6 +827,7 @@
       agreement_type: appointment.agreement_type || '',
       documents: appointment.documents || [],
       triage_reminder_sent_at: appointment.triage_reminder_sent_at || null,
+      google_meet_url: appointment.google_meet_url || '',
     };
     if (patient) {
       return {
@@ -703,6 +884,11 @@
       (!patient.detail_appointment || isFutureAppointment(detailAppointment)) &&
       Boolean(detailAppointment?.id);
     const reminderSentAt = detailAppointment?.triage_reminder_sent_at;
+    const waitingForThisAppointment =
+      Number(state.waitingAppointmentId) === Number(detailAppointment?.id);
+    const waitingStartsAt = detailAppointment
+      ? appointmentTime(detailAppointment, 'start_time')
+      : null;
     return `
       <div class="modal-backdrop" role="presentation">
         <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="patient-details-title">
@@ -713,6 +899,17 @@
             </div>
             <button class="icon-button" data-action="close-patient-details" type="button" aria-label="Cerrar detalles" title="Cerrar">×</button>
           </div>
+          ${
+            waitingForThisAppointment
+              ? `<div class="patient-waiting-alert">
+                  <div>
+                    <strong>El paciente está esperando</strong>
+                    <span class="waiting-delay" data-waiting-counter data-starts-at="${waitingStartsAt}">${formatWaitingDelay(waitingStartsAt)}</span>
+                  </div>
+                  ${detailAppointment.google_meet_url ? `<a class="primary-button" href="${escapeHtml(detailAppointment.google_meet_url)}" target="_blank" rel="noopener noreferrer">Ingresar a Meet</a>` : '<span class="badge">Meet no disponible</span>'}
+                </div>`
+              : ''
+          }
           <dl class="patient-details-grid">
             <div><dt>Email</dt><dd>${patient.email ? `<a href="mailto:${escapeHtml(patient.email)}">${escapeHtml(patient.email)}</a>` : '—'}</dd></div>
             <div><dt>Teléfono</dt><dd>${patient.phone ? `<a href="tel:${escapeHtml(patient.phone)}">${escapeHtml(patient.phone)}</a>` : '—'}</dd></div>
@@ -1009,6 +1206,7 @@
         <div class="form-actions span-two"><button class="secondary-button" type="submit">Actualizar contraseña</button></div>
       </form>
       ${state.google?.connected ? renderGoogleIntegration() : ''}
+      ${renderPushIntegration()}
     `;
   }
 
@@ -1032,6 +1230,12 @@
       ${renderActionModal()}
     `;
     bindEvents();
+    syncWaitingCounter();
+    if (state.pushActivationRequested && state.active === 'overview') {
+      window.requestAnimationFrame(() => {
+        document.getElementById('push-notifications-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
   }
 
   function render() {
@@ -1059,6 +1263,17 @@
     document.getElementById('google-connect-button')?.addEventListener('click', handleGoogleConnect);
     document.getElementById('google-disconnect-button')?.addEventListener('click', () => {
       openActionModal({ type: 'disconnect-google' });
+    });
+    document.getElementById('push-enable-button')?.addEventListener('click', handlePushEnable);
+    document.getElementById('push-test-button')?.addEventListener('click', handlePushTest);
+    document
+      .getElementById('push-disable-current-button')
+      ?.addEventListener('click', handlePushDisableCurrent);
+    document
+      .getElementById('push-activation-email-button')
+      ?.addEventListener('click', handlePushActivationEmail);
+    app.querySelectorAll('[data-action="remove-push-device"]').forEach((button) => {
+      button.addEventListener('click', () => handlePushRemoveDevice(Number(button.dataset.id)));
     });
     app.querySelectorAll('[data-action="add-range"]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -1129,6 +1344,7 @@
       button.addEventListener('click', () => {
         state.selectedPatientId = Number(button.dataset.id);
         state.selectedAppointmentId = null;
+        state.waitingAppointmentId = null;
         state.patientDetailMessage = '';
         state.patientDetailMessageType = '';
         render();
@@ -1138,6 +1354,7 @@
       button.addEventListener('click', () => {
         state.selectedPatientId = null;
         state.selectedAppointmentId = null;
+        state.waitingAppointmentId = null;
         state.patientDetailMessage = '';
         state.patientDetailMessageType = '';
         render();
@@ -1399,6 +1616,160 @@
       setStatus('Google Calendar fue desconectado.', 'ok');
     } catch (error) {
       setStatus(error.message, 'error');
+    }
+  }
+
+  const urlBase64ToUint8Array = (base64String) => {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = window.atob(base64);
+    return Uint8Array.from([...raw].map((character) => character.charCodeAt(0)));
+  };
+
+  const pushDeviceLabel = () => {
+    if (isIosDevice()) return 'iPhone o iPad';
+    if (/android/i.test(navigator.userAgent || '')) return 'Teléfono Android';
+    const platform = navigator.userAgentData?.platform || navigator.platform || '';
+    return platform ? `Computadora ${platform}` : 'Computadora';
+  };
+
+  const updatePushState = async (push, message, messageType = 'ok') => {
+    state.push = { ...state.push, ...(push || {}), message, message_type: messageType };
+    await refreshPushDeviceState();
+    if (state.push.current_device_active) state.pushActivationRequested = false;
+    state.push.busy = false;
+    render();
+  };
+
+  async function handlePushEnable() {
+    if (isIosDevice() && !isStandaloneApp()) {
+      state.push.show_install_guide = true;
+      state.push.message = 'Primero agregá Reku a la pantalla de inicio siguiendo estos pasos.';
+      state.push.message_type = '';
+      render();
+      return;
+    }
+    state.push.busy = true;
+    state.push.message = '';
+    render();
+    try {
+      const registration = await ensurePushServiceWorker();
+      if (!registration) throw new Error('Este navegador no admite notificaciones.');
+      const permission = await Notification.requestPermission();
+      state.push.permission = permission;
+      if (permission !== 'granted') {
+        throw new Error(
+          permission === 'denied'
+            ? 'El permiso quedó bloqueado. Habilitalo desde la configuración del sitio o del teléfono.'
+            : 'Necesitamos tu permiso para enviarte avisos.',
+        );
+      }
+      let subscription = await registration.pushManager.getSubscription();
+      if (subscription && !state.push.current_device_active) {
+        await subscription.unsubscribe();
+        subscription = null;
+      }
+      subscription ||= await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(state.push.public_key),
+      });
+      const payload = await api('/api/professional/notifications/push/subscriptions', {
+        method: 'POST',
+        body: {
+          subscription: subscription.toJSON(),
+          device_label: pushDeviceLabel(),
+          device_kind: isMobileDevice() ? 'mobile' : 'desktop',
+        },
+      });
+      await updatePushState(
+        payload.push,
+        'Notificaciones activadas. Enviaremos una prueba para confirmarlo.',
+      );
+      await handlePushTest();
+    } catch (error) {
+      state.push.busy = false;
+      state.push.message = error.message;
+      state.push.message_type = 'error';
+      render();
+    }
+  }
+
+  async function handlePushTest() {
+    state.push.busy = true;
+    state.push.message = '';
+    render();
+    try {
+      const payload = await api('/api/professional/notifications/push/test', {
+        method: 'POST',
+      });
+      await updatePushState(
+        payload.push,
+        payload.message,
+        payload.ok ? 'ok' : 'error',
+      );
+    } catch (error) {
+      state.push.busy = false;
+      state.push.message = error.message;
+      state.push.message_type = 'error';
+      render();
+    }
+  }
+
+  async function handlePushDisableCurrent() {
+    const registration = await ensurePushServiceWorker();
+    const subscription = await registration?.pushManager.getSubscription();
+    if (!subscription) return;
+    state.push.busy = true;
+    render();
+    try {
+      const payload = await api('/api/professional/notifications/push/subscriptions', {
+        method: 'DELETE',
+        body: { endpoint: subscription.endpoint },
+      });
+      await subscription.unsubscribe();
+      await updatePushState(payload.push, 'Notificaciones desactivadas en este dispositivo.');
+    } catch (error) {
+      state.push.busy = false;
+      state.push.message = error.message;
+      state.push.message_type = 'error';
+      render();
+    }
+  }
+
+  async function handlePushRemoveDevice(id) {
+    state.push.busy = true;
+    render();
+    try {
+      const payload = await api(
+        `/api/professional/notifications/push/subscriptions/${id}`,
+        { method: 'DELETE' },
+      );
+      await updatePushState(payload.push, 'Dispositivo quitado.');
+    } catch (error) {
+      state.push.busy = false;
+      state.push.message = error.message;
+      state.push.message_type = 'error';
+      render();
+    }
+  }
+
+  async function handlePushActivationEmail() {
+    state.push.busy = true;
+    state.push.message = '';
+    render();
+    try {
+      const payload = await api('/api/professional/notifications/push/activation-email', {
+        method: 'POST',
+      });
+      state.push.busy = false;
+      state.push.message = payload.message;
+      state.push.message_type = 'ok';
+      render();
+    } catch (error) {
+      state.push.busy = false;
+      state.push.message = error.message;
+      state.push.message_type = 'error';
+      render();
     }
   }
 

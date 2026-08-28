@@ -12,13 +12,35 @@ const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
 const revokeEndpoint = "https://oauth2.googleapis.com/revoke";
 const calendarApi = "https://www.googleapis.com/calendar/v3";
+const meetApi = "https://meet.googleapis.com/v2";
+export const googleMeetPresenceScope =
+  "https://www.googleapis.com/auth/meetings.space.readonly";
 const scopes = [
   "openid",
   "email",
   "https://www.googleapis.com/auth/calendar.events.owned",
   "https://www.googleapis.com/auth/calendar.freebusy",
+  googleMeetPresenceScope,
 ];
 const busyCache = new Map();
+const meetPresenceCache = new Map();
+
+const hasGrantedScope = (connection, scope) =>
+  String(connection?.granted_scopes || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .includes(scope);
+
+export const googleMeetCodeFromUrl = (value) => {
+  try {
+    const url = new URL(String(value || ""));
+    if (url.protocol !== "https:" || url.hostname !== "meet.google.com") return "";
+    const code = url.pathname.split("/").filter(Boolean)[0] || "";
+    return /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/i.test(code) ? code.toLowerCase() : "";
+  } catch {
+    return "";
+  }
+};
 
 export const googleOAuthRedirectUri = () =>
   config.googleOAuthRedirectUri ||
@@ -124,12 +146,15 @@ export const getGoogleConnectionStatus = async (professionalId) => {
   }
   const connection = await one(
     `
-      SELECT google_email, calendar_id, status, last_error, connected_at
+      SELECT google_email, calendar_id, granted_scopes, status, last_error, connected_at
       FROM professional_google_connections
       WHERE professional_id = $1
     `,
     [professionalId],
   );
+  const meetPresenceAvailable =
+    connection?.status === "active" &&
+    hasGrantedScope(connection, googleMeetPresenceScope);
   return {
     available: true,
     connected: connection?.status === "active",
@@ -138,6 +163,9 @@ export const getGoogleConnectionStatus = async (professionalId) => {
     calendar_id: connection?.calendar_id || "primary",
     last_error: connection?.last_error || "",
     connected_at: connection?.connected_at || null,
+    meet_presence_available: meetPresenceAvailable,
+    needs_meet_reauthorization:
+      connection?.status === "active" && !meetPresenceAvailable,
   };
 };
 
@@ -447,6 +475,86 @@ const calendarRequest = async (connection, path, options = {}) => {
         Authorization: `Bearer ${refreshed}`,
       },
     });
+  }
+};
+
+const meetRequest = async (connection, path, options = {}) => {
+  const token = await accessTokenFor(connection);
+  try {
+    return await fetchGoogle(`${meetApi}${path}`, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch (error) {
+    if (error.googleStatus !== 401) throw error;
+    const refreshed = await accessTokenFor(connection, { forceRefresh: true });
+    return fetchGoogle(`${meetApi}${path}`, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        Authorization: `Bearer ${refreshed}`,
+      },
+    });
+  }
+};
+
+export const getGoogleMeetConferenceStatus = async ({
+  professionalId,
+  meetUrl,
+}) => {
+  const meetingCode = googleMeetCodeFromUrl(meetUrl);
+  if (!meetingCode) {
+    return { checked: false, active: false, reason: "invalid_meet_url" };
+  }
+  if (!googleIntegrationConfigured()) {
+    return { checked: false, active: false, reason: "not_configured" };
+  }
+
+  const cacheKey = `${Number(professionalId)}:${meetingCode}`;
+  const cached = meetPresenceCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const connection = await loadConnection(professionalId);
+  if (!connection || connection.status !== "active") {
+    return { checked: false, active: false, reason: "not_connected" };
+  }
+  if (!hasGrantedScope(connection, googleMeetPresenceScope)) {
+    return {
+      checked: false,
+      active: false,
+      reason: "reauthorization_required",
+    };
+  }
+
+  try {
+    const space = await meetRequest(
+      connection,
+      `/spaces/${encodeURIComponent(meetingCode)}`,
+    );
+    const value = {
+      checked: true,
+      active: Boolean(space.activeConference),
+      reason: space.activeConference ? "active" : "inactive",
+      conference_name: space.activeConference?.conferenceRecord || "",
+    };
+    meetPresenceCache.set(cacheKey, {
+      expiresAt: Date.now() + 5_000,
+      value,
+    });
+    return value;
+  } catch (error) {
+    const reason = [401, 403].includes(error.googleStatus)
+      ? "reauthorization_required"
+      : "google_api_unavailable";
+    const value = { checked: false, active: false, reason };
+    meetPresenceCache.set(cacheKey, {
+      expiresAt: Date.now() + 5_000,
+      value,
+    });
+    return value;
   }
 };
 

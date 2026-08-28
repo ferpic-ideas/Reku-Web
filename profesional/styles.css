@@ -506,6 +506,123 @@ select:focus {
   min-width: 0;
 }
 
+.push-panel-attention {
+  border: 2px solid #f0c46d;
+  background: #fffaf0;
+}
+
+.push-primary-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.push-warning,
+.push-success {
+  margin: 12px 0 0;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.push-warning {
+  color: #9a5b13;
+}
+
+.push-success {
+  color: var(--success);
+}
+
+.push-install-guide {
+  margin-top: 18px;
+  border: 1px solid #d8d0ff;
+  border-radius: 12px;
+  padding: 16px;
+  background: #f7f5ff;
+}
+
+.push-install-guide ol {
+  margin: 10px 0 0;
+  padding-left: 22px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.push-devices {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.push-device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--soft);
+}
+
+.push-device-row span,
+.push-device-row small {
+  display: block;
+}
+
+.push-device-row span {
+  font-weight: 750;
+}
+
+.push-device-row small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.push-device-remove {
+  color: var(--danger);
+}
+
+.patient-waiting-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+  border: 2px solid #ef9b94;
+  border-radius: 14px;
+  padding: 16px;
+  background: #fff2f0;
+}
+
+.patient-waiting-alert strong,
+.patient-waiting-alert span {
+  display: block;
+}
+
+.patient-waiting-alert strong {
+  font-size: 18px;
+}
+
+.waiting-delay {
+  margin-top: 5px;
+  color: var(--danger);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+}
+
+.patient-waiting-alert .primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .google-data-notice {
   max-width: 780px;
   margin-top: 16px;
@@ -1065,6 +1182,7 @@ td a {
   .page-header,
   .panel-header,
   .integration-card,
+  .patient-waiting-alert,
   .block-row {
     align-items: flex-start;
     flex-direction: column;
@@ -1078,5 +1196,15 @@ td a {
 
   .grid-cards {
     grid-template-columns: 1fr;
+  }
+
+  .push-primary-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .push-primary-actions button,
+  .patient-waiting-alert .primary-button {
+    width: 100%;
   }
 }

@@ -1,0 +1,26 @@
+{
+  "name": "Reku Portal Profesional",
+  "short_name": "Reku",
+  "description": "Agenda y avisos para profesionales de Reku",
+  "lang": "es-AR",
+  "id": "/profesional/",
+  "start_url": "/profesional/?activar-notificaciones=1",
+  "scope": "/profesional/",
+  "display": "standalone",
+  "background_color": "#f4f5fb",
+  "theme_color": "#635bff",
+  "icons": [
+    {
+      "src": "/profesional/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/profesional/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

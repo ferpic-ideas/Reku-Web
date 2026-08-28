@@ -6,6 +6,7 @@
   const verificationToken = hashParams.get('verify') || '';
   const managementToken = hashParams.get('manage') || '';
   const calendarRequested = hashParams.get('calendar') === '1';
+  const meetLobbyRequested = urlParams.get('view') === 'videollamada';
   const managementMode = Boolean(managementToken || urlParams.get('manage') === '1');
   const formSlug = urlParams.get('form') || '';
   const agreementHostPrefix = (() => {
@@ -17,7 +18,7 @@
   const returnPaymentId = urlParams.get('payment_id') || urlParams.get('collection_id') || '';
   const returnResult = urlParams.get('mp_return') || '';
   const state = {
-    step: managementMode ? 8 : verificationToken ? 7 : initialToken ? 2 : 1,
+    step: managementMode ? (meetLobbyRequested ? 9 : 8) : verificationToken ? 7 : initialToken ? 2 : 1,
     loading: true,
     error: '',
     formSlug,
@@ -57,6 +58,20 @@
     documentsError: '',
     documentFiles: [],
     documentLinksDraft: '',
+    help: {
+      open: false,
+      submitting: false,
+      sent: false,
+      error: '',
+      fieldErrors: {},
+      values: {
+        nombre: '',
+        apellido: '',
+        telefono: '',
+        email: '',
+        motivo: '',
+      },
+    },
     management: {
       appointment: null,
       rescheduling: false,
@@ -75,6 +90,11 @@
       documentsError: '',
       documentFiles: [],
       documentLinksDraft: '',
+      meetLobby: {
+        status: null,
+        loading: meetLobbyRequested,
+        error: '',
+      },
     },
   };
 
@@ -106,6 +126,7 @@
     const clean = new URL(window.location.href);
     clean.search = '';
     clean.searchParams.set('manage', '1');
+    if (meetLobbyRequested) clean.searchParams.set('view', 'videollamada');
     clean.hash = '';
     window.history.replaceState({}, '', `${clean.pathname}${clean.search}`);
   };
@@ -184,6 +205,54 @@
     return payload;
   }
 
+  const bookingHelpSourcePage = () => {
+    const clean = new URL(window.location.href);
+    clean.hash = '';
+    ['token', 'appointment_id', 'payment_id', 'collection_id'].forEach((key) =>
+      clean.searchParams.delete(key),
+    );
+    return clean.toString();
+  };
+
+  async function submitBookingHelp(form) {
+    const data = Object.fromEntries(new FormData(form).entries());
+    state.help.values = {
+      nombre: String(data.nombre || ''),
+      apellido: String(data.apellido || ''),
+      telefono: String(data.telefono || ''),
+      email: String(data.email || ''),
+      motivo: String(data.motivo || ''),
+    };
+    state.help.submitting = true;
+    state.help.sent = false;
+    state.help.error = '';
+    state.help.fieldErrors = {};
+    render();
+
+    try {
+      const payload = await api('/turnos/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          'reku-form': 'booking-help',
+          ...state.help.values,
+          acuerdo:
+            state.agreement?.name || state.formSlug || agreementHostPrefix || 'Sin acuerdo',
+          pagina: bookingHelpSourcePage(),
+          website: '',
+        }),
+      });
+      state.help.sent = true;
+      state.help.error = payload.message || 'Recibimos tu consulta.';
+    } catch (error) {
+      state.help.fieldErrors = error.payload?.errors || {};
+      state.help.error = error.message;
+    } finally {
+      state.help.submitting = false;
+      render();
+    }
+  }
+
   async function loadServices() {
     try {
       const payload = await api('/api/booking/services');
@@ -204,7 +273,23 @@
     state.management.appointment = payload.appointment;
     const date = payload.appointment?.date;
     if (date) state.management.month = new Date(`${date}T12:00:00`);
-    state.step = 8;
+    state.step = meetLobbyRequested ? 9 : 8;
+  }
+
+  async function loadMeetLobbyStatus() {
+    state.management.meetLobby.loading = !state.management.meetLobby.status;
+    try {
+      const payload = await api('/api/booking/manage/meet-status', {
+        method: 'POST',
+      });
+      state.management.appointment = payload.appointment || state.management.appointment;
+      state.management.meetLobby.status = payload.waiting_room || null;
+      state.management.meetLobby.error = '';
+    } catch (error) {
+      state.management.meetLobby.error = error.message;
+    } finally {
+      state.management.meetLobby.loading = false;
+    }
   }
 
   let managementMeetRefreshTimer = 0;
@@ -214,6 +299,25 @@
       window.clearTimeout(managementMeetRefreshTimer);
     }
     managementMeetRefreshTimer = 0;
+    if (state.step === 9) {
+      const waitingRoom = state.management.meetLobby.status;
+      let delay = 0;
+      if (waitingRoom?.state === 'upcoming' && waitingRoom.available_from) {
+        const remaining = new Date(waitingRoom.available_from).getTime() - Date.now();
+        delay = Math.max(1_000, Math.min(300_000, remaining + 1_000));
+      } else if (waitingRoom?.refresh_after_seconds) {
+        delay = Math.max(5_000, Number(waitingRoom.refresh_after_seconds) * 1_000);
+      } else if (state.management.meetLobby.error) {
+        delay = 10_000;
+      }
+      if (!delay || typeof window.setTimeout !== 'function') return;
+      managementMeetRefreshTimer = window.setTimeout(async () => {
+        await loadMeetLobbyStatus();
+        render();
+      }, delay);
+      return;
+    }
+
     const meet = state.step === 8 ? state.management.appointment?.meet : null;
     const target =
       meet?.state === 'upcoming'
@@ -252,7 +356,8 @@
       } else {
         await loadManagedAppointment();
       }
-      state.step = 8;
+      state.step = meetLobbyRequested ? 9 : 8;
+      if (meetLobbyRequested) await loadMeetLobbyStatus();
     } catch (error) {
       state.error = error.message;
     } finally {
@@ -840,8 +945,9 @@
   }
 
   function renderHeader() {
-    if (state.step === 8) {
+    if ([8, 9].includes(state.step)) {
       const agreement = state.management.appointment?.agreement || {};
+      const title = state.step === 9 ? 'Tu videollamada' : 'Gestioná tu turno';
       const agreementLogo = agreement.cobranded && agreement.logo_url
         ? `
             <img
@@ -858,7 +964,7 @@
               <div class="booking-brand-lockup cobranded">
                 ${agreementLogo}
               </div>
-              <h1>Gestioná tu turno</h1>
+              <h1>${title}</h1>
               <img class="reku-brand-logo cobranded-reku-logo" src="/images/logo-reku.svg" alt="Reku" />
             </div>
           </header>
@@ -868,7 +974,7 @@
         <header class="booking-header management-header">
           <div class="booking-title">
             <img src="/images/logo-reku.svg" alt="Reku" />
-            <h1>Gestioná tu turno</h1>
+            <h1>${title}</h1>
           </div>
         </header>
       `;
@@ -916,6 +1022,12 @@
           ${agreementLogo ? '<img class="reku-brand-logo cobranded-reku-logo" src="/images/logo-reku.svg" alt="Reku" />' : ''}
         </div>
         ${stepper}
+        <div class="booking-help-row">
+          <button type="button" class="booking-help-button" data-action="open-booking-help">
+            <span aria-hidden="true">?</span>
+            Ayuda
+          </button>
+        </div>
       </header>
     `;
   }
@@ -1433,7 +1545,7 @@
           </div>
           ${
             meet.state === 'available'
-              ? '<a class="primary-button meet-access-button" href="/api/booking/manage/meet" target="_blank" rel="noopener noreferrer">Entrar a Google Meet</a>'
+              ? '<a class="primary-button meet-access-button" href="?manage=1&amp;view=videollamada">Ir a la sala de espera</a>'
               : '<button type="button" class="secondary-button meet-access-button" disabled>Entrar a Google Meet</button>'
           }
         </div>`
@@ -1471,6 +1583,7 @@
                    </button>`
                 : ''
             }
+            ${capabilities.can_reschedule ? `<button type="button" class="secondary-button" data-action="open-management-reschedule" ${management.submitting || management.rescheduling ? 'disabled' : ''}>Mover turno</button>` : ''}
             ${appointment.payment_url && appointment.status === 'pending_payment' ? `<a class="primary-button" href="${escapeHtml(appointment.payment_url)}">Completar pago</a>` : ''}
             ${capabilities.can_cancel ? `<button type="button" class="danger-outline-button" data-action="cancel-management-appointment" ${management.submitting ? 'disabled' : ''}>Cancelar reserva</button>` : ''}
           </div>
@@ -1478,6 +1591,89 @@
           ${appointment.status === 'confirmed' ? '<p class="management-reminder-note">También te enviaremos un recordatorio aproximadamente 24 horas antes.</p>' : ''}
         </div>
         ${management.rescheduling ? renderManagementReschedule(appointment) : ''}
+      </section>
+    `;
+  }
+
+  function renderMeetLobby() {
+    const management = state.management;
+    const appointment = management.appointment;
+    if (!appointment) return '<div class="empty-card">No pudimos cargar el turno.</div>';
+    const waitingRoom = management.meetLobby.status || appointment.meet || {};
+    const appointmentSchedule = `${friendlyDate(appointment.date)} de ${appointment.start_time} a ${appointment.end_time}`;
+    let title = 'Estamos preparando tu videollamada';
+    let copy = 'Esta pantalla se actualiza automáticamente.';
+
+    if (waitingRoom.state === 'upcoming') {
+      title = 'Tu turno todavía no comenzó';
+      copy = `Tu consulta es el ${appointmentSchedule}. La sala de espera se habilita desde las ${localTime(waitingRoom.available_from, waitingRoom.time_zone)}.`;
+    } else if (waitingRoom.state === 'waiting_early') {
+      title = 'Ya estás en la sala de espera';
+      copy = `Tu turno comienza a las ${appointment.start_time}. Te avisaremos acá apenas la videollamada esté lista.`;
+    } else if (waitingRoom.state === 'waiting_professional') {
+      title = 'Tu profesional todavía no ingresó';
+      copy = waitingRoom.professional_notified
+        ? 'Debería llegar en cualquier momento. Ya le enviamos un aviso para contarle que estás esperando.'
+        : 'Debería llegar en cualquier momento. Estamos contactándolo para avisarle que ya estás esperando.';
+    } else if (waitingRoom.state === 'ready') {
+      title = 'Tu profesional ya está en la videollamada';
+      copy = 'La sala está lista. Ya podés ingresar.';
+    } else if (waitingRoom.state === 'finished') {
+      title = 'El acceso a la videollamada finalizó';
+      copy = `El turno estaba previsto para el ${appointmentSchedule}.`;
+    } else if (waitingRoom.state === 'not_configured') {
+      title = 'La videollamada todavía no fue habilitada';
+      copy = 'Estamos revisando la configuración del turno. Volvé a intentar en unos minutos.';
+    } else if (waitingRoom.state === 'unavailable') {
+      title = 'La videollamada no está disponible';
+      copy = 'Este turno no tiene acceso a una videollamada activa.';
+    } else if (waitingRoom.state === 'checking') {
+      title = 'Estamos verificando la sala';
+      copy = 'No pudimos confirmar todavía si la videollamada ya comenzó. Vamos a seguir reintentando automáticamente.';
+    }
+
+    return `
+      <section class="management-shell meet-lobby-shell">
+        <div class="payment-card meet-lobby-summary">
+          <div class="management-status">Turno confirmado</div>
+          <h2 class="section-title">${escapeHtml(appointment.service.name)}</h2>
+          <div class="meet-lobby-appointment-details">
+            <p><strong>Profesional:</strong> ${escapeHtml(appointment.professional.name)}</p>
+            <p><strong>Fecha:</strong> ${escapeHtml(friendlyDate(appointment.date))}</p>
+            <p><strong>Horario:</strong> ${escapeHtml(appointment.start_time)} a ${escapeHtml(appointment.end_time)}</p>
+          </div>
+          <div class="meet-lobby-status ${escapeHtml(waitingRoom.state || 'checking')}" role="status" aria-live="polite">
+            <div class="meet-lobby-status-indicator" aria-hidden="true"></div>
+            <div>
+              <span class="optional-label">Videollamada</span>
+              <h3>${escapeHtml(title)}</h3>
+              <p>${escapeHtml(copy)}</p>
+              ${waitingRoom.reku_notified ? '<p class="meet-lobby-escalated">También avisamos al equipo de Reku para que pueda ayudarte.</p>' : ''}
+            </div>
+            ${
+              waitingRoom.can_enter
+                ? '<a class="primary-button meet-access-button" href="/api/booking/manage/meet" target="_blank" rel="noopener noreferrer">Ingresar</a>'
+                : `<button type="button" class="secondary-button meet-access-button" disabled>${management.meetLobby.loading ? 'Verificando…' : 'Esperando'}</button>`
+            }
+          </div>
+          ${management.meetLobby.error ? `<div class="document-status error">${escapeHtml(management.meetLobby.error)} La pantalla volverá a intentarlo automáticamente.</div>` : ''}
+          <div class="management-actions meet-lobby-actions">
+            ${appointment.triage_url ? `<a class="primary-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Completar cuestionario previo</a>` : ''}
+            <button
+              type="button"
+              class="secondary-button management-documents-toggle"
+              data-action="toggle-management-documents"
+              aria-expanded="${management.documentsOpen ? 'true' : 'false'}"
+              aria-controls="management-documents-panel"
+            >
+              <span>${management.documentsOpen ? 'Ocultar estudios' : 'Enviar estudios'}</span>
+              <svg class="management-documents-toggle-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                <path d="m5 7.5 5 5 5-5" />
+              </svg>
+            </button>
+          </div>
+          ${management.documentsOpen ? renderManagementDocumentsPanel() : ''}
+        </div>
       </section>
     `;
   }
@@ -1506,6 +1702,69 @@
     `;
   }
 
+  function renderBookingHelpModal() {
+    const help = state.help;
+    if (!help.open || [8, 9].includes(state.step)) return '';
+    const helpFieldError = (name) =>
+      help.fieldErrors[name]
+        ? `<span class="field-error">${escapeHtml(help.fieldErrors[name])}</span>`
+        : '';
+    return `
+      <div class="booking-modal-backdrop" data-action="close-booking-help" role="presentation">
+        <section class="booking-modal booking-help-modal" role="dialog" aria-modal="true" aria-labelledby="booking-help-title">
+          <div class="booking-modal-header">
+            <div>
+              <span class="optional-label">Ayuda</span>
+              <h2 id="booking-help-title">¿Necesitás ayuda para sacar tu turno?</h2>
+            </div>
+            <button type="button" class="booking-modal-close" data-action="close-booking-help" aria-label="Cerrar" ${help.submitting ? 'disabled' : ''}>×</button>
+          </div>
+          ${
+            help.sent
+              ? `<div class="booking-help-success" role="status">
+                  <strong>Consulta enviada</strong>
+                  <p>${escapeHtml(help.error)}</p>
+                  <button type="button" class="primary-button" data-action="close-booking-help">Cerrar</button>
+                </div>`
+              : `<p>Dejanos tus datos y contanos qué necesitás. Te vamos a contactar por mail o teléfono.</p>
+                 <form id="booking-help-form" class="booking-help-form" novalidate>
+                   <label>
+                     Nombre
+                     <input name="nombre" value="${escapeHtml(help.values.nombre)}" autocomplete="given-name" required />
+                     ${helpFieldError('nombre')}
+                   </label>
+                   <label>
+                     Apellido
+                     <input name="apellido" value="${escapeHtml(help.values.apellido)}" autocomplete="family-name" required />
+                     ${helpFieldError('apellido')}
+                   </label>
+                   <label>
+                     Teléfono
+                     <input name="telefono" value="${escapeHtml(help.values.telefono)}" autocomplete="tel" inputmode="tel" required />
+                     ${helpFieldError('telefono')}
+                   </label>
+                   <label>
+                     Mail
+                     <input name="email" type="email" value="${escapeHtml(help.values.email)}" autocomplete="email" required />
+                     ${helpFieldError('email')}
+                   </label>
+                   <label class="span-two">
+                     Motivo de consulta
+                     <textarea name="motivo" rows="4" maxlength="2000" required>${escapeHtml(help.values.motivo)}</textarea>
+                     ${helpFieldError('motivo')}
+                   </label>
+                   ${help.error ? `<div class="document-status error span-two">${escapeHtml(help.error)}</div>` : ''}
+                   <div class="booking-modal-actions span-two">
+                     <button type="button" class="secondary-button" data-action="close-booking-help" ${help.submitting ? 'disabled' : ''}>Cancelar</button>
+                     <button type="submit" class="primary-button" ${help.submitting ? 'disabled' : ''}>${help.submitting ? 'Enviando…' : 'Enviar consulta'}</button>
+                   </div>
+                 </form>`
+          }
+        </section>
+      </div>
+    `;
+  }
+
   function renderVerificationPending() {
     return `
       <section>
@@ -1526,13 +1785,13 @@
 
   function render() {
     if (state.loading) {
-      app.innerHTML = `${renderHeader()}<div class="empty-card">Cargando...</div>`;
+      app.innerHTML = `${renderHeader()}<div class="empty-card">Cargando...</div>${renderBookingHelpModal()}`;
       bindEvents();
       return;
     }
 
     if (state.error) {
-      app.innerHTML = `${renderHeader()}<div class="status-error">${escapeHtml(state.error)}</div>`;
+      app.innerHTML = `${renderHeader()}<div class="status-error">${escapeHtml(state.error)}</div>${renderBookingHelpModal()}`;
       bindEvents();
       return;
     }
@@ -1546,13 +1805,18 @@
       6: renderSuccess,
       7: renderVerificationPending,
       8: renderAppointmentManagement,
+      9: renderMeetLobby,
     }[state.step]();
-    app.innerHTML = `${renderHeader()}${content}${renderManagementCancelModal()}`;
+    app.innerHTML = `${renderHeader()}${content}${renderManagementCancelModal()}${renderBookingHelpModal()}`;
     bindEvents();
     scheduleManagementMeetRefresh();
   }
 
   function bindEvents() {
+    app.querySelector('#booking-help-form')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await submitBookingHelp(event.currentTarget);
+    });
     app.querySelector('#booking-intake-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       state.error = '';
@@ -1612,6 +1876,34 @@
       element.addEventListener('click', async (event) => {
         const action = element.dataset.action;
         state.error = '';
+        if (action === 'open-booking-help') {
+          state.help.values = {
+            nombre: state.help.values.nombre || state.intakeValues.nombre,
+            apellido: state.help.values.apellido || state.intakeValues.apellido,
+            telefono: state.help.values.telefono || state.intakeValues.telefono,
+            email: state.help.values.email || state.intakeValues.email,
+            motivo: state.help.values.motivo,
+          };
+          state.help.open = true;
+          state.help.sent = false;
+          state.help.error = '';
+          state.help.fieldErrors = {};
+          render();
+        }
+        if (action === 'close-booking-help') {
+          if (
+            element.classList.contains('booking-modal-backdrop') &&
+            event.target !== element
+          ) {
+            return;
+          }
+          if (!state.help.submitting) {
+            state.help.open = false;
+            state.help.error = '';
+            state.help.fieldErrors = {};
+            render();
+          }
+        }
         if (action === 'select-service') await selectService(Number(element.dataset.id));
         if (action === 'select-professional') {
           await selectProfessional(
@@ -1751,6 +2043,13 @@
   }
 
   document.addEventListener?.('keydown', (event) => {
+    if (event.key === 'Escape' && state.help.open && !state.help.submitting) {
+      state.help.open = false;
+      state.help.error = '';
+      state.help.fieldErrors = {};
+      render();
+      return;
+    }
     if (
       event.key === 'Escape' &&
       state.management.cancelModalOpen &&

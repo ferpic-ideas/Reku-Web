@@ -35,6 +35,7 @@ export const createPatientAppointmentAccessLink = async ({
     token,
     expires_at: result.rows[0].expires_at,
     url: `${config.appPublicUrl}/turnos/#manage=${encodeURIComponent(token)}`,
+    meet_url: `${config.appPublicUrl}/turnos/?view=videollamada#manage=${encodeURIComponent(token)}`,
   };
 };
 
