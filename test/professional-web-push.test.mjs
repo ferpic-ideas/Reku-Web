@@ -51,6 +51,11 @@ test("professional Web Push is installable, user-visible and manageable", async 
   assert.match(portal, /Agregar a inicio/);
   assert.match(portal, /Enviarme el link al celular/);
   assert.match(portal, /Enviar prueba/);
+  assert.match(portal, /Promise\.allSettled/);
+  assert.match(portal, /void refreshPushDeviceState\(\)/);
+  assert.match(portal, /AbortController/);
+  assert.match(portal, /authSubmitting/);
+  assert.match(portal, /navigator\.serviceWorker\.ready,[\s\S]*8_000/);
   assert.match(api, /notifications\/push\/subscriptions/);
   assert.match(api, /requireMutation\(request, account\)/);
   assert.match(migration, /endpoint TEXT NOT NULL UNIQUE/);

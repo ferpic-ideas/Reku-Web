@@ -74,6 +74,7 @@
     passwordResetToken: initialPasswordResetToken,
     authView: initialPasswordResetToken ? 'reset-password' : 'login',
     passwordResetRequested: false,
+    authSubmitting: false,
     status: '',
     statusType: '',
     actionModal: null,
@@ -199,6 +200,9 @@
   async function api(path, options = {}) {
     const method = options.method || 'GET';
     const headers = { ...(options.headers || {}) };
+    const controller = new AbortController();
+    const timeoutMs = Number(options.timeoutMs) || (options.body instanceof FormData ? 60_000 : 20_000);
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
     if (state.csrf && !['GET', 'HEAD'].includes(method)) {
       headers['X-CSRF-Token'] = state.csrf;
     }
@@ -207,6 +211,7 @@
       headers,
       credentials: 'same-origin',
       cache: 'no-store',
+      signal: controller.signal,
     };
     if (options.body instanceof FormData) {
       request.body = options.body;
@@ -214,14 +219,25 @@
       headers['Content-Type'] = 'application/json';
       request.body = JSON.stringify(options.body);
     }
-    const response = await fetch(path, request);
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const error = new Error(payload.error || 'No se pudo completar la acción.');
-      error.status = response.status;
+    try {
+      const response = await fetch(path, request);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const error = new Error(payload.error || 'No se pudo completar la acción.');
+        error.status = response.status;
+        throw error;
+      }
+      return payload;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        const timeoutError = new Error('La conexión tardó demasiado. Probá nuevamente.');
+        timeoutError.status = 408;
+        throw timeoutError;
+      }
       throw error;
+    } finally {
+      window.clearTimeout(timeoutId);
     }
-    return payload;
   }
 
   function setStatus(message, type = '') {
@@ -231,24 +247,42 @@
   }
 
   async function loadData() {
-    const [profile, availability, blocks, patients, appointments, google, push] = await Promise.all([
+    const results = await Promise.allSettled([
       api('/api/professional/profile'),
       api('/api/professional/availability'),
       api('/api/professional/blocks'),
       api('/api/professional/patients'),
       api('/api/professional/appointments'),
       api('/api/professional/integrations/google'),
-      api('/api/professional/notifications/push').catch(() => ({ push: state.push })),
+      api('/api/professional/notifications/push'),
     ]);
-    state.profile = profile.profile;
-    state.services = profile.services || [];
-    state.availability = availability.availability || [];
-    state.blocks = blocks.schedule_blocks || [];
-    state.patients = patients.patients || [];
-    state.appointments = appointments.appointments || [];
-    state.google = google.google || state.google;
-    state.push = { ...state.push, ...(push.push || {}) };
-    await refreshPushDeviceState();
+    const expiredSession = results.find(
+      (result) => result.status === 'rejected' && result.reason?.status === 401,
+    );
+    if (expiredSession) throw expiredSession.reason;
+
+    const [profile, availability, blocks, patients, appointments, google, push] = results.map(
+      (result) => (result.status === 'fulfilled' ? result.value : null),
+    );
+    if (profile) {
+      state.profile = profile.profile;
+      state.services = profile.services || [];
+    }
+    if (availability) state.availability = availability.availability || [];
+    if (blocks) state.blocks = blocks.schedule_blocks || [];
+    if (patients) state.patients = patients.patients || [];
+    if (appointments) state.appointments = appointments.appointments || [];
+    if (google) state.google = google.google || state.google;
+    if (push) state.push = { ...state.push, ...(push.push || {}) };
+
+    if (results.some((result) => result.status === 'rejected')) {
+      state.status =
+        'Ingresaste correctamente, pero algunos datos no pudieron actualizarse. Podés seguir usando el portal y reintentar recargando.';
+      state.statusType = 'error';
+    }
+    void refreshPushDeviceState().then(() => {
+      if (state.user) render();
+    });
   }
 
   const isIosDevice = () =>
@@ -268,13 +302,27 @@
     'PushManager' in window &&
     'Notification' in window;
 
+  const waitWithTimeout = (promise, timeoutMs, message) => {
+    let timeoutId;
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]).finally(() => window.clearTimeout(timeoutId));
+  };
+
   async function ensurePushServiceWorker() {
     if (!pushSupported()) return null;
     const registration = await navigator.serviceWorker.register(
       '/profesional/service-worker.js',
       { scope: '/profesional/' },
     );
-    await navigator.serviceWorker.ready;
+    await waitWithTimeout(
+      navigator.serviceWorker.ready,
+      8_000,
+      'No pudimos inicializar las notificaciones en este dispositivo.',
+    );
     return registration;
   }
 
@@ -398,15 +446,25 @@
   }
 
   async function loadSession() {
+    let authenticated = false;
     try {
       const payload = await api('/api/professional/auth/me');
+      authenticated = true;
       state.user = payload.user;
       state.profile = payload.professional;
       state.csrf = payload.csrf_token;
+      state.loading = false;
+      render();
       await loadData();
-    } catch {
-      state.user = null;
-      state.csrf = '';
+    } catch (error) {
+      if (!authenticated || error.status === 401) {
+        state.user = null;
+        state.csrf = '';
+      }
+      if (error.status !== 401) {
+        state.status = error.message || 'No se pudo cargar el portal. Probá nuevamente.';
+        state.statusType = 'error';
+      }
     } finally {
       state.loading = false;
       render();
@@ -444,7 +502,9 @@
               Contraseña
               <input name="password" type="password" autocomplete="current-password" required />
             </label>
-            <button class="primary-button" type="submit">Entrar al portal</button>
+            <button class="primary-button" type="submit" ${state.authSubmitting ? 'disabled' : ''}>
+              ${state.authSubmitting ? 'Ingresando…' : 'Entrar al portal'}
+            </button>
             <button class="auth-link" type="button" data-auth-view="forgot-password">Olvidé mi contraseña</button>
             <div class="portal-legal-links" aria-label="Información legal">
               <a href="/privacidad/">Privacidad</a>
@@ -1640,19 +1700,34 @@
 
   async function handleLogin(event) {
     event.preventDefault();
+    if (state.authSubmitting) return;
     const form = event.currentTarget;
+    const credentials = { email: form.email.value, password: form.password.value };
+    state.authSubmitting = true;
+    state.status = '';
+    state.statusType = '';
+    render();
     try {
       const payload = await api('/api/professional/auth/login', {
         method: 'POST',
-        body: { email: form.email.value, password: form.password.value },
+        body: credentials,
       });
       state.user = payload.user;
       state.csrf = payload.csrf_token;
       state.status = '';
-      await loadData();
+      state.authSubmitting = false;
       render();
+      await loadData();
     } catch (error) {
-      setStatus(error.message, 'error');
+      if (error.status === 401) {
+        state.user = null;
+        state.csrf = '';
+      }
+      state.status = error.message;
+      state.statusType = 'error';
+    } finally {
+      state.authSubmitting = false;
+      render();
     }
   }
 

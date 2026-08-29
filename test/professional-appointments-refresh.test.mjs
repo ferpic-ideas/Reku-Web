@@ -180,6 +180,7 @@ test("professional appointments refresh on entry and poll every five minutes", a
   }
 
   vm.runInNewContext(source, {
+    AbortController,
     console,
     Date: FixedDate,
     FormData,
