@@ -16,6 +16,7 @@
   })();
   const returnAppointmentId = urlParams.get('appointment_id') || '';
   const returnPaymentId = urlParams.get('payment_id') || urlParams.get('collection_id') || '';
+  const paymentReturnToken = urlParams.get('payment_return_token') || '';
   const returnResult = urlParams.get('mp_return') || '';
   const state = {
     step: managementMode ? (meetLobbyRequested ? 9 : 8) : verificationToken ? 7 : initialToken ? 2 : 1,
@@ -128,6 +129,27 @@
     clean.searchParams.set('manage', '1');
     if (meetLobbyRequested) clean.searchParams.set('view', 'videollamada');
     clean.hash = '';
+    window.history.replaceState({}, '', `${clean.pathname}${clean.search}`);
+  };
+
+  const removePaymentReturnParams = () => {
+    const clean = new URL(window.location.href);
+    [
+      'appointment_id',
+      'mp_return',
+      'payment_return_token',
+      'collection_id',
+      'collection_status',
+      'payment_id',
+      'status',
+      'external_reference',
+      'payment_type',
+      'merchant_order_id',
+      'preference_id',
+      'site_id',
+      'processing_mode',
+      'merchant_account_id',
+    ].forEach((key) => clean.searchParams.delete(key));
     window.history.replaceState({}, '', `${clean.pathname}${clean.search}`);
   };
 
@@ -404,7 +426,9 @@
         appointment_id: returnAppointmentId,
       });
       if (returnPaymentId) query.set('payment_id', returnPaymentId);
+      if (paymentReturnToken) query.set('payment_return_token', paymentReturnToken);
       const payload = await api(`/api/booking/payment-status?${query.toString()}`);
+      removePaymentReturnParams();
       state.appointment = payload.appointment;
       state.paymentRequired = payload.payment_required !== false;
       if (payload.selection) {
@@ -483,6 +507,13 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ verification_token: verificationToken }),
       });
+      if (payload.booking_url) {
+        const bookingUrl = new URL(payload.booking_url, window.location.href);
+        if (bookingUrl.origin !== window.location.origin) {
+          window.location.replace(bookingUrl.toString());
+          return;
+        }
+      }
       state.patient = payload.patient || null;
       state.agreement = payload.agreement || null;
       state.paymentRequired = state.agreement?.type !== 'Nomina';

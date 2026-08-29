@@ -1,6 +1,7 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { config } from "./config.mjs";
 import { one, query, recordAudit } from "./db.mjs";
+import { hashToken } from "./security.mjs";
 import {
   decryptSecret,
   encryptSecret,
@@ -262,6 +263,46 @@ export const appointmentIdFromExternalReference = (value) => {
   return match ? Number(match[1]) : null;
 };
 
+export const createMercadoPagoReturnCredential = ({
+  token = randomBytes(32).toString("base64url"),
+  now = new Date(),
+  ttlHours = 48,
+} = {}) => ({
+  token,
+  token_hash: hashToken(token),
+  expires_at: new Date(new Date(now).getTime() + Number(ttlHours) * 60 * 60 * 1000),
+});
+
+export const mercadoPagoReturnUrl = ({
+  returnAgendaUrl,
+  appointmentId,
+  result,
+  returnToken,
+}) => {
+  const params = new URLSearchParams({
+    appointment_id: String(appointmentId),
+    mp_return: result,
+    payment_return_token: returnToken,
+  });
+  const url = new URL(returnAgendaUrl);
+  url.search = params.toString();
+  return url.toString();
+};
+
+export const verifyMercadoPagoReturnToken = ({
+  token,
+  tokenHash,
+  expiresAt,
+  now = new Date(),
+}) => {
+  if (!token || !tokenHash || !expiresAt || new Date(expiresAt) <= new Date(now)) {
+    return false;
+  }
+  const supplied = Buffer.from(hashToken(token), "hex");
+  const expected = Buffer.from(String(tokenHash), "hex");
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+};
+
 export const createMercadoPagoPreference = async ({
   appointment,
   service,
@@ -271,15 +312,14 @@ export const createMercadoPagoPreference = async ({
 }) => {
   const credentials = await getActiveMercadoPagoCredentials();
   const externalReference = appointmentReference(appointment.id);
-  const returnUrl = (result) => {
-    const params = new URLSearchParams({
-      appointment_id: String(appointment.id),
-      mp_return: result,
+  const returnCredential = createMercadoPagoReturnCredential();
+  const returnUrl = (result) =>
+    mercadoPagoReturnUrl({
+      returnAgendaUrl,
+      appointmentId: appointment.id,
+      result,
+      returnToken: returnCredential.token,
     });
-    const url = new URL(returnAgendaUrl);
-    url.search = params.toString();
-    return url.toString();
-  };
   const patientName = splitPatientName(patient.name);
   const unitPrice = Number(service.cost_amount || 0);
   const expirationDateFrom = new Date();
@@ -344,6 +384,8 @@ export const createMercadoPagoPreference = async ({
     external_reference: externalReference,
     init_point: initPoint,
     preference_id: String(preference.id || ""),
+    payment_return_token_hash: returnCredential.token_hash,
+    payment_return_token_expires_at: returnCredential.expires_at,
     raw: preference,
   };
 };
@@ -378,6 +420,52 @@ const appointmentStatusFromPayment = (paymentStatus) => {
   return "pending_payment";
 };
 
+const mismatchError = (code) => {
+  const error = new Error(code);
+  error.statusCode = 409;
+  return error;
+};
+
+export const validateMercadoPagoPaymentForAppointment = (payment, appointment) => {
+  const appointmentId = Number(appointment?.id || 0);
+  const referencedAppointmentId = appointmentIdFromExternalReference(
+    payment?.external_reference,
+  );
+  const metadataAppointmentId = Number(payment?.metadata?.appointment_id || 0);
+  if (
+    !appointmentId ||
+    referencedAppointmentId !== appointmentId ||
+    (metadataAppointmentId && metadataAppointmentId !== appointmentId)
+  ) {
+    throw mismatchError("MERCADO_PAGO_PAYMENT_REFERENCE_MISMATCH");
+  }
+
+  const expectedReference =
+    String(appointment.payment_external_reference || "") || appointmentReference(appointmentId);
+  if (String(payment.external_reference || "") !== expectedReference) {
+    throw mismatchError("MERCADO_PAGO_PAYMENT_REFERENCE_MISMATCH");
+  }
+
+  const expectedPreferenceId = String(appointment.payment_preference_id || "");
+  if (
+    expectedPreferenceId &&
+    payment.preference_id &&
+    String(payment.preference_id || "") !== expectedPreferenceId
+  ) {
+    throw mismatchError("MERCADO_PAGO_PAYMENT_PREFERENCE_MISMATCH");
+  }
+
+  const expectedAmount = Math.round(Number(appointment.amount || 0) * 100);
+  const receivedAmount = Math.round(Number(payment.transaction_amount) * 100);
+  if (!Number.isFinite(receivedAmount) || receivedAmount !== expectedAmount) {
+    throw mismatchError("MERCADO_PAGO_PAYMENT_AMOUNT_MISMATCH");
+  }
+  if (String(payment.currency_id || "") !== "ARS") {
+    throw mismatchError("MERCADO_PAGO_PAYMENT_CURRENCY_MISMATCH");
+  }
+  return true;
+};
+
 export const updateAppointmentFromMercadoPagoPayment = async (payment) => {
   const paymentId = payment.id ? String(payment.id) : "";
   const reference = String(payment.external_reference || "");
@@ -388,6 +476,21 @@ export const updateAppointmentFromMercadoPagoPayment = async (payment) => {
     error.statusCode = 422;
     throw error;
   }
+
+  const storedAppointment = await one(
+    `
+      SELECT id, amount, payment_preference_id, payment_external_reference
+      FROM appointments
+      WHERE id = $1
+    `,
+    [appointmentId],
+  );
+  if (!storedAppointment) {
+    const error = new Error("APPOINTMENT_NOT_FOUND");
+    error.statusCode = 404;
+    throw error;
+  }
+  validateMercadoPagoPaymentForAppointment(payment, storedAppointment);
 
   const paymentStatus = String(payment.status || "unknown");
   const result = await query(

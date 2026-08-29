@@ -9,10 +9,11 @@ import {
 } from "./http.mjs";
 import { hashToken } from "./security.mjs";
 import {
-  appointmentIdFromExternalReference,
   createMercadoPagoPreference,
   fetchMercadoPagoPayment,
   updateAppointmentFromMercadoPagoPayment,
+  validateMercadoPagoPaymentForAppointment,
+  verifyMercadoPagoReturnToken,
   verifyMercadoPagoWebhookSignature,
   getMercadoPagoSettings,
 } from "./mercado-pago.mjs";
@@ -23,6 +24,7 @@ import {
 } from "./appointment-notifications.mjs";
 import {
   enforceIntakeRateLimits,
+  enforcePaymentReturnRateLimits,
   enforceWebhookRateLimits,
 } from "./rate-limit.mjs";
 import {
@@ -33,7 +35,10 @@ import {
   savePatientIntakeAndNotify,
   validatePatientIntakeSubmission,
 } from "./patient-intakes.mjs";
-import { bookingAccessCookie } from "./booking-links.mjs";
+import {
+  bookingAccessCookie,
+  createBookingAccessLink,
+} from "./booking-links.mjs";
 import { config } from "./config.mjs";
 import {
   cancelGoogleCalendarAppointment,
@@ -533,6 +538,7 @@ const verifyIntakeAccess = async (payload, response) => {
     booking_expires_at: result.bookingLink.expires_at,
     patient: result.patient,
     agreement: mapAgreement(result.agreement),
+    booking_url: result.bookingLink.url,
   }, {
     "Set-Cookie": bookingAccessCookie(
       result.bookingLink.token,
@@ -1175,14 +1181,18 @@ const createAppointment = async (payload, response, url, link) => {
         SET payment_preference_id = $1,
             payment_init_point = $2,
             payment_external_reference = $3,
-            payment_detail = $4::jsonb,
+            payment_return_token_hash = $4,
+            payment_return_token_expires_at = $5,
+            payment_detail = $6::jsonb,
             updated_at = NOW()
-        WHERE id = $5
+        WHERE id = $7
       `,
       [
         preference.preference_id,
         preference.init_point,
         preference.external_reference,
+        preference.payment_return_token_hash,
+        preference.payment_return_token_expires_at,
         JSON.stringify({
           preference_id: preference.preference_id,
           mode: preference.mode,
@@ -2006,7 +2016,73 @@ const uploadManagedAppointmentDocuments = async (request, response) => {
   });
 };
 
-const refreshPaymentStatus = async (url, response, link) => {
+const optionalAccessLinkForPaymentReturn = async (request, url) => {
+  const token = readToken(request, url);
+  if (!token) return null;
+  try {
+    return await requireAccessLinkForRequest(request, token);
+  } catch (error) {
+    if (error.message === "BOOKING_TOKEN_INVALID") return null;
+    throw error;
+  }
+};
+
+const paymentReturnLinkContext = (row, id) => ({
+  id: Number(id),
+  agreement: {
+    id: row.agreement_id ? Number(row.agreement_id) : null,
+    name: row.agreement_name_snapshot || "",
+    slug: row.agreement_slug_snapshot || "",
+    type: row.agreement_type_snapshot || "",
+    subdomain_prefix: row.agreement_subdomain_prefix || "",
+    cobranded: Boolean(row.agreement_cobranded_snapshot),
+  },
+});
+
+const reissueBookingAccessAfterPaymentReturn = async (appointment) => {
+  return tx(async (client) => {
+    const bookingLink = await createBookingAccessLink({
+      patientIntakeId: appointment.patient_intake_id || null,
+      label: `Retorno de pago turno ${appointment.id}`,
+      patientName: appointment.patient_name || "",
+      patientEmail: appointment.patient_email || "",
+      patientPhone: appointment.patient_phone || "",
+      agreementId: appointment.agreement_id || null,
+      agreementName: appointment.agreement_name_snapshot || "",
+      agreementSlug: appointment.agreement_slug_snapshot || "",
+      agreementSubdomainPrefix: appointment.agreement_subdomain_prefix || "",
+      agreementType: appointment.agreement_type_snapshot || "",
+      ttlHours: 48,
+      client,
+    });
+    await client.query(
+      `
+        UPDATE appointments
+        SET booking_access_link_id = $2, updated_at = NOW()
+        WHERE id = $1
+      `,
+      [appointment.id, bookingLink.id],
+    );
+    await client.query(
+      "UPDATE booking_access_links SET used_at = NOW() WHERE id = $1",
+      [bookingLink.id],
+    );
+    return bookingLink;
+  });
+};
+
+export const isLegacyMercadoPagoReturnEligible = (
+  appointment,
+  { now = new Date(), maxAgeHours = 6 } = {},
+) => {
+  if (appointment?.payment_return_token_hash) return false;
+  const createdAt = new Date(appointment?.created_at || 0);
+  if (!Number.isFinite(createdAt.getTime())) return false;
+  const ageMs = new Date(now).getTime() - createdAt.getTime();
+  return ageMs >= 0 && ageMs <= maxAgeHours * 60 * 60 * 1000;
+};
+
+const refreshPaymentStatus = async (request, url, response) => {
   const appointmentId = Number(url.searchParams.get("appointment_id"));
   const paymentId = String(
     url.searchParams.get("payment_id") ||
@@ -2017,11 +2093,19 @@ const refreshPaymentStatus = async (url, response, link) => {
     sendJson(response, 422, { error: "Turno inválido." });
     return;
   }
+  await enforcePaymentReturnRateLimits({
+    clientIp: getClientIp(request),
+    appointmentId,
+  });
+
+  const link = await optionalAccessLinkForPaymentReturn(request, url);
 
   const current = await one(
     `
       SELECT
         a.id,
+        a.booking_access_link_id,
+        a.patient_intake_id,
         a.service_id,
         a.professional_id,
         to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
@@ -2029,9 +2113,23 @@ const refreshPaymentStatus = async (url, response, link) => {
         to_char(a.end_time, 'HH24:MI') AS end_time,
         a.payment_status,
         a.status,
+        a.amount,
         a.payment_id,
+        a.payment_preference_id,
+        a.payment_external_reference,
+        a.payment_return_token_hash,
+        a.payment_return_token_expires_at,
         a.payment_init_point,
+        a.patient_name,
         a.patient_email,
+        a.patient_phone,
+        a.agreement_id,
+        a.agreement_name_snapshot,
+        a.agreement_slug_snapshot,
+        a.agreement_type_snapshot,
+        a.agreement_cobranded_snapshot,
+        a.created_at,
+        agreement.subdomain_prefix AS agreement_subdomain_prefix,
         s.name AS service_name,
         s.duration_minutes AS service_duration_minutes,
         s.cost_amount AS service_cost_amount,
@@ -2041,28 +2139,49 @@ const refreshPaymentStatus = async (url, response, link) => {
       FROM appointments a
       INNER JOIN services s ON s.id = a.service_id
       INNER JOIN professionals p ON p.id = a.professional_id
+      LEFT JOIN agreements agreement ON agreement.id = a.agreement_id
       WHERE a.id = $1
-        AND a.booking_access_link_id = $2
     `,
-    [appointmentId, link.id],
+    [appointmentId],
   );
   if (!current) {
     sendJson(response, 404, { error: "Turno no encontrado." });
     return;
   }
 
+  const bookingAccessAuthorized =
+    Boolean(link) && Number(current.booking_access_link_id) === Number(link.id);
+  const paymentReturnAuthorized = verifyMercadoPagoReturnToken({
+    token: String(url.searchParams.get("payment_return_token") || ""),
+    tokenHash: current.payment_return_token_hash,
+    expiresAt: current.payment_return_token_expires_at,
+  });
+
   let appointment = current;
   let paymentError = "";
+  let payment = null;
+  let legacyReturnAuthorized = false;
+  if (
+    !bookingAccessAuthorized &&
+    !paymentReturnAuthorized &&
+    paymentId &&
+    isLegacyMercadoPagoReturnEligible(current)
+  ) {
+    payment = await fetchMercadoPagoPayment(paymentId);
+    validateMercadoPagoPaymentForAppointment(payment, current);
+    legacyReturnAuthorized = true;
+  }
+  if (!bookingAccessAuthorized && !paymentReturnAuthorized && !legacyReturnAuthorized) {
+    sendJson(response, 401, {
+      error: "No pudimos validar el acceso al turno. Volvé a abrir el enlace de la reserva.",
+    });
+    return;
+  }
+
   if (paymentId) {
     try {
-      const payment = await fetchMercadoPagoPayment(paymentId);
-      const referencedAppointmentId =
-        appointmentIdFromExternalReference(payment.external_reference) ||
-        Number(payment.metadata?.appointment_id || 0);
-      if (referencedAppointmentId && referencedAppointmentId !== appointmentId) {
-        sendJson(response, 409, { error: "El pago no corresponde a este turno." });
-        return;
-      }
+      payment ||= await fetchMercadoPagoPayment(paymentId);
+      validateMercadoPagoPaymentForAppointment(payment, current);
       appointment = await updateAppointmentFromMercadoPagoPayment(payment);
       if (appointment.status === "confirmed") {
         await notifyConfirmedAppointment(appointment.id);
@@ -2092,17 +2211,41 @@ const refreshPaymentStatus = async (url, response, link) => {
     };
   }
 
-  sendJson(response, 200, {
-    ok: true,
-    appointment: appointmentFromRow(appointment),
-    selection: appointmentSelectionFromRow(appointment, link),
-    payment_required: link.agreement?.type !== "Nomina",
-    payment_error: paymentError,
-    payment: {
-      provider: "mercadopago",
-      url: appointment.payment_init_point || current.payment_init_point || "",
+  let activeLink = bookingAccessAuthorized
+    ? link
+    : paymentReturnLinkContext(current, current.booking_access_link_id);
+  let responseHeaders = {};
+  if (!bookingAccessAuthorized) {
+    const reissuedLink = await reissueBookingAccessAfterPaymentReturn(current);
+    activeLink = paymentReturnLinkContext(current, reissuedLink.id);
+    responseHeaders = {
+      "Set-Cookie": bookingAccessCookie(reissuedLink.token, reissuedLink.expires_at),
+    };
+    await recordAudit("appointment.payment_return_session_reissued", {
+      detail: {
+        appointment_id: appointmentId,
+        access_mode: legacyReturnAuthorized ? "legacy_validated_payment" : "return_token",
+        payment_status: appointment.payment_status || current.payment_status,
+      },
+    });
+  }
+
+  sendJson(
+    response,
+    200,
+    {
+      ok: true,
+      appointment: appointmentFromRow(appointment),
+      selection: appointmentSelectionFromRow(appointment, activeLink),
+      payment_required: activeLink.agreement?.type !== "Nomina",
+      payment_error: paymentError,
+      payment: {
+        provider: "mercadopago",
+        url: appointment.payment_init_point || current.payment_init_point || "",
+      },
     },
-  });
+    responseHeaders,
+  );
 };
 
 const parseWebhookBody = async (request) => {
@@ -2307,6 +2450,10 @@ export const handleBookingApi = async (request, response, url) => {
       await exchangeBookingAccess(request, payload, response, url);
       return true;
     }
+    if (pathname === "/api/booking/payment-status" && request.method === "GET") {
+      await refreshPaymentStatus(request, url, response);
+      return true;
+    }
 
     const token = readToken(request, url, payload);
     const link = await requireAccessLinkForRequest(request, token);
@@ -2325,10 +2472,6 @@ export const handleBookingApi = async (request, response, url) => {
     }
     if (pathname === "/api/booking/slots" && request.method === "GET") {
       await listSlots(url, response, link.agreement?.id || null);
-      return true;
-    }
-    if (pathname === "/api/booking/payment-status" && request.method === "GET") {
-      await refreshPaymentStatus(url, response, link);
       return true;
     }
     if (pathname === "/api/booking/appointments" && request.method === "POST") {
@@ -2434,6 +2577,12 @@ export const handleBookingApi = async (request, response, url) => {
       });
       sendJson(response, 502, {
         error: "Mercado Pago no pudo crear o consultar el pago.",
+      });
+      return true;
+    }
+    if (String(error.message || "").startsWith("MERCADO_PAGO_PAYMENT_")) {
+      sendJson(response, 409, {
+        error: "El pago informado no corresponde de forma segura a este turno.",
       });
       return true;
     }

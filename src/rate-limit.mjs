@@ -134,3 +134,20 @@ export const enforceWebhookRateLimits = async ({ clientIp, dataId }) => {
     }),
   ]);
 };
+
+export const enforcePaymentReturnRateLimits = async ({ clientIp, appointmentId }) => {
+  await Promise.all([
+    consumeRateLimit({
+      scope: "mp-return.ip.minute",
+      key: clientIp,
+      limit: 30,
+      windowSeconds: 60,
+    }),
+    consumeRateLimit({
+      scope: "mp-return.appointment.hour",
+      key: appointmentId || "missing",
+      limit: 15,
+      windowSeconds: 3600,
+    }),
+  ]);
+};

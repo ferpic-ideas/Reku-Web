@@ -393,6 +393,8 @@ export const initDb = async () => {
       payment_init_point TEXT,
       payment_id TEXT,
       payment_external_reference TEXT,
+      payment_return_token_hash TEXT,
+      payment_return_token_expires_at TIMESTAMPTZ,
       payment_detail JSONB NOT NULL DEFAULT '{}'::jsonb,
       professional_notified_at TIMESTAMPTZ,
       professional_notification_message_id TEXT,
@@ -455,6 +457,8 @@ export const initDb = async () => {
       ADD COLUMN IF NOT EXISTS payment_init_point TEXT,
       ADD COLUMN IF NOT EXISTS payment_id TEXT,
       ADD COLUMN IF NOT EXISTS payment_external_reference TEXT,
+      ADD COLUMN IF NOT EXISTS payment_return_token_hash TEXT,
+      ADD COLUMN IF NOT EXISTS payment_return_token_expires_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS payment_detail JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS professional_notified_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS professional_notification_message_id TEXT,
@@ -561,6 +565,9 @@ export const initDb = async () => {
     CREATE INDEX IF NOT EXISTS appointments_payment_reference_idx
       ON appointments (payment_external_reference)
       WHERE payment_external_reference IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS appointments_payment_return_token_idx
+      ON appointments (payment_return_token_hash)
+      WHERE payment_return_token_hash IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,

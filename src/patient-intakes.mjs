@@ -15,6 +15,7 @@ import {
 } from "./templates.mjs";
 import { createBookingAccessLink } from "./booking-links.mjs";
 import { hashToken } from "./security.mjs";
+import { agreementBookingUrl } from "./agreement-domains.mjs";
 
 const namePattern = /^[\p{L}]+(?:[ '-][\p{L}]+)*$/u;
 const phonePattern = /^[+()\d\s.-]+$/;
@@ -175,7 +176,17 @@ export const insertPatientIntake = async (submission, agreement, sourcePath) => 
   });
 };
 
-const createPatientIntakeVerification = async ({ recordId }) => {
+export const patientIntakeVerificationUrl = ({
+  token,
+  agreement,
+  appPublicUrl = config.appPublicUrl,
+}) => {
+  const url = new URL(agreementBookingUrl(agreement, appPublicUrl));
+  url.hash = `verify=${encodeURIComponent(token)}`;
+  return url.toString();
+};
+
+const createPatientIntakeVerification = async ({ recordId, agreement }) => {
   const token = randomBytes(32).toString("base64url");
   await query(
     `
@@ -187,7 +198,7 @@ const createPatientIntakeVerification = async ({ recordId }) => {
   );
   return {
     token,
-    url: `${config.appPublicUrl}/turnos/#verify=${encodeURIComponent(token)}`,
+    url: patientIntakeVerificationUrl({ token, agreement }),
   };
 };
 
@@ -285,7 +296,10 @@ export const savePatientIntakeAndNotify = async ({
 }) => {
   const saved = await insertPatientIntake(submission, agreement, sourcePath);
   const verification = requireEmailVerification
-    ? await createPatientIntakeVerification({ recordId: saved.id })
+    ? await createPatientIntakeVerification({
+        recordId: saved.id,
+        agreement,
+      })
     : null;
   const notifications = await sendPatientIntakeNotifications({
     submission,
@@ -313,6 +327,7 @@ export const redeemPatientIntakeVerification = async (token) => {
           a.name AS current_agreement_name,
           a.slug AS current_agreement_slug,
           a.type AS current_agreement_type,
+          a.subdomain_prefix AS current_agreement_subdomain_prefix,
           a.cobranded,
           a.logo_path,
           a.pdf_path
@@ -350,6 +365,7 @@ export const redeemPatientIntakeVerification = async (token) => {
       name: row.current_agreement_name || row.agreement_name_snapshot || "",
       slug: row.current_agreement_slug || row.agreement_slug_snapshot || "",
       type: row.current_agreement_type || row.agreement_type_snapshot || "",
+      subdomain_prefix: row.current_agreement_subdomain_prefix || "",
       cobranded: Boolean(row.cobranded),
       logo_path: row.logo_path || "",
       pdf_path: row.pdf_path || "",
