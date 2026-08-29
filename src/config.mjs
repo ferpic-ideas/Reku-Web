@@ -47,9 +47,6 @@ export const config = {
       process.env.PATIENT_APPOINTMENT_LINK_TTL_DAYS ||
       7,
   ),
-  patientAppointmentLinkMaxExchanges: Number(
-    process.env.PATIENT_APPOINTMENT_LINK_MAX_EXCHANGES || 5,
-  ),
   patientAppointmentSessionTtlSeconds: Number(
     process.env.PATIENT_APPOINTMENT_SESSION_TTL_SECONDS || 43_200,
   ),
@@ -149,8 +146,6 @@ export const assertSafeStartup = () => {
     config.professionalLinkTtlHours < 1 ||
     config.patientAppointmentLinkGraceDays < 1 ||
     config.patientAppointmentLinkGraceDays > 30 ||
-    config.patientAppointmentLinkMaxExchanges < 1 ||
-    config.patientAppointmentLinkMaxExchanges > 20 ||
     config.patientAppointmentSessionTtlSeconds < 300 ||
     !Number.isFinite(config.patientMeetEarlyMinutes) ||
     config.patientMeetEarlyMinutes < 0 ||

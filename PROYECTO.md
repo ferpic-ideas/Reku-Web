@@ -321,7 +321,7 @@ Variables clave:
 - `BOOKING_EMAIL_VERIFICATION_ENABLED` (debe permanecer `true` en producción;
   verifica el email antes de habilitar la agenda)
 - `PATIENT_APPOINTMENT_LINK_GRACE_DAYS` (7 por defecto)
-- `PATIENT_APPOINTMENT_LINK_MAX_EXCHANGES` (5 por defecto)
+- Los links privados del mail pueden reutilizarse hasta su vencimiento o revocación.
 - `PROFESSIONAL_LINK_TTL_HOURS`
 - `PROFESSIONAL_SESSION_TTL_SECONDS`
 - `PROFESSIONAL_SESSION_COOKIE_NAME`

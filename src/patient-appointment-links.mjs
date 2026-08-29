@@ -7,13 +7,12 @@ import { hashToken } from "./security.mjs";
 export const createPatientAppointmentAccessLink = async ({
   appointmentId,
   graceDays = config.patientAppointmentLinkGraceDays,
-  maxExchanges = config.patientAppointmentLinkMaxExchanges,
 } = {}) => {
   const token = randomBytes(32).toString("base64url");
   const result = await query(
     `
       INSERT INTO patient_appointment_access_links
-        (token_hash, appointment_id, expires_at, max_exchanges)
+        (token_hash, appointment_id, expires_at)
       SELECT
         $1,
         appointment.id,
@@ -21,8 +20,7 @@ export const createPatientAppointmentAccessLink = async ({
           NOW() + INTERVAL '1 day',
           ((appointment.appointment_date + appointment.end_time) AT TIME ZONE $4)
             + ($3::text || ' days')::interval
-        ),
-        $5
+        )
       FROM appointments appointment
       WHERE appointment.id = $2
       RETURNING id, expires_at
@@ -32,7 +30,6 @@ export const createPatientAppointmentAccessLink = async ({
       Number(appointmentId),
       Number(graceDays),
       config.googleCalendarTimeZone,
-      Number(maxExchanges),
     ],
   );
   if (!result.rows[0]) {
@@ -71,7 +68,6 @@ export const exchangePatientAppointmentAccessLink = async (token) =>
         WHERE link.token_hash = $1
           AND link.expires_at > NOW()
           AND link.revoked_at IS NULL
-          AND link.exchange_count < link.max_exchanges
           AND NULLIF(appointment.patient_email, '') IS NOT NULL
         FOR UPDATE OF link
       `,

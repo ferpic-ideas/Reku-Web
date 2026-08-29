@@ -88,6 +88,19 @@ test("patient management mutations require the Reku origin", () => {
   );
 });
 
+test("patient email access links remain reusable until expiration or revocation", async () => {
+  const source = await readFile(
+    new URL("../src/patient-appointment-links.mjs", import.meta.url),
+    "utf8",
+  );
+  const exchange = source.match(
+    /export const exchangePatientAppointmentAccessLink[\s\S]*?export const revokeOtherPatientAppointmentAccessLinks/,
+  )?.[0] || "";
+  assert.match(exchange, /link\.expires_at > NOW\(\)/);
+  assert.match(exchange, /link\.revoked_at IS NULL/);
+  assert.doesNotMatch(exchange, /exchange_count < link\.max_exchanges/);
+});
+
 test("Meet access is limited to the appointment window", () => {
   const appointment = {
     status: "confirmed",

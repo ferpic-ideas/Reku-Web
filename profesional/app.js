@@ -77,7 +77,9 @@
     authSubmitting: false,
     status: '',
     statusType: '',
+    statusContext: 'global',
     actionModal: null,
+    blocksMessageContext: '',
   };
 
   const escapeHtml = (value) =>
@@ -240,9 +242,10 @@
     }
   }
 
-  function setStatus(message, type = '') {
+  function setStatus(message, type = '', context = 'global') {
     state.status = message;
     state.statusType = type;
+    state.statusContext = context;
     render();
   }
 
@@ -274,11 +277,13 @@
     if (appointments) state.appointments = appointments.appointments || [];
     if (google) state.google = google.google || state.google;
     if (push) state.push = { ...state.push, ...(push.push || {}) };
+    if (googleReturn) state.active = state.google?.connected ? 'profile' : 'overview';
 
     if (results.some((result) => result.status === 'rejected')) {
       state.status =
         'Ingresaste correctamente, pero algunos datos no pudieron actualizarse. Podés seguir usando el portal y reintentar recargando.';
       state.statusType = 'error';
+      state.statusContext = 'global';
     }
     void refreshPushDeviceState().then(() => {
       if (state.user) render();
@@ -422,10 +427,12 @@
           state.csrf = '';
           state.status = 'Tu sesión venció. Volvé a ingresar.';
           state.statusType = 'error';
+          state.statusContext = 'global';
           stopAppointmentsPolling();
         } else if (showError) {
           state.status = error.message;
           state.statusType = 'error';
+          state.statusContext = 'appointments';
         }
       } finally {
         state.appointmentsRefreshing = false;
@@ -439,6 +446,7 @@
   async function activateModule(moduleId) {
     state.active = moduleId;
     state.status = '';
+    state.statusContext = 'global';
     render();
     if (moduleId === 'appointments') {
       await refreshAppointments({ showError: true });
@@ -464,6 +472,7 @@
       if (error.status !== 401) {
         state.status = error.message || 'No se pudo cargar el portal. Probá nuevamente.';
         state.statusType = 'error';
+        state.statusContext = 'global';
       }
     } finally {
       state.loading = false;
@@ -471,9 +480,9 @@
     }
   }
 
-  function renderStatus() {
-    return state.status
-      ? `<div class="status-message ${escapeHtml(state.statusType)}">${escapeHtml(state.status)}</div>`
+  function renderStatus(context = 'global') {
+    return state.status && state.statusContext === context
+      ? `<div class="status-message ${escapeHtml(state.statusType)}" role="status">${escapeHtml(state.status)}</div>`
       : '';
   }
 
@@ -726,6 +735,7 @@
             : ''
         }
       </div>
+      ${renderStatus(`appointment-${item.id}`)}
     `;
   }
 
@@ -765,6 +775,7 @@
           </div>
           ${googleAction}
         </div>
+        ${renderStatus('google')}
       </section>
     `;
   }
@@ -928,6 +939,7 @@
             </form>
           </div>
         </div>
+        ${renderStatus('appointments')}
         ${
           items.length
             ? renderAppointmentsTable(items)
@@ -1162,13 +1174,13 @@
             <span>${triageUrl ? 'El formulario está disponible desde esta ficha. Hasta cerrar la integración con ReHub, se muestra el enlace asignado como si el paciente ya lo hubiera completado.' : 'No hay un formulario disponible para este turno.'}</span>
             ${reminderSentAt ? `<span>Último recordatorio enviado: ${escapeHtml(formatDateTime(reminderSentAt))}.</span>` : ''}
           </div>
-          ${state.patientDetailMessage ? `<div class="status-message ${escapeHtml(state.patientDetailMessageType)}">${escapeHtml(state.patientDetailMessage)}</div>` : ''}
           <div class="form-actions patient-detail-actions">
             <button class="secondary-button" data-action="close-patient-details" type="button">Cerrar</button>
             ${canRemindTriage
               ? `<button class="primary-button" data-action="remind-triage" data-id="${detailAppointment.id}" type="button" ${state.sendingTriageReminderId === detailAppointment.id ? 'disabled' : ''}>${state.sendingTriageReminderId === detailAppointment.id ? 'Enviando…' : 'Recordar cuestionario'}</button>`
               : ''}
           </div>
+          ${state.patientDetailMessage ? `<div class="status-message ${escapeHtml(state.patientDetailMessageType)}" role="status">${escapeHtml(state.patientDetailMessage)}</div>` : ''}
         </section>
       </div>
     `;
@@ -1227,11 +1239,11 @@
                 ? `<label>Motivo<textarea name="reason" rows="4" maxlength="500" required placeholder="Contale brevemente al paciente por qué se cancela">${escapeHtml(modal.reason || '')}</textarea></label>`
                 : ''
             }
-            ${modal.error ? `<div class="status-message error">${escapeHtml(modal.error)}</div>` : ''}
             <div class="form-actions">
               <button class="secondary-button" data-action="close-action-modal" type="button" ${modal.submitting ? 'disabled' : ''}>Volver</button>
               <button class="${content.dangerous ? 'danger-button' : 'primary-button'}" type="submit" ${modal.submitting ? 'disabled' : ''}>${modal.submitting ? 'Procesando…' : escapeHtml(content.confirm)}</button>
             </div>
+            ${modal.error ? `<div class="status-message error" role="status">${escapeHtml(modal.error)}</div>` : ''}
           </form>
         </section>
       </div>
@@ -1249,6 +1261,7 @@
             <button class="secondary-button" type="submit">Buscar</button>
           </form>
         </div>
+        ${renderStatus('patients')}
         ${
           state.patients.length
             ? `
@@ -1331,6 +1344,7 @@
             .join('')}
         </div>
         <div class="form-actions"><button class="primary-button" type="submit">Guardar horarios</button></div>
+        ${renderStatus('availability')}
       </form>
       ${renderBlocksModal()}
     `;
@@ -1349,7 +1363,6 @@
             </div>
             <button class="icon-button" data-action="close-blocks-modal" type="button" aria-label="Cerrar bloqueos" title="Cerrar">×</button>
           </div>
-          ${state.blocksMessage ? `<div class="status-message ${escapeHtml(state.blocksMessageType)}">${escapeHtml(state.blocksMessage)}</div>` : ''}
           <div class="blocks-modal-layout">
             <form id="block-form" class="modal-section form-stack">
               <h3>Nuevo bloqueo</h3>
@@ -1360,6 +1373,7 @@
               </div>
               <label>Motivo<textarea name="reason" rows="3" maxlength="300" placeholder="Ej.: capacitación, trámite o licencia"></textarea></label>
               <button class="primary-button" type="submit">Crear bloqueo</button>
+              ${state.blocksMessage && state.blocksMessageContext === 'create' ? `<div class="status-message ${escapeHtml(state.blocksMessageType)}" role="status">${escapeHtml(state.blocksMessage)}</div>` : ''}
             </form>
             <section class="modal-section">
               <div class="panel-header"><h3>Próximos bloqueos</h3></div>
@@ -1382,6 +1396,7 @@
                     : '<div class="empty-state">No hay bloqueos próximos.</div>'
                 }
               </div>
+              ${state.blocksMessage && state.blocksMessageContext === 'list' ? `<div class="status-message ${escapeHtml(state.blocksMessageType)}" role="status">${escapeHtml(state.blocksMessage)}</div>` : ''}
             </section>
           </div>
         </section>
@@ -1423,12 +1438,14 @@
           </div>
         </fieldset>
         <div class="form-actions span-two"><button class="primary-button" type="submit">Guardar perfil</button></div>
+        ${state.status && state.statusContext === 'profile' ? `<div class="span-two">${renderStatus('profile')}</div>` : ''}
       </form>
       <form id="password-form" class="panel form-grid">
         <div class="span-two"><h2>Cambiar contraseña</h2></div>
         <label>Contraseña actual<input name="current_password" type="password" autocomplete="current-password" required /></label>
         <label>Nueva contraseña<input name="new_password" type="password" minlength="8" autocomplete="new-password" required /></label>
         <div class="form-actions span-two"><button class="secondary-button" type="submit">Actualizar contraseña</button></div>
+        ${state.status && state.statusContext === 'password' ? `<div class="span-two">${renderStatus('password')}</div>` : ''}
       </form>
       ${state.google?.connected ? renderGoogleIntegration() : ''}
       ${renderPushIntegration()}
@@ -1559,6 +1576,7 @@
         state.blocksModalOpen = true;
         state.blocksMessage = '';
         state.blocksMessageType = '';
+        state.blocksMessageContext = '';
         render();
       });
     });
@@ -1567,6 +1585,7 @@
         state.blocksModalOpen = false;
         state.blocksMessage = '';
         state.blocksMessageType = '';
+        state.blocksMessageContext = '';
         render();
       });
     });
@@ -1690,6 +1709,7 @@
       state.active = 'profile';
       state.status = 'Cuenta activada. Completá tus datos y prácticas para empezar.';
       state.statusType = 'ok';
+      state.statusContext = 'global';
       window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
       await loadData();
       render();
@@ -1800,9 +1820,9 @@
       const payload = await api('/api/professional/profile', { method: 'PUT', body: data });
       state.profile = payload.profile;
       state.services = payload.services || state.services;
-      setStatus('Perfil actualizado.', 'ok');
+      setStatus('Perfil actualizado.', 'ok', 'profile');
     } catch (error) {
-      setStatus(error.message, 'error');
+      setStatus(error.message, 'error', 'profile');
     }
   }
 
@@ -1823,9 +1843,9 @@
         body: { availability },
       });
       state.availability = payload.availability;
-      setStatus('Horarios actualizados.', 'ok');
+      setStatus('Horarios actualizados.', 'ok', 'availability');
     } catch (error) {
-      setStatus(error.message, 'error');
+      setStatus(error.message, 'error', 'availability');
     }
   }
 
@@ -1845,10 +1865,12 @@
       state.blocks = (await api('/api/professional/blocks')).schedule_blocks;
       state.blocksMessage = 'Bloqueo creado.';
       state.blocksMessageType = 'ok';
+      state.blocksMessageContext = 'create';
       render();
     } catch (error) {
       state.blocksMessage = error.message;
       state.blocksMessageType = 'error';
+      state.blocksMessageContext = 'create';
       render();
     }
   }
@@ -1859,17 +1881,19 @@
       state.blocks = (await api('/api/professional/blocks')).schedule_blocks;
       state.blocksMessage = 'Bloqueo eliminado.';
       state.blocksMessageType = 'ok';
+      state.blocksMessageContext = 'list';
       render();
     } catch (error) {
       state.blocksMessage = error.message;
       state.blocksMessageType = 'error';
+      state.blocksMessageContext = 'list';
       render();
     }
   }
 
   async function handleCancelAppointment(id, reason) {
     if (!reason.trim()) {
-      setStatus('Indicá el motivo de la cancelación.', 'error');
+      setStatus('Indicá el motivo de la cancelación.', 'error', `appointment-${id}`);
       return;
     }
     try {
@@ -1893,9 +1917,10 @@
       setStatus(
         `Turno cancelado.${messages.length ? ` ${messages.join(' ')}` : ''}`,
         hasWarning ? 'error' : 'ok',
+        `appointment-${id}`,
       );
     } catch (error) {
-      setStatus(error.message, 'error');
+      setStatus(error.message, 'error', `appointment-${id}`);
     }
   }
 
@@ -1909,7 +1934,7 @@
       state.patients = payload.patients;
       render();
     } catch (error) {
-      setStatus(error.message, 'error');
+      setStatus(error.message, 'error', 'patients');
     }
   }
 
@@ -1926,7 +1951,7 @@
       });
       window.location.assign(payload.authorization_url);
     } catch (error) {
-      setStatus(error.message, 'error');
+      setStatus(error.message, 'error', 'google');
     }
   }
 
@@ -1934,9 +1959,9 @@
     try {
       await api('/api/professional/integrations/google/disconnect', { method: 'POST' });
       state.google = (await api('/api/professional/integrations/google')).google;
-      setStatus('Google Calendar fue desconectado.', 'ok');
+      setStatus('Google Calendar fue desconectado.', 'ok', 'google');
     } catch (error) {
-      setStatus(error.message, 'error');
+      setStatus(error.message, 'error', 'google');
     }
   }
 
@@ -2152,7 +2177,7 @@
       state.csrf = '';
       setStatus('Contraseña actualizada. Volvé a ingresar.', 'ok');
     } catch (error) {
-      setStatus(error.message, 'error');
+      setStatus(error.message, 'error', 'password');
     }
   }
 
@@ -2168,6 +2193,7 @@
       error: ['No se pudo conectar Google Calendar. Probá nuevamente.', 'error'],
     };
     [state.status, state.statusType] = messages[googleReturn] || messages.error;
+    state.statusContext = 'google';
     window.history.replaceState({}, '', '/profesional/');
   }
   document.addEventListener?.('visibilitychange', () => {
