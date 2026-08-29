@@ -1,6 +1,8 @@
 (() => {
   const app = document.getElementById('app');
   const publicBaseUrl = 'https://www.reku.io';
+  const initialAuthFragment = new URLSearchParams(String(window.location.hash || '').slice(1));
+  const initialPasswordResetToken = initialAuthFragment.get('reset-password') || '';
   const agreementPublicUrl = (agreement = {}) => {
     const prefix = String(agreement.subdomain_prefix || '').trim().toLowerCase();
     if (prefix) return `https://${prefix}.reku.io/turnos/`;
@@ -58,6 +60,9 @@
     status: '',
     statusType: '',
     dialog: null,
+    authView: initialPasswordResetToken ? 'reset-password' : 'login',
+    passwordResetToken: initialPasswordResetToken,
+    passwordResetRequested: false,
   };
 
   const modules = [
@@ -677,7 +682,9 @@
     }
 
     if (!state.user) {
-      renderLogin();
+      if (state.passwordResetToken) renderPasswordReset();
+      else if (state.authView === 'forgot-password') renderForgotPassword();
+      else renderLogin();
       return;
     }
 
@@ -767,10 +774,75 @@
           <input name="password" type="password" autocomplete="current-password" required />
         </label>
         <button class="primary-button" type="submit">Ingresar</button>
-        ${state.status ? `<div class="status-box error">${escapeHtml(state.status)}</div>` : ''}
+        <button class="auth-link" type="button" data-auth-view="forgot-password">Olvidé mi contraseña</button>
+        ${state.status ? `<div class="status-box ${state.statusType === 'ok' ? 'ok' : 'error'}">${escapeHtml(state.status)}</div>` : ''}
       </form>
     `;
     document.getElementById('login-form').addEventListener('submit', handleLogin);
+    document.querySelector('[data-auth-view="forgot-password"]')?.addEventListener('click', () => {
+      state.authView = 'forgot-password';
+      state.passwordResetRequested = false;
+      clearStatus();
+      render();
+    });
+  }
+
+  function renderForgotPassword() {
+    app.className = 'login-shell';
+    app.innerHTML = `
+      <form class="login-panel" id="forgot-password-form">
+        <div class="brand-row">
+          <img src="/images/logo-reku.svg" alt="Reku" />
+        </div>
+        <div>
+          <h1>Recuperar contraseña</h1>
+          <p>Ingresá el email de tu cuenta. Si está habilitada, vas a recibir un enlace válido por 30 minutos.</p>
+        </div>
+        ${state.passwordResetRequested ? '' : `
+          <label>
+            Email
+            <input name="email" type="email" autocomplete="email" maxlength="320" required />
+          </label>
+          <button class="primary-button" type="submit">Enviar enlace</button>
+        `}
+        <button class="auth-link" type="button" data-auth-view="login">Volver al ingreso</button>
+        ${state.status ? `<div class="status-box ${state.statusType === 'ok' ? 'ok' : 'error'}">${escapeHtml(state.status)}</div>` : ''}
+      </form>
+    `;
+    document.getElementById('forgot-password-form').addEventListener('submit', handlePasswordResetRequest);
+    document.querySelector('[data-auth-view="login"]')?.addEventListener('click', () => {
+      state.authView = 'login';
+      state.passwordResetRequested = false;
+      clearStatus();
+      render();
+    });
+  }
+
+  function renderPasswordReset() {
+    app.className = 'login-shell';
+    app.innerHTML = `
+      <form class="login-panel" id="password-reset-form">
+        <div class="brand-row">
+          <img src="/images/logo-reku.svg" alt="Reku" />
+        </div>
+        <div>
+          <h1>Crear nueva contraseña</h1>
+          <p>Usá una contraseña distinta a la anterior. Al guardarla, se cerrarán las demás sesiones.</p>
+        </div>
+        <label>
+          Nueva contraseña
+          <input name="password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required />
+          <span class="field-help">Entre 10 y 128 caracteres.</span>
+        </label>
+        <label>
+          Repetir contraseña
+          <input name="password_confirmation" type="password" minlength="10" maxlength="128" autocomplete="new-password" required />
+        </label>
+        <button class="primary-button" type="submit">Actualizar contraseña</button>
+        ${state.status ? `<div class="status-box error">${escapeHtml(state.status)}</div>` : ''}
+      </form>
+    `;
+    document.getElementById('password-reset-form').addEventListener('submit', handlePasswordReset);
   }
 
   function activeModuleLabel() {
@@ -4230,6 +4302,49 @@
     }
   }
 
+  async function handlePasswordResetRequest(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      const payload = await api('/api/admin/auth/password-reset/request', {
+        method: 'POST',
+        body: { email: form.email.value },
+      });
+      state.passwordResetRequested = true;
+      setStatus(payload.message, 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  async function handlePasswordReset(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (form.password.value !== form.password_confirmation.value) {
+      setStatus('Las contraseñas no coinciden.', 'error');
+      return;
+    }
+    try {
+      const payload = await api('/api/admin/auth/password-reset', {
+        method: 'POST',
+        body: {
+          token: state.passwordResetToken,
+          password: form.password.value,
+        },
+      });
+      state.passwordResetToken = '';
+      state.authView = 'login';
+      window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}${window.location.search}`,
+      );
+      setStatus(payload.message || 'Contraseña actualizada. Ingresá nuevamente.', 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
   async function handleAgreementSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -4402,5 +4517,10 @@
     });
   });
 
-  loadSession();
+  if (state.passwordResetToken) {
+    state.loading = false;
+    render();
+  } else {
+    loadSession();
+  }
 })();

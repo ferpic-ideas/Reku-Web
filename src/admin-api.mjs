@@ -86,6 +86,11 @@ import {
   getAgreementSettlementPreview,
   streamAgreementSettlementPdf,
 } from "./agreement-settlements.mjs";
+import {
+  passwordResetGenericMessage,
+  requestPasswordReset,
+  resetPassword,
+} from "./password-resets.mjs";
 
 const canDeleteRecords = (user) => hasPermission(user, "records.delete");
 const canManageSystem = (user) => hasPermission(user, "users.write");
@@ -446,6 +451,35 @@ const handleChangePassword = async (request, response) => {
   );
   await recordAudit("auth.password_changed", { actorUserId: user.id });
   sendJson(response, 200, { ok: true }, { "Set-Cookie": clearSessionCookie() });
+};
+
+const handlePasswordResetRequest = async (request, response) => {
+  const payload = await parseJsonBody(request);
+  await requestPasswordReset({
+    audience: "admin",
+    email: payload.email,
+    clientIp: getClientIp(request),
+  });
+  sendJson(response, 202, {
+    ok: true,
+    message: passwordResetGenericMessage,
+  });
+};
+
+const handlePasswordReset = async (request, response) => {
+  const payload = await parseJsonBody(request);
+  await resetPassword({
+    audience: "admin",
+    token: payload.token,
+    password: payload.password,
+    clientIp: getClientIp(request),
+  });
+  sendJson(
+    response,
+    200,
+    { ok: true, message: "Contraseña actualizada. Ingresá nuevamente." },
+    { "Set-Cookie": clearSessionCookie() },
+  );
 };
 
 const listUsers = async (response) => {
@@ -2888,6 +2922,20 @@ export const handleAdminApi = async (request, response, url) => {
       await handleLogin(request, response);
       return true;
     }
+    if (
+      pathname === "/api/admin/auth/password-reset/request" &&
+      request.method === "POST"
+    ) {
+      await handlePasswordResetRequest(request, response);
+      return true;
+    }
+    if (
+      pathname === "/api/admin/auth/password-reset" &&
+      request.method === "POST"
+    ) {
+      await handlePasswordReset(request, response);
+      return true;
+    }
 
     const { user, session } = await requireCurrentUser(request);
     requireCsrfForMutation(request, session);
@@ -3228,6 +3276,15 @@ export const handleAdminApi = async (request, response, url) => {
   } catch (error) {
     if (error.publicMessage) {
       sendJson(response, error.statusCode || 422, { error: error.publicMessage });
+      return true;
+    }
+    if (error.message === "RATE_LIMITED") {
+      sendJson(
+        response,
+        429,
+        { error: "Demasiados intentos. Esperá unos minutos." },
+        { "Retry-After": String(error.retryAfter || 900) },
+      );
       return true;
     }
     if (error.code === "23505") {

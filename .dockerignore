@@ -4,6 +4,8 @@
 .git
 node_modules
 test
+integration
+.github
 npm-debug.log
 uploads
 private-uploads

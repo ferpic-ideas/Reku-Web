@@ -68,6 +68,9 @@ export const config = {
   professionalInvitationTtlHours: Number(
     process.env.PROFESSIONAL_INVITATION_TTL_HOURS || 72,
   ),
+  passwordResetTtlMinutes: Number(
+    process.env.PASSWORD_RESET_TTL_MINUTES || 30,
+  ),
   webPushVapidPublicKey: (process.env.WEB_PUSH_VAPID_PUBLIC_KEY || "").trim(),
   webPushVapidPrivateKey: (process.env.WEB_PUSH_VAPID_PRIVATE_KEY || "").trim(),
   webPushVapidSubject: (
@@ -156,6 +159,9 @@ export const assertSafeStartup = () => {
     config.patientMeetLateMinutes < 0 ||
     config.patientMeetLateMinutes > 120 ||
     config.professionalInvitationTtlHours < 1 ||
+    !Number.isFinite(config.passwordResetTtlMinutes) ||
+    config.passwordResetTtlMinutes < 10 ||
+    config.passwordResetTtlMinutes > 60 ||
     config.professionalSessionTtlSeconds < 300 ||
     config.mercadoPagoWebhookMaxAgeSeconds < 30
   ) {

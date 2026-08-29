@@ -49,6 +49,11 @@ import {
   permissionsForUser,
   requireProfessionalApiPermission,
 } from "./authorization.mjs";
+import {
+  passwordResetGenericMessage,
+  requestPasswordReset,
+  resetPassword,
+} from "./password-resets.mjs";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -357,6 +362,35 @@ const handlePasswordChange = async (request, response, account) => {
     detail: { professional_id: account.user.professional_id },
   });
   sendJson(response, 200, { ok: true }, { "Set-Cookie": clearSessionCookie() });
+};
+
+const handlePasswordResetRequest = async (request, response) => {
+  const payload = await parseJsonBody(request);
+  await requestPasswordReset({
+    audience: "professional",
+    email: payload.email,
+    clientIp: getClientIp(request),
+  });
+  sendJson(response, 202, {
+    ok: true,
+    message: passwordResetGenericMessage,
+  });
+};
+
+const handlePasswordReset = async (request, response) => {
+  const payload = await parseJsonBody(request);
+  await resetPassword({
+    audience: "professional",
+    token: payload.token,
+    password: payload.password,
+    clientIp: getClientIp(request),
+  });
+  sendJson(
+    response,
+    200,
+    { ok: true, message: "Contraseña actualizada. Ingresá nuevamente." },
+    { "Set-Cookie": clearSessionCookie() },
+  );
 };
 
 const listProfileServices = async (professionalId) => {
@@ -1123,6 +1157,20 @@ export const handleProfessionalApi = async (request, response, url) => {
       await handleAccountLogin(request, response);
       return true;
     }
+    if (
+      pathname === "/api/professional/auth/password-reset/request" &&
+      request.method === "POST"
+    ) {
+      await handlePasswordResetRequest(request, response);
+      return true;
+    }
+    if (
+      pathname === "/api/professional/auth/password-reset" &&
+      request.method === "POST"
+    ) {
+      await handlePasswordReset(request, response);
+      return true;
+    }
 
     if (pathname === "/api/professional/session" && request.method === "POST") {
       const payload = await parseJsonBody(request);
@@ -1448,7 +1496,12 @@ export const handleProfessionalApi = async (request, response, url) => {
       return true;
     }
     if (error.message === "RATE_LIMITED") {
-      sendJson(response, 429, { error: "Demasiados intentos. Esperá unos minutos." });
+      sendJson(
+        response,
+        429,
+        { error: "Demasiados intentos. Esperá unos minutos." },
+        { "Retry-After": String(error.retryAfter || 900) },
+      );
       return true;
     }
     if (

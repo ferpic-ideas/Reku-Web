@@ -21,6 +21,9 @@
   const requestedModule = initialQuery.get('module');
   const requestedAppointmentId = Number(initialQuery.get('appointment')) || null;
   const requestedRoom = initialQuery.get('room') === '1' || initialQuery.get('waiting') === '1';
+  const initialAuthFragment = new URLSearchParams(String(window.location.hash || '').slice(1));
+  const initialInvitationToken = initialAuthFragment.get('invite') || '';
+  const initialPasswordResetToken = initialAuthFragment.get('reset-password') || '';
   let appointmentsPollTimer = null;
   let appointmentsRefreshPromise = null;
   let meetWindowTimer = null;
@@ -67,7 +70,10 @@
     patientDetailMessage: '',
     patientDetailMessageType: '',
     sendingTriageReminderId: null,
-    invitationToken: new URLSearchParams(window.location.hash.slice(1)).get('invite') || '',
+    invitationToken: initialInvitationToken,
+    passwordResetToken: initialPasswordResetToken,
+    authView: initialPasswordResetToken ? 'reset-password' : 'login',
+    passwordResetRequested: false,
     status: '',
     statusType: '',
     actionModal: null,
@@ -439,6 +445,7 @@
               <input name="password" type="password" autocomplete="current-password" required />
             </label>
             <button class="primary-button" type="submit">Entrar al portal</button>
+            <button class="auth-link" type="button" data-auth-view="forgot-password">Olvidé mi contraseña</button>
             <div class="portal-legal-links" aria-label="Información legal">
               <a href="/privacidad/">Privacidad</a>
               <a href="/terminos/">Términos</a>
@@ -449,6 +456,96 @@
       </main>
     `;
     document.getElementById('login-form').addEventListener('submit', handleLogin);
+    document.querySelector('[data-auth-view="forgot-password"]')?.addEventListener('click', () => {
+      state.authView = 'forgot-password';
+      state.passwordResetRequested = false;
+      state.status = '';
+      state.statusType = '';
+      render();
+    });
+  }
+
+  function renderForgotPassword() {
+    app.className = '';
+    app.innerHTML = `
+      <main class="login-shell">
+        <section class="login-story">
+          <img src="/images/logo-reku.svg" alt="Reku" />
+          <div>
+            <h1>Volvé a tu práctica con seguridad.</h1>
+            <p>Te enviaremos un enlace de un solo uso para que recuperes el acceso.</p>
+          </div>
+        </section>
+        <section class="login-panel">
+          <form id="forgot-password-form" class="login-form form-stack">
+            <div>
+              <h2>Recuperar contraseña</h2>
+              <p>Ingresá el email de tu cuenta profesional. El enlace será válido por 30 minutos.</p>
+            </div>
+            ${state.passwordResetRequested ? '' : `
+              <label>
+                Email
+                <input name="email" type="email" autocomplete="email" maxlength="320" required />
+              </label>
+              <button class="primary-button" type="submit">Enviar enlace</button>
+            `}
+            <button class="auth-link" type="button" data-auth-view="login">Volver al ingreso</button>
+            <div class="portal-legal-links" aria-label="Información legal">
+              <a href="/privacidad/">Privacidad</a>
+              <a href="/terminos/">Términos</a>
+            </div>
+            ${renderStatus()}
+          </form>
+        </section>
+      </main>
+    `;
+    document.getElementById('forgot-password-form').addEventListener('submit', handlePasswordResetRequest);
+    document.querySelector('[data-auth-view="login"]')?.addEventListener('click', () => {
+      state.authView = 'login';
+      state.passwordResetRequested = false;
+      state.status = '';
+      state.statusType = '';
+      render();
+    });
+  }
+
+  function renderPasswordReset() {
+    app.className = '';
+    app.innerHTML = `
+      <main class="login-shell">
+        <section class="login-story">
+          <img src="/images/logo-reku.svg" alt="Reku" />
+          <div>
+            <h1>Protegé tu cuenta.</h1>
+            <p>Elegí una nueva contraseña. Al guardarla, cerraremos las demás sesiones abiertas.</p>
+          </div>
+        </section>
+        <section class="login-panel">
+          <form id="password-reset-form" class="login-form form-stack">
+            <div>
+              <h2>Crear nueva contraseña</h2>
+              <p>Usá una contraseña distinta a la anterior.</p>
+            </div>
+            <label>
+              Nueva contraseña
+              <input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required />
+              <span class="field-help">Entre 8 y 128 caracteres.</span>
+            </label>
+            <label>
+              Repetir contraseña
+              <input name="password_confirmation" type="password" minlength="8" maxlength="128" autocomplete="new-password" required />
+            </label>
+            <button class="primary-button" type="submit">Actualizar contraseña</button>
+            <div class="portal-legal-links" aria-label="Información legal">
+              <a href="/privacidad/">Privacidad</a>
+              <a href="/terminos/">Términos</a>
+            </div>
+            ${renderStatus()}
+          </form>
+        </section>
+      </main>
+    `;
+    document.getElementById('password-reset-form').addEventListener('submit', handlePasswordReset);
   }
 
   function renderInvitation() {
@@ -1310,7 +1407,9 @@
     syncAppointmentsPolling();
     syncMeetWindowRefresh();
     if (state.loading) return;
-    if (state.invitationToken) renderInvitation();
+    if (state.passwordResetToken) renderPasswordReset();
+    else if (state.invitationToken) renderInvitation();
+    else if (state.authView === 'forgot-password') renderForgotPassword();
     else if (!state.user) renderLogin();
     else renderPortal();
   }
@@ -1552,6 +1651,49 @@
       state.status = '';
       await loadData();
       render();
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  async function handlePasswordResetRequest(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      const payload = await api('/api/professional/auth/password-reset/request', {
+        method: 'POST',
+        body: { email: form.email.value },
+      });
+      state.passwordResetRequested = true;
+      setStatus(payload.message, 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  async function handlePasswordReset(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (form.password.value !== form.password_confirmation.value) {
+      setStatus('Las contraseñas no coinciden.', 'error');
+      return;
+    }
+    try {
+      const payload = await api('/api/professional/auth/password-reset', {
+        method: 'POST',
+        body: {
+          token: state.passwordResetToken,
+          password: form.password.value,
+        },
+      });
+      state.passwordResetToken = '';
+      state.authView = 'login';
+      window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}${window.location.search}`,
+      );
+      setStatus(payload.message || 'Contraseña actualizada. Ingresá nuevamente.', 'ok');
     } catch (error) {
       setStatus(error.message, 'error');
     }
@@ -1970,7 +2112,7 @@
       render();
     }
   });
-  if (state.invitationToken) {
+  if (state.invitationToken || state.passwordResetToken) {
     state.loading = false;
     render();
   } else {

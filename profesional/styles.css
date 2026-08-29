@@ -122,6 +122,20 @@ button:disabled {
   color: var(--muted);
 }
 
+.auth-link {
+  justify-self: center;
+  border: 0;
+  padding: 4px;
+  color: var(--brand-dark);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.auth-link:hover {
+  text-decoration: underline;
+}
+
 .portal-legal-links {
   display: flex;
   justify-content: center;

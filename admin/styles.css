@@ -90,6 +90,20 @@ button {
   color: var(--muted);
 }
 
+.auth-link {
+  justify-self: center;
+  padding: 4px;
+  color: var(--accent-dark);
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.auth-link:hover {
+  text-decoration: underline;
+}
+
 label {
   display: grid;
   gap: 7px;

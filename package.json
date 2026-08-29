@@ -8,7 +8,8 @@
     "start": "node server.mjs",
     "test": "node --test test/*.test.mjs",
     "test:api": "node --test --test-concurrency=1 integration/agreement-api-flow.test.mjs",
-    "check:ci": "npm run check && npm run test:api",
+    "test:integration": "node --test --test-concurrency=1 integration/*.test.mjs",
+    "check:ci": "npm run check && npm run test:integration",
     "check": "node --check server.mjs && find src scripts test integration -name '*.mjs' -print0 | xargs -0 -n1 node --check && node --check admin/app.js && node --check agenda/app.js && node --check profesional-turnos/app.js && node --check profesional/app.js && node --check congreso-cokiba/app.js && npm test && npm run secrets:check",
     "secrets:check": "bash scripts/secrets_check.sh",
     "web-push:keys": "node scripts/generate-web-push-keys.mjs"
