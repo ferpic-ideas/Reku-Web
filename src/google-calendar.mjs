@@ -631,6 +631,11 @@ export const getGoogleBusyRanges = async ({
 
 const eventIdForAppointment = (appointmentId) => `rekuappointment${appointmentId}`;
 
+const calendarAttendeesForAppointment = (appointment) => {
+  const email = String(appointment?.patient_email || "").trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? [{ email }] : [];
+};
+
 export const buildConfirmedCalendarRequest = ({
   appointment,
   appointmentId,
@@ -649,7 +654,7 @@ export const buildConfirmedCalendarRequest = ({
       dateTime: `${appointment.appointment_date_text}T${appointment.end_time_text}:00`,
       timeZone: config.googleCalendarTimeZone,
     },
-    attendees: [],
+    attendees: calendarAttendeesForAppointment(appointment),
     conferenceData: {
       createRequest: {
         requestId: `reku-appointment-${appointmentId}`,
@@ -793,7 +798,7 @@ export const cancelGoogleCalendarEventForProfessional = async ({
   try {
     await calendarRequest(
       connection,
-      `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+      `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
       { method: "DELETE" },
     );
   } catch (error) {
@@ -1009,7 +1014,7 @@ export const cancelGoogleCalendarAppointment = async (appointmentId) => {
   try {
     await calendarRequest(
       connection,
-      `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events/${encodeURIComponent(appointment.google_calendar_event_id)}?sendUpdates=all`,
+      `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events/${encodeURIComponent(appointment.google_calendar_event_id)}?sendUpdates=none`,
       { method: "DELETE" },
     );
   } catch (error) {
