@@ -11,6 +11,18 @@ const bucketStart = (windowSeconds, now = Date.now()) => {
   return new Date(Math.floor(now / windowMs) * windowMs);
 };
 
+export const intakeRateLimitPolicy = Object.freeze({
+  ip: Object.freeze({ limit: 30, windowSeconds: 3600 }),
+  email: Object.freeze({ limit: 20, windowSeconds: 3600 }),
+  agreement: Object.freeze({ limit: 300, windowSeconds: 86_400 }),
+  global: Object.freeze({ limit: 1000, windowSeconds: 86_400 }),
+});
+
+export const rateLimitRetryMessage = (retryAfterSeconds) => {
+  const minutes = Math.max(1, Math.ceil(Number(retryAfterSeconds || 60) / 60));
+  return `Demasiadas solicitudes. Probá nuevamente en ${minutes} ${minutes === 1 ? "minuto" : "minutos"}.`;
+};
+
 export const consumeRateLimit = async ({
   scope,
   key,
@@ -35,7 +47,8 @@ export const consumeRateLimit = async ({
       )
       SELECT
         current_bucket.hit_count
-          + COALESCE(SUM(previous.hit_count), 0)::int AS hit_count
+          + COALESCE(SUM(previous.hit_count), 0)::int AS hit_count,
+        MIN(COALESCE(previous.bucket_started_at, $3::timestamptz)) AS oldest_bucket
       FROM current_bucket
       LEFT JOIN public_rate_limits previous
         ON previous.scope = $1
@@ -59,7 +72,11 @@ export const consumeRateLimit = async ({
   if (count > limit) {
     const error = new Error("RATE_LIMITED");
     error.statusCode = 429;
-    error.retryAfter = Math.max(1, Math.ceil(windowSeconds));
+    const oldestBucket = new Date(result.rows[0]?.oldest_bucket || startedAt).getTime();
+    error.retryAfter = Math.max(
+      1,
+      Math.ceil((oldestBucket + windowSeconds * 1000 - currentTime) / 1000),
+    );
     throw error;
   }
 
@@ -71,26 +88,22 @@ export const enforceIntakeRateLimits = async ({ clientIp, email, agreementSlug }
     consumeRateLimit({
       scope: "intake.ip.hour",
       key: clientIp,
-      limit: 10,
-      windowSeconds: 3600,
+      ...intakeRateLimitPolicy.ip,
     }),
     consumeRateLimit({
       scope: "intake.email.hour",
       key: email,
-      limit: 5,
-      windowSeconds: 3600,
+      ...intakeRateLimitPolicy.email,
     }),
     consumeRateLimit({
       scope: "intake.agreement.day",
       key: agreementSlug || "unknown",
-      limit: 300,
-      windowSeconds: 86_400,
+      ...intakeRateLimitPolicy.agreement,
     }),
     consumeRateLimit({
       scope: "intake.global.day",
       key: "global",
-      limit: 1000,
-      windowSeconds: 86_400,
+      ...intakeRateLimitPolicy.global,
     }),
   ]);
 };

@@ -17,6 +17,7 @@ import {
 import {
   enforceContactRateLimits,
   enforceIntakeRateLimits,
+  rateLimitRetryMessage,
 } from "./rate-limit.mjs";
 
 const genericDomains = new Set([
@@ -514,7 +515,7 @@ export const handleFormSubmission = async (request, response) => {
       sendJson(
         response,
         429,
-        { error: "Demasiadas solicitudes. Probá nuevamente más tarde." },
+        { error: rateLimitRetryMessage(error.retryAfter) },
         { "Retry-After": String(error.retryAfter || 60) },
       );
       return;

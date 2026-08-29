@@ -26,6 +26,7 @@ import {
   enforceIntakeRateLimits,
   enforcePaymentReturnRateLimits,
   enforceWebhookRateLimits,
+  rateLimitRetryMessage,
 } from "./rate-limit.mjs";
 import {
   buildPatientIntakeSubmission,
@@ -2639,7 +2640,7 @@ export const handleBookingApi = async (request, response, url) => {
       sendJson(
         response,
         429,
-        { error: "Demasiadas solicitudes. Probá nuevamente más tarde." },
+        { error: rateLimitRetryMessage(error.retryAfter) },
         { "Retry-After": String(error.retryAfter || 60) },
       );
       return true;

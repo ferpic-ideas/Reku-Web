@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { consumeRateLimit } from "../src/rate-limit.mjs";
+import {
+  consumeRateLimit,
+  intakeRateLimitPolicy,
+  rateLimitRetryMessage,
+} from "../src/rate-limit.mjs";
 import {
   decryptSecret,
   encryptSecret,
@@ -81,4 +85,10 @@ test("persistent rate-limit buckets reject the first hit over the limit", async 
   assert.equal((await consume()).count, 1);
   assert.equal((await consume()).count, 2);
   await assert.rejects(consume, { message: "RATE_LIMITED", statusCode: 429 });
+});
+
+test("booking intake limits allow legitimate repeat reservations", () => {
+  assert.deepEqual(intakeRateLimitPolicy.ip, { limit: 30, windowSeconds: 3600 });
+  assert.deepEqual(intakeRateLimitPolicy.email, { limit: 20, windowSeconds: 3600 });
+  assert.equal(rateLimitRetryMessage(61), "Demasiadas solicitudes. Probá nuevamente en 2 minutos.");
 });
