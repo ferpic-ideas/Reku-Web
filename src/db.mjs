@@ -417,6 +417,7 @@ export const initDb = async () => {
       professional_followup_notified_at TIMESTAMPTZ,
       professional_followup_notification_message_id TEXT,
       professional_followup_notification_error TEXT,
+      patient_meet_started_at TIMESTAMPTZ,
       patient_waiting_started_at TIMESTAMPTZ,
       patient_waiting_last_seen_at TIMESTAMPTZ,
       patient_waiting_professional_attempted_at TIMESTAMPTZ,
@@ -481,6 +482,7 @@ export const initDb = async () => {
       ADD COLUMN IF NOT EXISTS professional_followup_notified_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS professional_followup_notification_message_id TEXT,
       ADD COLUMN IF NOT EXISTS professional_followup_notification_error TEXT,
+      ADD COLUMN IF NOT EXISTS patient_meet_started_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS patient_waiting_started_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS patient_waiting_last_seen_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS patient_waiting_professional_attempted_at TIMESTAMPTZ,
@@ -587,6 +589,20 @@ export const initDb = async () => {
       ON audit_events (created_at DESC);
     CREATE INDEX IF NOT EXISTS audit_events_actor_user_id_idx
       ON audit_events (actor_user_id);
+
+    UPDATE appointments appointment
+    SET patient_meet_started_at = meet_access.first_accessed_at
+    FROM (
+      SELECT
+        (detail->>'appointment_id')::BIGINT AS appointment_id,
+        MIN(created_at) AS first_accessed_at
+      FROM audit_events
+      WHERE event_type = 'appointment.patient_meet_accessed'
+        AND COALESCE(detail->>'appointment_id', '') ~ '^[0-9]+$'
+      GROUP BY (detail->>'appointment_id')::BIGINT
+    ) meet_access
+    WHERE appointment.id = meet_access.appointment_id
+      AND appointment.patient_meet_started_at IS NULL;
 
     CREATE TABLE IF NOT EXISTS professional_push_subscriptions (
       id BIGSERIAL PRIMARY KEY,

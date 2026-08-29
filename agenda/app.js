@@ -314,6 +314,35 @@
     }
   }
 
+  async function enterManagedMeet() {
+    const meetWindow = window.open('about:blank', '_blank');
+    if (meetWindow) meetWindow.opener = null;
+    state.management.meetLobby.loading = true;
+    state.management.meetLobby.error = '';
+    render();
+    try {
+      const payload = await api('/api/booking/manage/meet', {
+        method: 'POST',
+      });
+      state.management.meetLobby.status = payload.waiting_room || state.management.meetLobby.status;
+      if (!payload.url) throw new Error('No pudimos obtener el acceso a la videollamada.');
+      if (meetWindow && !meetWindow.closed) {
+        meetWindow.location.replace(payload.url);
+      } else {
+        window.location.href = payload.url;
+      }
+    } catch (error) {
+      if (meetWindow && !meetWindow.closed) meetWindow.close();
+      if (error.payload?.waiting_room) {
+        state.management.meetLobby.status = error.payload.waiting_room;
+      }
+      state.management.meetLobby.error = error.message;
+    } finally {
+      state.management.meetLobby.loading = false;
+      render();
+    }
+  }
+
   let managementMeetRefreshTimer = 0;
 
   function scheduleManagementMeetRefresh() {
@@ -1649,6 +1678,9 @@
     } else if (waitingRoom.state === 'ready') {
       title = 'Tu profesional ya está en la videollamada';
       copy = 'La sala está lista. Ya podés ingresar.';
+    } else if (waitingRoom.state === 'closed') {
+      title = 'La videollamada ya no está activa';
+      copy = 'La sala se cerró. Si tu profesional vuelve a abrirla, habilitaremos nuevamente el ingreso de forma automática.';
     } else if (waitingRoom.state === 'finished') {
       title = 'El acceso a la videollamada finalizó';
       copy = `El turno estaba previsto para el ${appointmentSchedule}.`;
@@ -1683,7 +1715,7 @@
             </div>
             ${
               waitingRoom.can_enter
-                ? '<a class="primary-button meet-access-button" href="/api/booking/manage/meet" target="_blank" rel="noopener noreferrer">Ingresar</a>'
+                ? `<button type="button" class="primary-button meet-access-button" data-action="enter-management-meet" ${management.meetLobby.loading ? 'disabled' : ''}>${management.meetLobby.loading ? 'Verificando…' : 'Ingresar'}</button>`
                 : `<button type="button" class="secondary-button meet-access-button" disabled>${management.meetLobby.loading ? 'Verificando…' : 'Esperando'}</button>`
             }
           </div>
@@ -2005,6 +2037,9 @@
         }
         if (action === 'open-management-reschedule') {
           await openManagementReschedule();
+        }
+        if (action === 'enter-management-meet') {
+          await enterManagedMeet();
         }
         if (action === 'toggle-management-documents') {
           const openingDocuments = !state.management.documentsOpen;

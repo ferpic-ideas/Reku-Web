@@ -2653,6 +2653,7 @@ const updateAdminAppointment = async (request, response, user, appointmentId) =>
             professional_followup_notified_at = NULL,
             professional_followup_notification_message_id = NULL,
             professional_followup_notification_error = NULL,
+            patient_meet_started_at = NULL,
             patient_waiting_started_at = NULL,
             patient_waiting_last_seen_at = NULL,
             patient_waiting_professional_attempted_at = NULL,

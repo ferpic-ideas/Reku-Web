@@ -1365,6 +1365,7 @@ const loadManagedAppointment = async (appointmentId) =>
         appointment.payment_init_point,
         appointment.triage_url,
         appointment.google_meet_url,
+        appointment.patient_meet_started_at,
         appointment.reschedule_count,
         appointment.agreement_id,
         COALESCE(NULLIF(agreement.name, ''), appointment.agreement_name_snapshot) AS agreement_name,
@@ -1575,6 +1576,9 @@ const patientMeetUnavailableMessage = (appointment, access) => {
   if (access.state === "checking") {
     return `Estamos verificando si la videollamada ya comenzó. Esperá unos segundos; esta pantalla se actualiza automáticamente. ${schedule}`;
   }
+  if (access.state === "closed") {
+    return `La videollamada ya no está activa. Si tu profesional vuelve a abrirla, el ingreso se habilitará nuevamente. ${schedule}`;
+  }
   return `La videollamada no está disponible para este turno. ${schedule}`;
 };
 
@@ -1588,7 +1592,12 @@ const getPatientManagedMeetStatus = async (request, response) => {
   });
 };
 
-const enterPatientManagedMeet = async (request, response) => {
+const enterPatientManagedMeet = async (
+  request,
+  response,
+  { jsonResponse = false } = {},
+) => {
+  if (jsonResponse) enforcePatientAppointmentOrigin(request);
   const { session, appointment } = await requireManagedAppointment(request);
   const access = await getPatientMeetWaitingRoomStatus({ appointment });
   if (!access.can_enter) {
@@ -1605,6 +1614,14 @@ const enterPatientManagedMeet = async (request, response) => {
       patient_appointment_session_id: Number(session.id),
     },
   });
+  if (jsonResponse) {
+    sendJson(response, 200, {
+      ok: true,
+      url: appointment.google_meet_url,
+      waiting_room: access,
+    });
+    return;
+  }
   sendRedirect(response, appointment.google_meet_url);
 };
 
@@ -1768,6 +1785,7 @@ const reschedulePatientAppointment = async (request, response) => {
             professional_followup_notified_at = NULL,
             professional_followup_notification_message_id = NULL,
             professional_followup_notification_error = NULL,
+            patient_meet_started_at = NULL,
             patient_waiting_started_at = NULL,
             patient_waiting_last_seen_at = NULL,
             patient_waiting_professional_attempted_at = NULL,
@@ -2338,6 +2356,10 @@ export const handleBookingApi = async (request, response, url) => {
     }
     if (pathname === "/api/booking/manage/meet" && request.method === "GET") {
       await enterPatientManagedMeet(request, response);
+      return true;
+    }
+    if (pathname === "/api/booking/manage/meet" && request.method === "POST") {
+      await enterPatientManagedMeet(request, response, { jsonResponse: true });
       return true;
     }
     if (

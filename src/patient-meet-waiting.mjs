@@ -87,7 +87,18 @@ export const patientMeetWaitingState = (
       ...access,
       state: "ready",
       can_enter: true,
-      refresh_after_seconds: null,
+      // La conferencia puede terminar mientras el paciente mantiene abierta la
+      // sala de espera. Seguimos consultando para no dejar habilitado un acceso
+      // ni un mensaje de presencia que ya quedaron obsoletos.
+      refresh_after_seconds: 10,
+    };
+  }
+  if (appointment.patient_meet_started_at) {
+    return {
+      ...access,
+      state: "closed",
+      can_enter: false,
+      refresh_after_seconds: 10,
     };
   }
   return {
@@ -473,6 +484,19 @@ const touchPatientWaitingRoom = (appointmentId) =>
     [appointmentId],
   );
 
+const markPatientMeetStarted = (appointmentId) =>
+  query(
+    `
+      UPDATE appointments
+      SET patient_meet_started_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $1
+        AND status = 'confirmed'
+        AND patient_meet_started_at IS NULL
+    `,
+    [appointmentId],
+  );
+
 const loadWaitingNotificationStatus = (appointmentId) =>
   one(
     `
@@ -500,6 +524,10 @@ export const getPatientMeetWaitingRoomStatus = async ({
       professionalId: appointment.professional_id,
       meetUrl: appointment.google_meet_url,
     });
+  }
+  if (presence.checked && presence.active) {
+    await markPatientMeetStarted(appointment.id);
+    appointment.patient_meet_started_at ||= new Date(now).toISOString();
   }
   const waiting = patientMeetWaitingState(appointment, presence, { now });
 

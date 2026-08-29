@@ -46,9 +46,32 @@ test("waiting room changes feedback as the appointment advances", () => {
     true,
   );
   assert.equal(
+    waitingAt("2026-08-28T13:00:00.000Z", { checked: true, active: true })
+      .refresh_after_seconds,
+    10,
+  );
+  assert.equal(
     waitingAt("2026-08-28T13:45:00.001Z", { checked: true, active: true }).state,
     "finished",
   );
+});
+
+test("a conference that already started can become inactive again", () => {
+  const status = patientMeetWaitingState(
+    {
+      ...appointment,
+      patient_meet_started_at: "2026-08-28T13:00:00.000Z",
+    },
+    { checked: true, active: false },
+    {
+      now: new Date("2026-08-28T13:10:00.000Z").getTime(),
+      earlyMinutes: 10,
+      lateMinutes: 15,
+    },
+  );
+  assert.equal(status.state, "closed");
+  assert.equal(status.can_enter, false);
+  assert.equal(status.refresh_after_seconds, 10);
 });
 
 test("waiting room fails closed when Google presence cannot be checked", () => {
@@ -98,7 +121,11 @@ test("the patient UI uses a private branded lobby and automatic polling", async 
   assert.match(source, /Tu profesional todavía no ingresó/);
   assert.match(source, /Estamos contactándolo/);
   assert.match(source, /También avisamos al equipo de Reku/);
+  assert.match(source, /La videollamada ya no está activa/);
   assert.match(source, /refresh_after_seconds/);
+  assert.match(source, /data-action="enter-management-meet"/);
+  assert.match(source, /method: 'POST'/);
+  assert.doesNotMatch(source, /href="\/api\/booking\/manage\/meet"/);
 });
 
 test("patient emails generate a dedicated private lobby link", async () => {
