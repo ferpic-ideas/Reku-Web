@@ -91,6 +91,7 @@ import {
   requestPasswordReset,
   resetPassword,
 } from "./password-resets.mjs";
+import { sendPushToProfessional } from "./web-push.mjs";
 
 const canDeleteRecords = (user) => hasPermission(user, "records.delete");
 const canManageSystem = (user) => hasPermission(user, "users.write");
@@ -1639,6 +1640,7 @@ const mapProfessional = (row) => ({
       config.webPushVapidPrivateKey &&
       Number(row.push_mobile_devices || 0) > 0,
   ),
+  push_devices: Number(row.push_devices || 0),
   push_mobile_devices: Number(row.push_mobile_devices || 0),
   created_at: row.created_at,
   updated_at: row.updated_at,
@@ -1652,6 +1654,7 @@ const professionalSelect = `
     pu.role AS user_role,
     pu.is_active AS user_is_active,
     pgc.status AS google_calendar_status,
+    COALESCE(push_devices.devices, 0)::int AS push_devices,
     COALESCE(push_devices.mobile_devices, 0)::int AS push_mobile_devices,
     pending_invitation.id AS invitation_id,
     pending_invitation.expires_at AS invitation_expires_at,
@@ -1699,11 +1702,12 @@ const professionalSelect = `
   LEFT JOIN users pu ON pu.professional_id = p.id
   LEFT JOIN professional_google_connections pgc ON pgc.professional_id = p.id
   LEFT JOIN LATERAL (
-    SELECT COUNT(*)::int AS mobile_devices
+    SELECT
+      COUNT(*)::int AS devices,
+      COUNT(*) FILTER (WHERE subscription.device_kind = 'mobile')::int AS mobile_devices
     FROM professional_push_subscriptions subscription
     WHERE subscription.professional_id = p.id
       AND subscription.active = TRUE
-      AND subscription.device_kind = 'mobile'
   ) push_devices ON TRUE
   LEFT JOIN LATERAL (
     SELECT invitation.id, invitation.expires_at, invitation.sent_at, invitation.email_error
@@ -1736,6 +1740,75 @@ const getProfessionalMapped = async (id) => {
     [id],
   );
   return result.rows[0] ? mapProfessional(result.rows[0]) : null;
+};
+
+const cleanProfessionalNotificationText = (value, maxLength, { singleLine = false } = {}) => {
+  const normalized = String(value || "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+  return (singleLine ? normalized.replace(/\s+/g, " ") : normalized).slice(0, maxLength);
+};
+
+const notifyProfessional = async (request, response, user, professionalId) => {
+  const professional = await one(
+    `
+      SELECT id, name
+      FROM professionals
+      WHERE id = $1
+        AND deleted_at IS NULL
+    `,
+    [professionalId],
+  );
+  if (!professional) {
+    sendJson(response, 404, { error: "Profesional no encontrado." });
+    return;
+  }
+
+  const payload = await parseJsonBody(request);
+  const title = cleanProfessionalNotificationText(payload.title, 80, { singleLine: true });
+  const body = cleanProfessionalNotificationText(payload.body, 400);
+  if (!title || !body) {
+    const error = new Error("PROFESSIONAL_NOTIFICATION_INVALID");
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const result = await sendPushToProfessional(
+    professionalId,
+    {
+      title,
+      body,
+      url: "/profesional/",
+      tag: "reku-admin-message",
+    },
+    {
+      actorUserId: user.id,
+      eventType: "admin.professional_push.sent",
+    },
+  );
+
+  if (!result.configured) {
+    const error = new Error("PUSH_NOT_CONFIGURED");
+    error.statusCode = 503;
+    throw error;
+  }
+  if (!result.attempted) {
+    const error = new Error("PROFESSIONAL_PUSH_NOT_AVAILABLE");
+    error.statusCode = 409;
+    throw error;
+  }
+  if (!result.delivered) {
+    const error = new Error("PROFESSIONAL_PUSH_DELIVERY_FAILED");
+    error.statusCode = 502;
+    throw error;
+  }
+
+  sendJson(response, 200, {
+    ok: true,
+    message: `Notificación enviada a ${professional.name}.`,
+    result,
+  });
 };
 
 const replaceProfessionalRelations = async (
@@ -3078,6 +3151,18 @@ export const handleAdminApi = async (request, response, url) => {
     const professionalInviteMatch = pathname.match(
       /^\/api\/admin\/professionals\/(\d+)\/invite$/,
     );
+    const professionalNotificationMatch = pathname.match(
+      /^\/api\/admin\/professionals\/(\d+)\/notifications$/,
+    );
+    if (professionalNotificationMatch && request.method === "POST") {
+      await notifyProfessional(
+        request,
+        response,
+        user,
+        Number(professionalNotificationMatch[1]),
+      );
+      return true;
+    }
     if (professionalInviteMatch && request.method === "POST") {
       await resendProfessionalInvitation(
         response,
@@ -3421,6 +3506,26 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (error.message === "PERMISSION_DENIED") {
       sendJson(response, 403, { error: "No tenés permisos para realizar esta acción." });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_NOTIFICATION_INVALID") {
+      sendJson(response, 422, { error: "Completá el título y el mensaje." });
+      return true;
+    }
+    if (error.message === "PUSH_NOT_CONFIGURED") {
+      sendJson(response, 503, { error: "Las notificaciones push no están configuradas." });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_PUSH_NOT_AVAILABLE") {
+      sendJson(response, 409, {
+        error: "El profesional no tiene dispositivos habilitados para recibir notificaciones.",
+      });
+      return true;
+    }
+    if (error.message === "PROFESSIONAL_PUSH_DELIVERY_FAILED") {
+      sendJson(response, 502, {
+        error: "No pudimos entregar la notificación. Revisá la conexión del profesional.",
+      });
       return true;
     }
     if (error.message === "SLUG_REQUIRED") {

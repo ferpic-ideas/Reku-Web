@@ -370,6 +370,10 @@
         <rect width="20" height="16" x="2" y="4" rx="2" />
         <path d="m22 7-8.97 5.7a2 2 0 0 1-2.06 0L2 7" />
       `,
+      notification: `
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+        <path d="M10 21h4" />
+      `,
       trash: `
         <path d="M3 6h18" />
         <path d="M8 6V4h8v2" />
@@ -1393,6 +1397,43 @@
       `;
     }
 
+    if (state.dialog.type === 'professional-notification') {
+      const professional = state.professionals.find(
+        (item) => Number(item.id) === Number(state.dialog.professionalId),
+      );
+      if (!professional) return '';
+      const deviceCount = Number(professional.push_devices || 0);
+      return `
+        <div class="modal-backdrop">
+          <form class="modal-panel" id="professional-notification-form">
+            <div class="modal-header">
+              <div>
+                <h2>Enviar notificación</h2>
+                <p class="muted">A ${escapeHtml(professional.name)} · ${deviceCount} dispositivo${deviceCount === 1 ? '' : 's'}</p>
+              </div>
+              <button type="button" class="icon-button" data-action="close-dialog" aria-label="Cerrar">×</button>
+            </div>
+            <label>
+              Título
+              <input name="title" value="${escapeHtml(state.dialog.title || 'Mensaje de Reku')}" maxlength="80" required />
+            </label>
+            <label>
+              Mensaje
+              <textarea name="body" rows="5" maxlength="400" required placeholder="Escribí el mensaje que recibirá el profesional">${escapeHtml(state.dialog.body || '')}</textarea>
+            </label>
+            ${state.dialog.error ? `<div class="status-box error">${escapeHtml(state.dialog.error)}</div>` : ''}
+            <p class="field-help">Al tocar la notificación, se abrirá el portal profesional.</p>
+            <div class="modal-actions">
+              <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
+              <button type="submit" class="primary-button" ${state.dialog.submitting ? 'disabled' : ''}>
+                ${state.dialog.submitting ? 'Enviando…' : 'Enviar notificación'}
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+    }
+
     if (state.dialog.type === 'schedule-block-form') {
       return `
         <div class="modal-backdrop">
@@ -1872,6 +1913,11 @@
         <td>${professional.active ? 'Activo' : 'Inactivo'}</td>
         <td>
           <div class="table-actions">
+            ${
+              can('professionals.write')
+                ? `<button type="button" class="table-icon-button" data-action="notify-professional" data-id="${professional.id}" aria-label="Enviar notificación" title="${Number(professional.push_devices || 0) > 0 ? 'Enviar notificación' : 'El profesional no tiene notificaciones habilitadas'}" ${Number(professional.push_devices || 0) > 0 ? '' : 'disabled'}>${actionIcon('notification')}</button>`
+                : ''
+            }
             ${
               can('professionals.write') && !professional.has_user
                 ? `<button type="button" class="table-icon-button" data-action="invite-existing-professional" data-id="${professional.id}" aria-label="${professional.invitation_pending ? 'Reenviar invitación' : 'Enviar invitación'}" title="${professional.invitation_pending ? 'Reenviar invitación' : 'Enviar invitación'}">${actionIcon('mail')}</button>`
@@ -3312,6 +3358,7 @@
     document.getElementById('service-form')?.addEventListener('submit', handleServiceSubmit);
     document.getElementById('professional-form')?.addEventListener('submit', handleProfessionalSubmit);
     document.getElementById('professional-invite-form')?.addEventListener('submit', handleProfessionalInviteSubmit);
+    document.getElementById('professional-notification-form')?.addEventListener('submit', handleProfessionalNotificationSubmit);
     document.getElementById('schedule-block-form')?.addEventListener('submit', handleScheduleBlockSubmit);
     document.getElementById('appointment-edit-form')?.addEventListener('submit', handleAppointmentEditSubmit);
     document.getElementById('appointment-cancel-form')?.addEventListener('submit', handleAppointmentCancelSubmit);
@@ -3768,6 +3815,25 @@
         );
         return;
       }
+      if (action === 'notify-professional') {
+        const professional = state.professionals.find(
+          (item) => Number(item.id) === id,
+        );
+        if (!professional || Number(professional.push_devices || 0) < 1) {
+          setStatus('El profesional no tiene dispositivos habilitados para recibir notificaciones.', 'error');
+          return;
+        }
+        state.dialog = {
+          type: 'professional-notification',
+          professionalId: id,
+          submitting: false,
+          error: '',
+          title: 'Mensaje de Reku',
+          body: '',
+        };
+        render();
+        return;
+      }
       if (action === 'edit-professional') {
         state.editingProfessionalId = id;
         state.dialog = { type: 'professional-form' };
@@ -4203,6 +4269,40 @@
       );
     } catch (error) {
       setStatus(error.message, 'error');
+    }
+  }
+
+  async function handleProfessionalNotificationSubmit(event) {
+    event.preventDefault();
+    if (state.dialog?.type !== 'professional-notification' || state.dialog.submitting) return;
+    const form = event.currentTarget;
+    const professionalId = Number(state.dialog.professionalId);
+    const title = form.title.value;
+    const body = form.body.value;
+    state.dialog = { ...state.dialog, submitting: true, error: '', title, body };
+    render();
+    try {
+      const result = await api(`/api/admin/professionals/${professionalId}/notifications`, {
+        method: 'POST',
+        body: { title, body },
+      });
+      state.dialog = null;
+      await dataLoaders.professionals();
+      const delivered = Number(result.result?.delivered || 0);
+      setStatus(
+        `${result.message} Entregada en ${delivered} dispositivo${delivered === 1 ? '' : 's'}.`,
+        'ok',
+      );
+    } catch (error) {
+      state.dialog = {
+        type: 'professional-notification',
+        professionalId,
+        submitting: false,
+        error: error.message,
+        title,
+        body,
+      };
+      render();
     }
   }
 

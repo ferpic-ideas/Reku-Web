@@ -65,6 +65,11 @@ const routeRules = [
   ["DELETE", /^\/api\/admin\/professionals\/\d+$/, "professionals.delete"],
   [
     "POST",
+    /^\/api\/admin\/professionals\/\d+\/notifications$/,
+    "professionals.write",
+  ],
+  [
+    "POST",
     /^\/api\/admin\/professionals\/\d+\/invite$/,
     "professionals.write",
   ],
