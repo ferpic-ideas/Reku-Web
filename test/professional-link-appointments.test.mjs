@@ -2,11 +2,26 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
+import { professionalMeetUrl } from "../src/professional-api.mjs";
 
 const flushAsyncWork = async () => {
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
 };
+
+test("professional Meet links select the connected organizer account", () => {
+  assert.equal(
+    professionalMeetUrl(
+      "https://meet.google.com/abc-defg-hij",
+      "Fisio@Example.com",
+    ),
+    "https://meet.google.com/abc-defg-hij?authuser=fisio%40example.com",
+  );
+  assert.equal(
+    professionalMeetUrl("https://example.com/not-a-meet", "fisio@example.com"),
+    "https://example.com/not-a-meet",
+  );
+});
 
 test("professional link shows agreement and Meet only inside the access window", async () => {
   const source = await readFile(
@@ -141,6 +156,8 @@ test("professional preparation rooms expose only scoped appointment resources in
   }
   assert.match(portal, /Ficha del paciente \+ Meet/);
   assert.match(api, /triage_url:\s*row\.triage_url \|\| ""/);
+  assert.match(api, /google_connection\.google_email AS professional_google_email/);
+  assert.match(api, /url\.searchParams\.set\("authuser", account\)/);
   assert.match(api, /booking_url:\s*agreementBookingUrl/);
   assert.match(api, /WHERE a\.professional_id = \$1/);
   assert.match(links, /accessUrl\.searchParams\.set\("appointment"/);

@@ -875,6 +875,20 @@ const listPatients = async (url, response, account) => {
   });
 };
 
+export const professionalMeetUrl = (meetUrl, googleEmail) => {
+  try {
+    const url = new URL(String(meetUrl || ""));
+    if (url.protocol !== "https:" || url.hostname !== "meet.google.com") {
+      return String(meetUrl || "");
+    }
+    const account = String(googleEmail || "").trim().toLowerCase();
+    if (account) url.searchParams.set("authuser", account);
+    return url.toString();
+  } catch {
+    return String(meetUrl || "");
+  }
+};
+
 const mapAppointment = (row) => ({
   id: Number(row.id),
   patient_id: row.patient_id ? Number(row.patient_id) : null,
@@ -900,7 +914,10 @@ const mapAppointment = (row) => ({
   cancelled_at: row.cancelled_at || null,
   cancellation_reason: row.cancellation_reason || "",
   refund_status: row.refund_status || "not_required",
-  google_meet_url: row.google_meet_url || "",
+  google_meet_url: professionalMeetUrl(
+    row.google_meet_url,
+    row.professional_google_email,
+  ),
   google_calendar_event_url: row.google_calendar_event_url || "",
   google_sync_status: row.google_sync_status || "not_connected",
   google_sync_error: row.google_sync_error || "",
@@ -942,6 +959,7 @@ const listProfessionalAppointments = async (
         a.cancellation_reason,
         a.refund_status,
         a.google_meet_url,
+        google_connection.google_email AS professional_google_email,
         a.google_calendar_event_url,
         a.google_sync_status,
         a.google_sync_error,
@@ -974,6 +992,9 @@ const listProfessionalAppointments = async (
       LEFT JOIN agreements agreement
         ON agreement.id = a.agreement_id
        AND agreement.deleted_at IS NULL
+      LEFT JOIN professional_google_connections google_connection
+        ON google_connection.professional_id = a.professional_id
+       AND google_connection.status = 'active'
       WHERE a.professional_id = $1
         AND ($2::boolean = FALSE OR a.appointment_date >= CURRENT_DATE)
         AND a.status IN ('confirmed', 'pending_payment', 'cancelled')
