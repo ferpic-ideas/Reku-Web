@@ -33,7 +33,7 @@ test("admin patients uses canonical records instead of rendering each intake", a
   assert.match(api, /FROM patients patient/);
   assert.match(api, /patients: page\.rows\.map\(mapPatient\)/);
   assert.match(api, /COUNT\(\*\)::int AS appointment_count/);
-  assert.match(admin, /apiAll\(`\/api\/admin\/patients/);
+  assert.match(admin, /apiAll\(\s*`\/api\/admin\/patients/);
   assert.match(admin, /data\.patients \?\? data\.patient_intakes/);
   assert.doesNotMatch(admin, /Posible duplicado/);
 });

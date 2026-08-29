@@ -113,6 +113,40 @@
     audit: 'audit.read',
   };
 
+  const moduleDataRequirements = Object.freeze({
+    dashboard: ['dashboard', 'appointment_preview', 'professionals'],
+    agreements: ['agreements'],
+    nomina: ['agreements', 'nomina'],
+    services: ['services'],
+    professionals: ['agreements', 'services', 'professionals'],
+    blocks: ['professionals', 'schedule_blocks'],
+    'booking-test': ['agreements'],
+    appointments: ['appointments', 'professionals'],
+    settlements: ['agreements'],
+    'patient-intakes': ['agreements', 'patients'],
+    contacts: ['contacts', 'congress_registrations'],
+    users: ['users'],
+    config: [],
+    audit: [],
+  });
+
+  const modulePrimaryData = Object.freeze({
+    dashboard: 'dashboard',
+    agreements: 'agreements',
+    nomina: 'nomina',
+    services: 'services',
+    professionals: 'professionals',
+    blocks: 'schedule_blocks',
+    appointments: 'appointments',
+    'patient-intakes': 'patients',
+    contacts: 'contacts',
+    users: 'users',
+  });
+
+  const referenceDataKeys = new Set(['agreements', 'services', 'professionals']);
+  const referenceDataLoadedAt = new Map();
+  const referenceDataCacheMs = 30_000;
+
   const navIcons = {
     dashboard: `
       <rect width="7" height="9" x="3" y="3" rx="1" />
@@ -291,16 +325,7 @@
     }
 
     if (state.user) {
-      await loadData();
-      if (nextModule === 'config') {
-        await loadMercadoPagoSettings();
-      }
-      if (nextModule === 'audit') {
-        await loadAuditEvents();
-      }
-      if (nextModule === 'settlements') {
-        await loadSettlementPreview();
-      }
+      await loadActiveModuleData(nextModule, { useCache: true });
     }
 
     render();
@@ -488,6 +513,7 @@
     if (response.status === 401) {
       csrfToken = '';
       state.user = null;
+      referenceDataLoadedAt.clear();
       render();
     }
 
@@ -528,16 +554,7 @@
         state.active = 'dashboard';
         window.history.replaceState({ module: 'dashboard' }, '', modulePath('dashboard'));
       }
-      await loadData();
-      if (state.active === 'config') {
-        await loadMercadoPagoSettings();
-      }
-      if (state.active === 'audit') {
-        await loadAuditEvents();
-      }
-      if (state.active === 'settlements') {
-        await loadSettlementPreview();
-      }
+      await loadActiveModuleData(state.active);
     } catch {
       state.user = null;
     } finally {
@@ -546,57 +563,110 @@
     }
   }
 
-  async function loadData() {
-    const [
-      dashboardData,
-      agreementData,
-      patientData,
-      contactData,
-      congressData,
-      nominaData,
-      serviceData,
-      professionalData,
-      appointmentData,
-      blockData,
-      userData,
-    ] = await Promise.all([
-      can('dashboard.read') ? api('/api/admin/dashboard') : Promise.resolve({}),
-      can('agreements.read') ? api('/api/admin/agreements') : Promise.resolve({ agreements: [] }),
-      can('patient_intakes.read')
-        ? apiAll(`/api/admin/patients${state.patientAgreementFilter ? `?agreement_id=${state.patientAgreementFilter}` : ''}`, 'patients')
-        : Promise.resolve({ patients: [] }),
-      can('contacts.read') ? apiAll('/api/admin/contacts', 'contacts') : Promise.resolve({ contacts: [] }),
-      can('contacts.read')
-        ? apiAll('/api/admin/congress-registrations', 'congress_registrations')
-        : Promise.resolve({ congress_registrations: [] }),
-      can('nomina.read')
-        ? apiAll(`/api/admin/nomina${state.nominaAgreementFilter ? `?agreement_id=${state.nominaAgreementFilter}` : ''}`, 'nomina_entries')
-        : Promise.resolve({ nomina_entries: [] }),
-      can('services.read') ? api('/api/admin/services') : Promise.resolve({ services: [] }),
-      can('professionals.read')
-        ? api('/api/admin/professionals')
-        : Promise.resolve({ professionals: [] }),
-      can('appointments.read')
-        ? apiAll('/api/admin/appointments', 'appointments')
-        : Promise.resolve({ appointments: [] }),
-      can('schedule_blocks.read')
-        ? apiAll('/api/admin/schedule-blocks', 'schedule_blocks')
-        : Promise.resolve({ schedule_blocks: [] }),
-      can('users.read')
-        ? api('/api/admin/users')
-        : Promise.resolve({ users: [] }),
-    ]);
-    state.dashboard = dashboardData.dashboard || null;
-    state.agreements = agreementData.agreements || [];
-    state.patients = patientData.patients || [];
-    state.contacts = contactData.contacts || [];
-    state.congressRegistrations = congressData.congress_registrations || [];
-    state.nominaEntries = nominaData.nomina_entries || [];
-    state.services = serviceData.services || [];
-    state.professionals = professionalData.professionals || [];
-    state.appointments = appointmentData.appointments || [];
-    state.scheduleBlocks = blockData.schedule_blocks || [];
-    state.users = userData.users || [];
+  const dataLoaders = {
+    dashboard: async () => {
+      const payload = can('dashboard.read') ? await api('/api/admin/dashboard') : {};
+      state.dashboard = payload.dashboard || null;
+    },
+    appointment_preview: async () => {
+      const payload = can('appointments.read')
+        ? await api('/api/admin/appointments?page=1&page_size=8')
+        : { appointments: [] };
+      state.appointments = payload.appointments || [];
+    },
+    agreements: async () => {
+      const payload = can('agreements.read')
+        ? await api('/api/admin/agreements')
+        : { agreements: [] };
+      state.agreements = payload.agreements || [];
+    },
+    patients: async () => {
+      const payload = can('patient_intakes.read')
+        ? await apiAll(
+            `/api/admin/patients${state.patientAgreementFilter ? `?agreement_id=${state.patientAgreementFilter}` : ''}`,
+            'patients',
+          )
+        : { patients: [] };
+      state.patients = payload.patients || [];
+    },
+    contacts: async () => {
+      const payload = can('contacts.read')
+        ? await apiAll('/api/admin/contacts', 'contacts')
+        : { contacts: [] };
+      state.contacts = payload.contacts || [];
+    },
+    congress_registrations: async () => {
+      const payload = can('contacts.read')
+        ? await apiAll('/api/admin/congress-registrations', 'congress_registrations')
+        : { congress_registrations: [] };
+      state.congressRegistrations = payload.congress_registrations || [];
+    },
+    nomina: async () => {
+      const payload = can('nomina.read')
+        ? await apiAll(
+            `/api/admin/nomina${state.nominaAgreementFilter ? `?agreement_id=${state.nominaAgreementFilter}` : ''}`,
+            'nomina_entries',
+          )
+        : { nomina_entries: [] };
+      state.nominaEntries = payload.nomina_entries || [];
+    },
+    services: async () => {
+      const payload = can('services.read')
+        ? await api('/api/admin/services')
+        : { services: [] };
+      state.services = payload.services || [];
+    },
+    professionals: async () => {
+      const payload = can('professionals.read')
+        ? await api('/api/admin/professionals')
+        : { professionals: [] };
+      state.professionals = payload.professionals || [];
+    },
+    appointments: async () => {
+      const payload = can('appointments.read')
+        ? await apiAll('/api/admin/appointments', 'appointments')
+        : { appointments: [] };
+      state.appointments = payload.appointments || [];
+    },
+    schedule_blocks: async () => {
+      const payload = can('schedule_blocks.read')
+        ? await apiAll('/api/admin/schedule-blocks', 'schedule_blocks')
+        : { schedule_blocks: [] };
+      state.scheduleBlocks = payload.schedule_blocks || [];
+    },
+    users: async () => {
+      const payload = can('users.read')
+        ? await api('/api/admin/users')
+        : { users: [] };
+      state.users = payload.users || [];
+    },
+  };
+
+  async function loadData(moduleId = state.active, { useCache = false } = {}) {
+    const requirements = moduleDataRequirements[moduleId] || [];
+    const primaryData = modulePrimaryData[moduleId] || '';
+    await Promise.all(
+      requirements.map(async (dataKey) => {
+        const loadedAt = referenceDataLoadedAt.get(dataKey) || 0;
+        const canReuse =
+          useCache &&
+          dataKey !== primaryData &&
+          referenceDataKeys.has(dataKey) &&
+          Date.now() - loadedAt < referenceDataCacheMs;
+        if (canReuse) return;
+        await dataLoaders[dataKey]();
+        if (referenceDataKeys.has(dataKey)) {
+          referenceDataLoadedAt.set(dataKey, Date.now());
+        }
+      }),
+    );
+  }
+
+  async function loadActiveModuleData(moduleId = state.active, options = {}) {
+    await loadData(moduleId, options);
+    if (moduleId === 'config') await loadMercadoPagoSettings();
+    if (moduleId === 'audit') await loadAuditEvents();
+    if (moduleId === 'settlements') await loadSettlementPreview();
   }
 
   function render() {
@@ -3454,8 +3524,7 @@
       }
       if (action === 'refresh') {
         state.userMenuOpen = false;
-        await loadData();
-        if (state.active === 'settlements') await loadSettlementPreview();
+        await loadActiveModuleData(state.active);
         setStatus('Datos actualizados.', 'ok');
         return;
       }
@@ -3463,6 +3532,7 @@
         await api('/api/admin/auth/logout', { method: 'POST' });
         csrfToken = '';
         state.user = null;
+        referenceDataLoadedAt.clear();
         render();
         return;
       }
@@ -4151,8 +4221,9 @@
       });
       csrfToken = payload.csrf_token;
       state.user = payload.user;
+      referenceDataLoadedAt.clear();
       clearStatus();
-      await loadData();
+      await loadActiveModuleData(state.active);
       render();
     } catch (error) {
       setStatus(error.message, 'error');
@@ -4267,6 +4338,7 @@
       });
       csrfToken = '';
       state.user = null;
+      referenceDataLoadedAt.clear();
       state.dialog = null;
       setStatus('Clave actualizada. Volvé a ingresar.', 'ok');
       render();
