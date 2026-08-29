@@ -5,8 +5,11 @@ import {
   permissionsForRole,
   permissionsForUser,
   requiredPermissionForRequest,
+  requiredProfessionalPermissionForRequest,
   requireAdminApiPermission,
+  requireProfessionalApiPermission,
 } from "../src/authorization.mjs";
+import { readFile } from "node:fs/promises";
 
 test("admin retains all declared permissions", () => {
   const admin = { role: "admin" };
@@ -59,7 +62,7 @@ test("operational user is explicitly denied system and sensitive deletion permis
 test("professional role has self-service permissions but no admin API access", () => {
   const professional = { role: "professional" };
   assert.equal(hasPermission(professional, "professional.profile.read_self"), true);
-  assert.equal(hasPermission(professional, "professional.patients.read_all"), true);
+  assert.equal(hasPermission(professional, "professional.patients.read_self"), true);
   assert.equal(
     hasPermission(professional, "professional.integrations.google.manage_self"),
     true,
@@ -75,6 +78,91 @@ test("professional role has self-service permissions but no admin API access", (
       ),
     { message: "PERMISSION_DENIED" },
   );
+});
+
+test("professional route policy is explicit and fails closed", () => {
+  const professional = { role: "professional" };
+  assert.equal(
+    requiredProfessionalPermissionForRequest(
+      "GET",
+      "/api/professional/patients",
+    ),
+    "professional.patients.read_self",
+  );
+  assert.equal(
+    requiredProfessionalPermissionForRequest(
+      "POST",
+      "/api/professional/appointments/42/cancel",
+    ),
+    "professional.appointments.cancel_self",
+  );
+  assert.equal(
+    requireProfessionalApiPermission(
+      professional,
+      "GET",
+      "/api/professional/appointment-documents/42",
+    ),
+    "professional.appointments.read_self",
+  );
+  assert.throws(
+    () =>
+      requireProfessionalApiPermission(
+        professional,
+        "GET",
+        "/api/professional/unknown",
+      ),
+    { message: "PERMISSION_DENIED" },
+  );
+});
+
+test("every authenticated professional route has an explicit permission", () => {
+  const routes = [
+    ["GET", "/api/professional/auth/me"],
+    ["POST", "/api/professional/auth/logout"],
+    ["POST", "/api/professional/auth/change-password"],
+    ["GET", "/api/professional/profile"],
+    ["PUT", "/api/professional/profile"],
+    ["GET", "/api/professional/notifications/push"],
+    ["POST", "/api/professional/notifications/push/subscriptions"],
+    ["POST", "/api/professional/notifications/push/subscriptions/check"],
+    ["DELETE", "/api/professional/notifications/push/subscriptions"],
+    ["DELETE", "/api/professional/notifications/push/subscriptions/12"],
+    ["POST", "/api/professional/notifications/push/test"],
+    ["POST", "/api/professional/notifications/push/activation-email"],
+    ["GET", "/api/professional/integrations/google"],
+    ["POST", "/api/professional/integrations/google/connect"],
+    ["POST", "/api/professional/integrations/google/disconnect"],
+    ["GET", "/api/professional/availability"],
+    ["PUT", "/api/professional/availability"],
+    ["GET", "/api/professional/blocks"],
+    ["POST", "/api/professional/blocks"],
+    ["DELETE", "/api/professional/blocks/12"],
+    ["GET", "/api/professional/patients"],
+    ["GET", "/api/professional/appointments"],
+    ["GET", "/api/professional/appointment-documents/12"],
+    ["HEAD", "/api/professional/appointment-documents/12"],
+    ["POST", "/api/professional/appointments/12/cancel"],
+    ["POST", "/api/professional/appointments/12/triage-reminder"],
+  ];
+  for (const [method, pathname] of routes) {
+    assert.ok(
+      requiredProfessionalPermissionForRequest(method, pathname),
+      `${method} ${pathname} quedó sin permiso`,
+    );
+  }
+});
+
+test("professional patient visibility includes confirmed past and future appointments only", async () => {
+  const source = await readFile(
+    new URL("../src/professional-api.mjs", import.meta.url),
+    "utf8",
+  );
+  const relationshipScope = source.match(
+    /AND EXISTS \(\s*SELECT 1\s*FROM appointments related_appointment[\s\S]*?\n\s*\)/,
+  )?.[0] || "";
+  assert.match(relationshipScope, /related_appointment\.status = 'confirmed'/);
+  assert.doesNotMatch(relationshipScope, /appointment_date/);
+  assert.doesNotMatch(relationshipScope, /cancelled|pending_payment/);
 });
 
 test("admin route policy fails closed for missing and unknown routes", () => {

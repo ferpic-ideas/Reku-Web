@@ -22,12 +22,13 @@ import {
   clearSessionCookie,
   createSessionToken,
   enforceCsrf,
-  enforceLoginRateLimit,
   hashPassword,
   readSessionFromRequest,
   sessionCookie,
   verifyPassword,
+  verifyPasswordOrDummy,
 } from "./security.mjs";
+import { enforceLoginRateLimit } from "./login-rate-limit.mjs";
 import { config } from "./config.mjs";
 import {
   parseMultipartForm,
@@ -40,8 +41,10 @@ import {
 import { createBookingAccessLink } from "./booking-links.mjs";
 import {
   createMercadoPagoFullRefund,
+  getMercadoPagoSettings as loadMercadoPagoSettings,
   mergeMercadoPagoSettingsPayload,
   publicMercadoPagoSettings,
+  saveMercadoPagoSettings,
 } from "./mercado-pago.mjs";
 import {
   hasPermission,
@@ -140,6 +143,29 @@ const parsePositiveInteger = (value, { min = 1, max = 10_000 } = {}) => {
   }
   return number;
 };
+
+const readPagination = (url, defaultPageSize = 300) => {
+  const requestedPage = Number(url.searchParams.get("page") || 1);
+  const requestedPageSize = Number(
+    url.searchParams.get("page_size") || defaultPageSize,
+  );
+  const page = Number.isInteger(requestedPage) && requestedPage > 0
+    ? requestedPage
+    : 1;
+  const pageSize = Number.isInteger(requestedPageSize)
+    ? Math.min(500, Math.max(1, requestedPageSize))
+    : defaultPageSize;
+  return { page, pageSize, offset: (page - 1) * pageSize };
+};
+
+const pageResult = (rows, pagination) => ({
+  rows: rows.slice(0, pagination.pageSize),
+  pagination: {
+    page: pagination.page,
+    page_size: pagination.pageSize,
+    has_more: rows.length > pagination.pageSize,
+  },
+});
 
 const parseMoney = (value) => {
   const number = Number(String(value || "").replace(",", "."));
@@ -331,7 +357,7 @@ const handleLogin = async (request, response) => {
   const email = String(payload.email || "").trim().toLowerCase();
   const password = String(payload.password || "");
 
-  enforceLoginRateLimit(getClientIp(request), email);
+  await enforceLoginRateLimit(getClientIp(request), email);
 
   const user = await one(
     `
@@ -342,19 +368,12 @@ const handleLogin = async (request, response) => {
     [email],
   );
 
-  if (!user || !user.is_active || !(await verifyPassword(password, user.password_hash))) {
+  const passwordValid = await verifyPasswordOrDummy(password, user?.password_hash);
+  if (!user || !user.is_active || !passwordValid || user.role === "professional") {
     await recordAudit("auth.login_failed", {
       detail: { email, client_ip: getClientIp(request) },
     });
     sendJson(response, 401, { error: "Credenciales inválidas." });
-    return;
-  }
-
-  if (user.role === "professional") {
-    sendJson(response, 403, {
-      error: "Ingresá desde el portal de profesionales.",
-      portal_url: "/profesional/",
-    });
     return;
   }
 
@@ -892,6 +911,7 @@ const generateAdminAgreementSettlement = async (request, response, user) => {
 
 const listPatientIntakes = async (url, response) => {
   const agreementId = url.searchParams.get("agreement_id") || null;
+  const pagination = readPagination(url);
   const result = await query(
     `
       SELECT
@@ -903,11 +923,15 @@ const listPatientIntakes = async (url, response) => {
       LEFT JOIN agreements a ON a.id = p.agreement_id
       WHERE ($1::bigint IS NULL OR p.agreement_id = $1::bigint)
       ORDER BY p.created_at DESC
-      LIMIT 300
+      LIMIT $2 OFFSET $3
     `,
-    [agreementId || null],
+    [agreementId || null, pagination.pageSize + 1, pagination.offset],
   );
-  sendJson(response, 200, { patient_intakes: result.rows.map(mapPatientIntake) });
+  const page = pageResult(result.rows, pagination);
+  sendJson(response, 200, {
+    patient_intakes: page.rows.map(mapPatientIntake),
+    pagination: page.pagination,
+  });
 };
 
 const mapPatientIntake = (row) => ({
@@ -930,6 +954,7 @@ const mapPatientIntake = (row) => ({
 
 const listPatients = async (url, response) => {
   const agreementId = url.searchParams.get("agreement_id") || null;
+  const pagination = readPagination(url);
   const result = await query(
     `
       SELECT
@@ -986,11 +1011,15 @@ const listPatients = async (url, response) => {
       WHERE patient.active = TRUE
         AND ($1::bigint IS NULL OR latest_intake.id IS NOT NULL)
       ORDER BY last_activity_at DESC, patient.id DESC
-      LIMIT 300
+      LIMIT $2 OFFSET $3
     `,
-    [agreementId || null],
+    [agreementId || null, pagination.pageSize + 1, pagination.offset],
   );
-  sendJson(response, 200, { patients: result.rows.map(mapPatient) });
+  const page = pageResult(result.rows, pagination);
+  sendJson(response, 200, {
+    patients: page.rows.map(mapPatient),
+    pagination: page.pagination,
+  });
 };
 
 const mapPatient = (row) => ({
@@ -1040,14 +1069,19 @@ const deactivatePatient = async (response, user, patientId) => {
   sendJson(response, 200, { ok: true });
 };
 
-const listContacts = async (response) => {
+const listContacts = async (url, response) => {
+  const pagination = readPagination(url);
   const result = await query(`
     SELECT *
     FROM contacts
     ORDER BY created_at DESC
-    LIMIT 300
-  `);
-  sendJson(response, 200, { contacts: result.rows.map(mapContact) });
+    LIMIT $1 OFFSET $2
+  `, [pagination.pageSize + 1, pagination.offset]);
+  const page = pageResult(result.rows, pagination);
+  sendJson(response, 200, {
+    contacts: page.rows.map(mapContact),
+    pagination: page.pagination,
+  });
 };
 
 const mapContact = (row) => ({
@@ -1100,10 +1134,16 @@ const mapCongressRegistration = (row) => ({
   created_at: row.created_at,
 });
 
-const listCongressRegistrations = async (response) => {
-  const result = await query(`${congressRegistrationSelect} LIMIT 1000`);
+const listCongressRegistrations = async (url, response) => {
+  const pagination = readPagination(url, 500);
+  const result = await query(`${congressRegistrationSelect} LIMIT $1 OFFSET $2`, [
+    pagination.pageSize + 1,
+    pagination.offset,
+  ]);
+  const page = pageResult(result.rows, pagination);
   sendJson(response, 200, {
-    congress_registrations: result.rows.map(mapCongressRegistration),
+    congress_registrations: page.rows.map(mapCongressRegistration),
+    pagination: page.pagination,
   });
 };
 
@@ -1163,13 +1203,34 @@ const downloadCongressRegistrationsCsv = async (response) => {
   response.end(csv);
 };
 
-const deleteRecord = async (response, user, table, id) => {
+const deletableRecordTypes = Object.freeze({
+  patient_intakes: {
+    sql: "DELETE FROM patient_intakes WHERE id = $1",
+    eventType: "patient_intakes.deleted",
+  },
+  contacts: {
+    sql: "DELETE FROM contacts WHERE id = $1",
+    eventType: "contacts.deleted",
+  },
+  congreso_cokiba_registrations: {
+    sql: "DELETE FROM congreso_cokiba_registrations WHERE id = $1",
+    eventType: "congreso_cokiba_registrations.deleted",
+  },
+});
+
+const deleteRecord = async (response, user, recordType, id) => {
   if (!canDeleteRecords(user)) {
     sendJson(response, 403, { error: "No tenés permisos para eliminar registros." });
     return;
   }
-  await query(`DELETE FROM ${table} WHERE id = $1`, [id]);
-  await recordAudit(`${table}.deleted`, {
+  const target = deletableRecordTypes[recordType];
+  if (!target) {
+    const error = new Error("RECORD_TYPE_INVALID");
+    error.statusCode = 400;
+    throw error;
+  }
+  await query(target.sql, [id]);
+  await recordAudit(target.eventType, {
     actorUserId: user.id,
     detail: { id },
   });
@@ -1205,6 +1266,7 @@ const revokeProfessionalLinksAndSessions = async (response, user, id) => {
 
 const listNomina = async (url, response) => {
   const agreementId = url.searchParams.get("agreement_id") || null;
+  const pagination = readPagination(url, 500);
   const result = await query(
     `
       SELECT
@@ -1221,11 +1283,15 @@ const listNomina = async (url, response) => {
       WHERE ($1::bigint IS NULL OR n.agreement_id = $1::bigint)
         AND a.deleted_at IS NULL
       ORDER BY n.created_at DESC
-      LIMIT 500
+      LIMIT $2 OFFSET $3
     `,
-    [agreementId || null],
+    [agreementId || null, pagination.pageSize + 1, pagination.offset],
   );
-  sendJson(response, 200, { nomina_entries: result.rows.map(mapNominaEntry) });
+  const page = pageResult(result.rows, pagination);
+  sendJson(response, 200, {
+    nomina_entries: page.rows.map(mapNominaEntry),
+    pagination: page.pagination,
+  });
 };
 
 const mapNominaEntry = (row) => ({
@@ -2056,7 +2122,8 @@ const mapScheduleBlock = (row) => ({
   created_at: row.created_at,
 });
 
-const listScheduleBlocks = async (response) => {
+const listScheduleBlocks = async (url, response) => {
+  const pagination = readPagination(url, 500);
   const result = await query(`
     SELECT
       b.*,
@@ -2068,9 +2135,13 @@ const listScheduleBlocks = async (response) => {
     INNER JOIN professionals p ON p.id = b.professional_id
     WHERE p.deleted_at IS NULL
     ORDER BY b.block_date DESC, b.start_time DESC
-    LIMIT 500
-  `);
-  sendJson(response, 200, { schedule_blocks: result.rows.map(mapScheduleBlock) });
+    LIMIT $1 OFFSET $2
+  `, [pagination.pageSize + 1, pagination.offset]);
+  const page = pageResult(result.rows, pagination);
+  sendJson(response, 200, {
+    schedule_blocks: page.rows.map(mapScheduleBlock),
+    pagination: page.pagination,
+  });
 };
 
 const createScheduleBlock = async (request, response, user) => {
@@ -2200,7 +2271,8 @@ const mapAppointment = (row) => ({
   created_at: row.created_at,
 });
 
-const listAppointments = async (response) => {
+const listAppointments = async (url, response) => {
+  const pagination = readPagination(url, 500);
   const result = await query(`
     SELECT
       a.*,
@@ -2242,9 +2314,17 @@ const listAppointments = async (response) => {
     LEFT JOIN patient_intakes pi ON pi.id = a.patient_intake_id
     LEFT JOIN agreements ag ON ag.id = COALESCE(a.agreement_id, pi.agreement_id)
     ORDER BY a.appointment_date DESC, a.start_time DESC
-    LIMIT 500
-  `, [config.googleCalendarTimeZone]);
-  sendJson(response, 200, { appointments: result.rows.map(mapAppointment) });
+    LIMIT $2 OFFSET $3
+  `, [
+    config.googleCalendarTimeZone,
+    pagination.pageSize + 1,
+    pagination.offset,
+  ]);
+  const page = pageResult(result.rows, pagination);
+  sendJson(response, 200, {
+    appointments: page.rows.map(mapAppointment),
+    pagination: page.pagination,
+  });
 };
 
 export const adminAppointmentCapabilities = (appointment) => {
@@ -2698,23 +2778,15 @@ const dashboard = async (response) => {
 };
 
 const getMercadoPagoSettings = async (response, user) => {
-  const row = await one("SELECT value FROM app_settings WHERE key = 'mercado_pago'");
-  sendJson(response, 200, { settings: publicMercadoPagoSettings(row?.value || {}) });
+  const value = await loadMercadoPagoSettings();
+  sendJson(response, 200, { settings: publicMercadoPagoSettings(value) });
 };
 
 const updateMercadoPagoSettings = async (request, response, user) => {
   const payload = await parseJsonBody(request);
-  const current = await one("SELECT value FROM app_settings WHERE key = 'mercado_pago'");
-  const value = mergeMercadoPagoSettingsPayload(current?.value || {}, payload);
-  await query(
-    `
-      INSERT INTO app_settings (key, value, updated_at)
-      VALUES ('mercado_pago', $1::jsonb, NOW())
-      ON CONFLICT (key)
-      DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-    `,
-    [JSON.stringify(value)],
-  );
+  const current = await loadMercadoPagoSettings();
+  const value = mergeMercadoPagoSettingsPayload(current, payload);
+  await saveMercadoPagoSettings(value);
   await recordAudit("settings.mercado_pago.updated", { actorUserId: user.id });
   sendJson(response, 200, {
     ok: true,
@@ -2722,7 +2794,8 @@ const updateMercadoPagoSettings = async (request, response, user) => {
   });
 };
 
-const listAuditEvents = async (response, user) => {
+const listAuditEvents = async (url, response, user) => {
+  const pagination = readPagination(url, 150);
   const result = await query(`
     SELECT
       e.id,
@@ -2733,16 +2806,18 @@ const listAuditEvents = async (response, user) => {
     FROM audit_events e
     LEFT JOIN users u ON u.id = e.actor_user_id
     ORDER BY e.created_at DESC
-    LIMIT 150
-  `);
+    LIMIT $1 OFFSET $2
+  `, [pagination.pageSize + 1, pagination.offset]);
+  const page = pageResult(result.rows, pagination);
   sendJson(response, 200, {
-    audit_events: result.rows.map((row) => ({
+    audit_events: page.rows.map((row) => ({
       id: Number(row.id),
       event_type: row.event_type,
       actor_email: row.actor_email || "Sistema",
       detail: row.detail || {},
       created_at: row.created_at,
     })),
+    pagination: page.pagination,
   });
 };
 
@@ -2973,7 +3048,7 @@ export const handleAdminApi = async (request, response, url) => {
     }
 
     if (pathname === "/api/admin/schedule-blocks" && request.method === "GET") {
-      await listScheduleBlocks(response);
+      await listScheduleBlocks(url, response);
       return true;
     }
     if (pathname === "/api/admin/schedule-blocks" && request.method === "POST") {
@@ -2987,7 +3062,7 @@ export const handleAdminApi = async (request, response, url) => {
     }
 
     if (pathname === "/api/admin/appointments" && request.method === "GET") {
-      await listAppointments(response);
+      await listAppointments(url, response);
       return true;
     }
 
@@ -3070,7 +3145,7 @@ export const handleAdminApi = async (request, response, url) => {
     }
 
     if (pathname === "/api/admin/audit" && request.method === "GET") {
-      await listAuditEvents(response, user);
+      await listAuditEvents(url, response, user);
       return true;
     }
 
@@ -3095,7 +3170,7 @@ export const handleAdminApi = async (request, response, url) => {
     }
 
     if (pathname === "/api/admin/contacts" && request.method === "GET") {
-      await listContacts(response);
+      await listContacts(url, response);
       return true;
     }
     const contactMatch = pathname.match(/^\/api\/admin\/contacts\/(\d+)$/);
@@ -3108,7 +3183,7 @@ export const handleAdminApi = async (request, response, url) => {
       pathname === "/api/admin/congress-registrations" &&
       request.method === "GET"
     ) {
-      await listCongressRegistrations(response);
+      await listCongressRegistrations(url, response);
       return true;
     }
     if (

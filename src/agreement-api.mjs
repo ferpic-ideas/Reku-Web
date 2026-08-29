@@ -18,6 +18,7 @@ import {
   cancelGoogleCalendarEventForProfessional,
 } from "./google-calendar.mjs";
 import { config } from "./config.mjs";
+import { consumeRateLimit } from "./rate-limit.mjs";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -25,8 +26,6 @@ const timePattern = /^\d{2}:\d{2}$/;
 const externalIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 const publicIdPattern = /^apt_[a-f0-9]{32}$/;
 const idempotencyKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
-const rateWindows = new Map();
-let rateLimitCalls = 0;
 
 const apiError = (code, message, statusCode = 422, detail = undefined) => {
   const error = new Error(code);
@@ -154,46 +153,38 @@ export const createAgreementApiToken = () =>
 
 export const agreementApiTokenPrefix = (token) => String(token).slice(0, 18);
 
-export const enforceAgreementApiRateLimit = ({ credentialId, clientIp, mutation }) => {
-  const now = Date.now();
-  const windowMs = 60_000;
+export const enforceAgreementApiRateLimit = async ({
+  credentialId,
+  clientIp,
+  mutation,
+}, { consume = consumeRateLimit } = {}) => {
   const mode = mutation ? "write" : "read";
   const limits = [
-    { key: `${credentialId}:global:${mode}`, limit: mutation ? 60 : 240 },
-    { key: `${credentialId}:${clientIp}:${mode}`, limit: mutation ? 30 : 120 },
+    {
+      scope: `agreement-api.credential.${mode}.minute`,
+      key: credentialId,
+      limit: mutation ? 60 : 240,
+    },
+    {
+      scope: `agreement-api.credential-ip.${mode}.minute`,
+      key: `${credentialId}:${clientIp || "unknown"}`,
+      limit: mutation ? 30 : 120,
+    },
   ];
-  let retryAfter = 0;
-  let limited = false;
-  for (const item of limits) {
-    const current = rateWindows.get(item.key);
-    const bucket = !current || now - current.startedAt >= windowMs
-      ? { startedAt: now, count: 0 }
-      : current;
-    bucket.count += 1;
-    rateWindows.set(item.key, bucket);
-    if (bucket.count > item.limit) {
-      limited = true;
-      retryAfter = Math.max(
-        retryAfter,
-        Math.max(1, Math.ceil((windowMs - (now - bucket.startedAt)) / 1000)),
-      );
-    }
-  }
-
-  rateLimitCalls += 1;
-  if (rateLimitCalls % 500 === 0) {
-    for (const [storedKey, stored] of rateWindows.entries()) {
-      if (now - stored.startedAt > windowMs * 2) rateWindows.delete(storedKey);
-    }
-  }
-
-  if (limited) {
+  try {
+    await Promise.all(
+      limits.map((item) =>
+        consume({ ...item, windowSeconds: 60 }),
+      ),
+    );
+  } catch (cause) {
+    if (cause.message !== "RATE_LIMITED") throw cause;
     const error = apiError(
       "rate_limited",
       "Se superó el límite de solicitudes. Reintentá más tarde.",
       429,
     );
-    error.retryAfter = retryAfter;
+    error.retryAfter = cause.retryAfter || 60;
     throw error;
   }
 };
@@ -1348,7 +1339,7 @@ export const handleAgreementApi = async (request, response, url) => {
   try {
     const credential = await requireCredential(request);
     const mutation = ["POST", "PATCH", "PUT", "DELETE"].includes(request.method);
-    enforceAgreementApiRateLimit({
+    await enforceAgreementApiRateLimit({
       credentialId: credential.id,
       clientIp: getClientIp(request),
       mutation,

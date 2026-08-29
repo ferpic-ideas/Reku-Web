@@ -20,6 +20,7 @@
   const initialQuery = new URLSearchParams(window.location.search);
   const requestedModule = initialQuery.get('module');
   const requestedAppointmentId = Number(initialQuery.get('appointment')) || null;
+  const requestedRoom = initialQuery.get('room') === '1' || initialQuery.get('waiting') === '1';
   let appointmentsPollTimer = null;
   let appointmentsRefreshPromise = null;
   let meetWindowTimer = null;
@@ -59,7 +60,9 @@
     patientSearch: '',
     selectedPatientId: null,
     selectedAppointmentId: requestedAppointmentId,
+    consultationRoomOpen: requestedRoom,
     waitingAppointmentId: initialQuery.get('waiting') === '1' ? requestedAppointmentId : null,
+    copiedBookingUrlAppointmentId: null,
     pushActivationRequested: initialQuery.get('activar-notificaciones') === '1',
     patientDetailMessage: '',
     patientDetailMessageType: '',
@@ -158,6 +161,19 @@
       <circle cx="12" cy="12" r="2.6"></circle>
     </svg>
   `;
+
+  const copyIcon = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="8" y="8" width="11" height="11" rx="2"></rect>
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+    </svg>
+  `;
+
+  const isConsultationService = (value) =>
+    /\b(consulta|evaluacion|valoracion)\b/.test(normalizeSearchText(value));
+
+  const consultationRoomUrl = (appointment) =>
+    `/profesional/?module=appointments&appointment=${encodeURIComponent(appointment.id)}&room=1`;
 
   const today = () => {
     const parts = Object.fromEntries(
@@ -524,7 +540,7 @@
     const access = meetAccess(appointment);
     if (!access.visible) return '';
     if (access.available) {
-      return `<a href="${escapeHtml(appointment.google_meet_url)}" target="_blank" rel="noopener">Abrir Meet</a><br />`;
+      return `<a class="consultation-room-entry" href="${escapeHtml(consultationRoomUrl(appointment))}" target="_blank" rel="noopener noreferrer">Abrir sala</a><small class="meet-availability">Ficha del paciente + Meet</small>`;
     }
     const availableFrom = new Intl.DateTimeFormat('es-AR', {
       timeZone: 'America/Argentina/Buenos_Aires',
@@ -532,7 +548,7 @@
       minute: '2-digit',
       hour12: false,
     }).format(new Date(access.availableFrom));
-    return `<span class="meet-link-disabled" title="Se habilita 20 minutos antes">Abrir Meet</span><small class="meet-availability">Disponible desde las ${escapeHtml(availableFrom)}</small>`;
+    return `<span class="meet-link-disabled" title="Se habilita 20 minutos antes">Abrir sala</span><small class="meet-availability">Disponible desde las ${escapeHtml(availableFrom)}</small>`;
   }
 
   function renderAppointmentActions(item) {
@@ -825,9 +841,12 @@
       status: appointment.status,
       agreement_name: appointment.agreement_name || '',
       agreement_type: appointment.agreement_type || '',
+      service_name: appointment.service_name || '',
       documents: appointment.documents || [],
+      triage_url: appointment.triage_url || '',
       triage_reminder_sent_at: appointment.triage_reminder_sent_at || null,
       google_meet_url: appointment.google_meet_url || '',
+      booking_url: appointment.booking_url || '',
     };
     if (patient) {
       return {
@@ -858,7 +877,10 @@
             date: appointment.date,
             start_time: appointment.start_time,
             end_time: appointment.end_time,
+            service_name: appointment.service_name || '',
             documents: appointment.documents || [],
+            triage_url: appointment.triage_url || '',
+            booking_url: appointment.booking_url || '',
           }
         : null,
       practice: appointment.service_name || '',
@@ -878,6 +900,12 @@
     if (!patient) return '';
     const detailAppointment = patient.detail_appointment || patient.next_appointment;
     const documents = detailAppointment?.documents || [];
+    const isAppointmentRoom = Boolean(patient.detail_appointment) && state.consultationRoomOpen;
+    const roomMeetAccess = detailAppointment ? meetAccess(detailAppointment) : { visible: false, available: false };
+    const triageUrl = detailAppointment?.triage_url || '';
+    const bookingUrl = detailAppointment?.booking_url || '';
+    const consultationService = detailAppointment?.service_name || patient.practice || '';
+    const showTreatmentHandoff = isConsultationService(consultationService) && Boolean(bookingUrl);
     const canRemindTriage =
       patient.triage_status === 'assigned' &&
       detailAppointment?.status !== 'cancelled' &&
@@ -891,11 +919,12 @@
       : null;
     return `
       <div class="modal-backdrop" role="presentation">
-        <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="patient-details-title">
+        <section class="modal-panel ${isAppointmentRoom ? 'consultation-room-panel' : ''}" role="dialog" aria-modal="true" aria-labelledby="patient-details-title">
           <div class="modal-header">
             <div>
-              <span class="eyebrow">Paciente</span>
+              <span class="eyebrow">${isAppointmentRoom ? 'Sala profesional' : 'Paciente'}</span>
               <h2 id="patient-details-title">${escapeHtml(patient.name || 'Sin nombre')}</h2>
+              ${isAppointmentRoom ? `<p class="muted">Todo lo necesario para preparar y acompañar esta consulta.</p>` : ''}
             </div>
             <button class="icon-button" data-action="close-patient-details" type="button" aria-label="Cerrar detalles" title="Cerrar">×</button>
           </div>
@@ -906,7 +935,28 @@
                     <strong>El paciente está esperando</strong>
                     <span class="waiting-delay" data-waiting-counter data-starts-at="${waitingStartsAt}">${formatWaitingDelay(waitingStartsAt)}</span>
                   </div>
-                  ${detailAppointment.google_meet_url ? `<a class="primary-button" href="${escapeHtml(detailAppointment.google_meet_url)}" target="_blank" rel="noopener noreferrer">Ingresar a Meet</a>` : '<span class="badge">Meet no disponible</span>'}
+                  <span class="waiting-room-ready">Atender ahora</span>
+                </div>`
+              : ''
+          }
+          ${
+            isAppointmentRoom
+              ? `<div class="consultation-room-hero">
+                  <div>
+                    <span class="consultation-room-kicker">${escapeHtml(formatDate(detailAppointment.date))} · ${escapeHtml(detailAppointment.start_time)}–${escapeHtml(detailAppointment.end_time)}</span>
+                    <strong>Preparación de la videollamada</strong>
+                    <p>Revisá la ficha y mantené esta pestaña abierta como referencia durante la atención.</p>
+                  </div>
+                  <div class="consultation-room-actions">
+                    ${roomMeetAccess.available
+                      ? `<a class="primary-button" href="${escapeHtml(detailAppointment.google_meet_url)}" target="_blank" rel="noopener noreferrer">Entrar a Google Meet</a>`
+                      : roomMeetAccess.visible
+                        ? '<span class="room-action-disabled">Meet se habilita 20 minutos antes</span>'
+                        : '<span class="room-action-disabled">Meet no disponible</span>'}
+                    ${triageUrl
+                      ? `<a class="secondary-button triage-form-button" href="${escapeHtml(triageUrl)}" target="_blank" rel="noopener noreferrer">Ver Formulario Triage</a>`
+                      : '<span class="room-action-disabled">Formulario Triage no disponible</span>'}
+                  </div>
                 </div>`
               : ''
           }
@@ -916,7 +966,7 @@
             <div><dt>${patient.detail_appointment ? 'Turno seleccionado' : 'Próximo turno'}</dt><dd>${detailAppointment ? `${escapeHtml(formatDate(detailAppointment.date))} · ${escapeHtml(detailAppointment.start_time)}–${escapeHtml(detailAppointment.end_time)}` : 'Sin próximo turno'}</dd></div>
             <div><dt>Práctica</dt><dd>${escapeHtml(patient.practice || 'Sin información')}</dd></div>
             <div><dt>Triaje</dt><dd>${escapeHtml(triageLabel(patient.triage_status))}</dd></div>
-            <div><dt>Origen</dt><dd>${escapeHtml(patientSourceLabel(patient))}</dd></div>
+            <div><dt>Acuerdo / origen</dt><dd>${escapeHtml(patientSourceLabel(patient))}</dd></div>
             <div><dt>Importe</dt><dd>${patient.payment?.amount ? escapeHtml(new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(patient.payment.amount)) : '—'}</dd></div>
             <div><dt>Último turno registrado</dt><dd>${patient.latest_appointment_date ? escapeHtml(formatDate(patient.latest_appointment_date)) : '—'}</dd></div>
           </dl>
@@ -932,9 +982,27 @@
                 : '<span>El paciente todavía no compartió documentación.</span>'
             }
           </div>
+          ${
+            showTreatmentHandoff
+              ? `<div class="treatment-handoff-card">
+                  <div class="treatment-handoff-copy">
+                    <span class="treatment-handoff-label">Después de la consulta</span>
+                    <strong>¿El paciente quiere comenzar el tratamiento?</strong>
+                    <p>Compartile esta agenda para que ingrese y seleccione el tratamiento que corresponda.</p>
+                  </div>
+                  <div class="booking-url-box">
+                    <a href="${escapeHtml(bookingUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(bookingUrl)}</a>
+                    <button class="copy-url-button" data-action="copy-booking-url" data-id="${detailAppointment.id}" data-url="${escapeHtml(bookingUrl)}" type="button" aria-label="Copiar URL de turnos" title="Copiar URL de turnos">
+                      ${copyIcon}
+                    </button>
+                  </div>
+                  ${Number(state.copiedBookingUrlAppointmentId) === Number(detailAppointment.id) ? '<span class="copy-success" role="status">URL copiada</span>' : ''}
+                </div>`
+              : ''
+          }
           <div class="details-note">
             <strong>Seguimiento del triaje</strong>
-            <span>Reku sabe que el enlace fue asignado, pero ReHub todavía no informa automáticamente si el paciente lo completó.</span>
+            <span>${triageUrl ? 'El formulario está disponible desde esta ficha. Hasta cerrar la integración con ReHub, se muestra el enlace asignado como si el paciente ya lo hubiera completado.' : 'No hay un formulario disponible para este turno.'}</span>
             ${reminderSentAt ? `<span>Último recordatorio enviado: ${escapeHtml(formatDateTime(reminderSentAt))}.</span>` : ''}
           </div>
           ${state.patientDetailMessage ? `<div class="status-message ${escapeHtml(state.patientDetailMessageType)}">${escapeHtml(state.patientDetailMessage)}</div>` : ''}
@@ -1247,6 +1315,33 @@
     else renderPortal();
   }
 
+  async function copyBookingUrl(button) {
+    const bookingUrl = String(button.dataset.url || '');
+    if (!bookingUrl) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(bookingUrl);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = bookingUrl;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        if (!document.execCommand('copy')) throw new Error('COPY_FAILED');
+        textarea.remove();
+      }
+      state.copiedBookingUrlAppointmentId = Number(button.dataset.id);
+      state.patientDetailMessage = '';
+      render();
+    } catch {
+      state.patientDetailMessage = 'No pudimos copiar la URL. Podés abrirla y copiarla desde la nueva pestaña.';
+      state.patientDetailMessageType = 'error';
+      render();
+    }
+  }
+
   function bindEvents() {
     app.querySelectorAll('[data-module]').forEach((button) => {
       button.addEventListener('click', () => activateModule(button.dataset.module));
@@ -1335,6 +1430,8 @@
       button.addEventListener('click', () => {
         state.selectedAppointmentId = Number(button.dataset.id);
         state.selectedPatientId = null;
+        state.consultationRoomOpen = true;
+        state.copiedBookingUrlAppointmentId = null;
         state.patientDetailMessage = '';
         state.patientDetailMessageType = '';
         render();
@@ -1345,6 +1442,8 @@
         state.selectedPatientId = Number(button.dataset.id);
         state.selectedAppointmentId = null;
         state.waitingAppointmentId = null;
+        state.consultationRoomOpen = false;
+        state.copiedBookingUrlAppointmentId = null;
         state.patientDetailMessage = '';
         state.patientDetailMessageType = '';
         render();
@@ -1355,6 +1454,8 @@
         state.selectedPatientId = null;
         state.selectedAppointmentId = null;
         state.waitingAppointmentId = null;
+        state.consultationRoomOpen = false;
+        state.copiedBookingUrlAppointmentId = null;
         state.patientDetailMessage = '';
         state.patientDetailMessageType = '';
         render();
@@ -1364,6 +1465,9 @@
       button.addEventListener('click', () => {
         openActionModal({ type: 'triage-reminder', id: Number(button.dataset.id) });
       });
+    });
+    app.querySelectorAll('[data-action="copy-booking-url"]').forEach((button) => {
+      button.addEventListener('click', () => copyBookingUrl(button));
     });
     app.querySelectorAll('[data-action="close-action-modal"]').forEach((button) => {
       button.addEventListener('click', (event) => {

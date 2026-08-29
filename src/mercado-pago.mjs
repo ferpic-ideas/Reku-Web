@@ -1,6 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "./config.mjs";
 import { one, query, recordAudit } from "./db.mjs";
+import {
+  decryptSecret,
+  encryptSecret,
+  isSecretEnvelope,
+} from "./secret-envelope.mjs";
 
 const mpApiBase = "https://api.mercadopago.com";
 const modes = ["development", "production"];
@@ -24,6 +29,58 @@ const normalizeCredentials = (value = {}) => ({
   client_secret: String(value.client_secret || "").trim(),
   webhook_secret: String(value.webhook_secret || "").trim(),
 });
+
+const settingsKeyMaterial = () =>
+  config.settingsEncryptionKey ||
+  (config.appEnv === "production"
+    ? ""
+    : config.googleIntegrationEncryptionKey || config.sessionSecret);
+
+const secretContext = (mode, field) => `mercado-pago:${mode}:${field}`;
+
+export const encryptMercadoPagoSettingsForStorage = (
+  settings,
+  { material = settingsKeyMaterial() } = {},
+) => {
+  const encrypted = normalizeMercadoPagoSettings(settings);
+  for (const mode of modes) {
+    for (const field of secretFields) {
+      const value = encrypted[mode][field];
+      if (!value || isSecretEnvelope(value)) continue;
+      encrypted[mode][field] = encryptSecret(value, {
+        material,
+        context: secretContext(mode, field),
+        errorCode: "SETTINGS_ENCRYPTION_KEY_REQUIRED",
+      });
+    }
+  }
+  return encrypted;
+};
+
+export const decryptMercadoPagoSettingsFromStorage = (
+  settings,
+  { material = settingsKeyMaterial() } = {},
+) => {
+  const decrypted = normalizeMercadoPagoSettings(settings);
+  let hadPlaintextSecrets = false;
+  for (const mode of modes) {
+    for (const field of secretFields) {
+      const value = decrypted[mode][field];
+      if (!value) continue;
+      if (!isSecretEnvelope(value)) {
+        hadPlaintextSecrets = true;
+        continue;
+      }
+      decrypted[mode][field] = decryptSecret(value, {
+        material,
+        context: secretContext(mode, field),
+        keyErrorCode: "SETTINGS_ENCRYPTION_KEY_REQUIRED",
+        decryptErrorCode: "MERCADO_PAGO_SECRET_DECRYPT_FAILED",
+      });
+    }
+  }
+  return { settings: decrypted, hadPlaintextSecrets };
+};
 
 export const normalizeMercadoPagoSettings = (value = {}) => {
   const legacyCredentials =
@@ -91,7 +148,30 @@ export const mergeMercadoPagoSettingsPayload = (currentValue, payload = {}) => {
 
 export const getMercadoPagoSettings = async () => {
   const row = await one("SELECT value FROM app_settings WHERE key = 'mercado_pago'");
-  return normalizeMercadoPagoSettings(row?.value || {});
+  const { settings, hadPlaintextSecrets } = decryptMercadoPagoSettingsFromStorage(
+    row?.value || {},
+  );
+  if (hadPlaintextSecrets) {
+    await saveMercadoPagoSettings(settings);
+    await recordAudit("settings.mercado_pago.encryption_migrated", {
+      detail: { modes: modes.filter((mode) => secretFields.some((field) => settings[mode][field])) },
+    });
+  }
+  return settings;
+};
+
+export const saveMercadoPagoSettings = async (settings) => {
+  const encrypted = encryptMercadoPagoSettingsForStorage(settings);
+  await query(
+    `
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES ('mercado_pago', $1::jsonb, NOW())
+      ON CONFLICT (key)
+      DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+    `,
+    [JSON.stringify(encrypted)],
+  );
+  return normalizeMercadoPagoSettings(settings);
 };
 
 export const getActiveMercadoPagoCredentials = async () => {

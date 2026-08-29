@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { renderAgreementSettlementPdf } from "../src/agreement-settlements.mjs";
 
@@ -66,4 +67,22 @@ test("monthly agreement settlement renders a valid detailed PDF", async () => {
   const pdf = await renderAgreementSettlementPdf(snapshot);
   assert.equal(pdf.subarray(0, 5).toString("ascii"), "%PDF-");
   assert.ok(pdf.length > 1500);
+});
+
+test("settlement actions share the filter row and distinguish generation from download", async () => {
+  const [app, styles] = await Promise.all([
+    readFile(new URL("../admin/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../admin/styles.css", import.meta.url), "utf8"),
+  ]);
+  const settlementView = app.match(
+    /function renderSettlements\(\)[\s\S]*?function renderAppointmentProfessionalOptions\(/,
+  )?.[0] || "";
+  assert.match(settlementView, /class="toolbar settlement-toolbar"/);
+  assert.match(settlementView, /settlement-filter-actions/);
+  assert.match(settlementView, /settlement-end-actions/);
+  assert.match(settlementView, /Descargar PDF generado/);
+  assert.match(settlementView, /Regenerar PDF/);
+  assert.match(settlementView, /no cambia el estado de los turnos/);
+  assert.match(styles, /\.settlement-toolbar\s*\{[^}]*flex-wrap:\s*nowrap/s);
+  assert.match(styles, /\.settlement-end-actions\s*\{[^}]*margin-left:\s*auto/s);
 });

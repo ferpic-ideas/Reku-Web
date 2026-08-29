@@ -17,9 +17,11 @@ const rolePermissions = Object.freeze({
     "professional.availability.write_self",
     "professional.blocks.read_self",
     "professional.blocks.write_self",
-    "professional.patients.read_all",
+    "professional.patients.read_self",
     "professional.appointments.read_self",
     "professional.appointments.cancel_self",
+    "professional.appointments.triage_remind_self",
+    "professional.notifications.manage_self",
     "professional.integrations.google.manage_self",
   ],
 });
@@ -106,6 +108,85 @@ const routeRules = [
   ["DELETE", /^\/api\/admin\/nomina\/\d+$/, "nomina.delete"],
 ];
 
+const professionalRouteRules = [
+  ["GET", /^\/api\/professional\/auth\/me$/, "professional.account.self"],
+  ["POST", /^\/api\/professional\/auth\/logout$/, "professional.account.self"],
+  [
+    "POST",
+    /^\/api\/professional\/auth\/change-password$/,
+    "professional.account.self",
+  ],
+  ["GET", /^\/api\/professional\/profile$/, "professional.profile.read_self"],
+  ["PUT", /^\/api\/professional\/profile$/, "professional.profile.write_self"],
+  [
+    "GET",
+    /^\/api\/professional\/notifications\/push$/,
+    "professional.notifications.manage_self",
+  ],
+  [
+    "POST",
+    /^\/api\/professional\/notifications\/push\/(subscriptions|subscriptions\/check|test|activation-email)$/,
+    "professional.notifications.manage_self",
+  ],
+  [
+    "DELETE",
+    /^\/api\/professional\/notifications\/push\/subscriptions(?:\/\d+)?$/,
+    "professional.notifications.manage_self",
+  ],
+  [
+    "GET",
+    /^\/api\/professional\/integrations\/google$/,
+    "professional.integrations.google.manage_self",
+  ],
+  [
+    "POST",
+    /^\/api\/professional\/integrations\/google\/(connect|disconnect)$/,
+    "professional.integrations.google.manage_self",
+  ],
+  [
+    "GET",
+    /^\/api\/professional\/availability$/,
+    "professional.availability.read_self",
+  ],
+  [
+    "PUT",
+    /^\/api\/professional\/availability$/,
+    "professional.availability.write_self",
+  ],
+  ["GET", /^\/api\/professional\/blocks$/, "professional.blocks.read_self"],
+  ["POST", /^\/api\/professional\/blocks$/, "professional.blocks.write_self"],
+  [
+    "DELETE",
+    /^\/api\/professional\/blocks\/\d+$/,
+    "professional.blocks.write_self",
+  ],
+  [
+    "GET",
+    /^\/api\/professional\/patients$/,
+    "professional.patients.read_self",
+  ],
+  [
+    "GET",
+    /^\/api\/professional\/appointments$/,
+    "professional.appointments.read_self",
+  ],
+  [
+    "GET|HEAD",
+    /^\/api\/professional\/appointment-documents\/\d+$/,
+    "professional.appointments.read_self",
+  ],
+  [
+    "POST",
+    /^\/api\/professional\/appointments\/\d+\/cancel$/,
+    "professional.appointments.cancel_self",
+  ],
+  [
+    "POST",
+    /^\/api\/professional\/appointments\/\d+\/triage-reminder$/,
+    "professional.appointments.triage_remind_self",
+  ],
+];
+
 export const permissionsForRole = (role) => [
   ...(rolePermissions[String(role || "").toLowerCase()] || []),
 ];
@@ -133,8 +214,27 @@ export const requiredPermissionForRequest = (method, pathname) => {
   return rule?.[2] || null;
 };
 
+export const requiredProfessionalPermissionForRequest = (method, pathname) => {
+  const normalizedMethod = String(method || "").toUpperCase();
+  const rule = professionalRouteRules.find(
+    ([allowedMethods, pattern]) =>
+      allowedMethods.split("|").includes(normalizedMethod) && pattern.test(pathname),
+  );
+  return rule?.[2] || null;
+};
+
 export const requireAdminApiPermission = (user, method, pathname) => {
   const permission = requiredPermissionForRequest(method, pathname);
+  if (!permission || !hasPermission(user, permission)) {
+    const error = new Error("PERMISSION_DENIED");
+    error.statusCode = 403;
+    throw error;
+  }
+  return permission;
+};
+
+export const requireProfessionalApiPermission = (user, method, pathname) => {
+  const permission = requiredProfessionalPermissionForRequest(method, pathname);
   if (!permission || !hasPermission(user, permission)) {
     const error = new Error("PERMISSION_DENIED");
     error.statusCode = 403;

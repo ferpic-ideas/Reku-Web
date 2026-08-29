@@ -6,18 +6,40 @@ import { hashToken } from "./security.mjs";
 
 export const createPatientAppointmentAccessLink = async ({
   appointmentId,
-  ttlDays = config.patientAppointmentLinkTtlDays,
+  graceDays = config.patientAppointmentLinkGraceDays,
+  maxExchanges = config.patientAppointmentLinkMaxExchanges,
 } = {}) => {
   const token = randomBytes(32).toString("base64url");
   const result = await query(
     `
       INSERT INTO patient_appointment_access_links
-        (token_hash, appointment_id, expires_at)
-      VALUES ($1, $2, NOW() + ($3::text || ' days')::interval)
+        (token_hash, appointment_id, expires_at, max_exchanges)
+      SELECT
+        $1,
+        appointment.id,
+        GREATEST(
+          NOW() + INTERVAL '1 day',
+          ((appointment.appointment_date + appointment.end_time) AT TIME ZONE $4)
+            + ($3::text || ' days')::interval
+        ),
+        $5
+      FROM appointments appointment
+      WHERE appointment.id = $2
       RETURNING id, expires_at
     `,
-    [hashToken(token), Number(appointmentId), Number(ttlDays)],
+    [
+      hashToken(token),
+      Number(appointmentId),
+      Number(graceDays),
+      config.googleCalendarTimeZone,
+      Number(maxExchanges),
+    ],
   );
+  if (!result.rows[0]) {
+    const error = new Error("PATIENT_APPOINTMENT_NOT_FOUND");
+    error.statusCode = 404;
+    throw error;
+  }
   await query(
     `
       DELETE FROM patient_appointment_sessions
@@ -49,6 +71,7 @@ export const exchangePatientAppointmentAccessLink = async (token) =>
         WHERE link.token_hash = $1
           AND link.expires_at > NOW()
           AND link.revoked_at IS NULL
+          AND link.exchange_count < link.max_exchanges
           AND NULLIF(appointment.patient_email, '') IS NOT NULL
         FOR UPDATE OF link
       `,
@@ -78,7 +101,8 @@ export const exchangePatientAppointmentAccessLink = async (token) =>
     await client.query(
       `
         UPDATE patient_appointment_access_links
-        SET last_accessed_at = NOW()
+        SET last_accessed_at = NOW(),
+            exchange_count = exchange_count + 1
         WHERE id = $1
       `,
       [link.id],
@@ -89,6 +113,22 @@ export const exchangePatientAppointmentAccessLink = async (token) =>
       expires_at: sessionResult.rows[0].expires_at,
     };
   });
+
+export const revokeOtherPatientAppointmentAccessLinks = async ({
+  appointmentId,
+  keepLinkId,
+}) => {
+  await query(
+    `
+      UPDATE patient_appointment_access_links
+      SET revoked_at = NOW()
+      WHERE appointment_id = $1
+        AND id <> $2
+        AND revoked_at IS NULL
+    `,
+    [Number(appointmentId), Number(keepLinkId)],
+  );
+};
 
 export const patientAppointmentSessionCookie = (token) => {
   const parts = [

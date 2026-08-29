@@ -17,26 +17,40 @@ export const consumeRateLimit = async ({
   limit,
   windowSeconds,
   now,
-}) => {
-  const startedAt = bucketStart(windowSeconds, now);
-  const result = await query(
+}, { queryImpl = query } = {}) => {
+  const currentTime = now ?? Date.now();
+  const startedAt = bucketStart(1, currentTime);
+  const windowStartedAt = new Date(currentTime - windowSeconds * 1000);
+  const result = await queryImpl(
     `
-      INSERT INTO public_rate_limits
-        (scope, key_hash, bucket_started_at, hit_count, updated_at)
-      VALUES ($1, $2, $3, 1, NOW())
-      ON CONFLICT (scope, key_hash, bucket_started_at)
-      DO UPDATE SET
-        hit_count = public_rate_limits.hit_count + 1,
-        updated_at = NOW()
-      RETURNING hit_count
+      WITH current_bucket AS (
+        INSERT INTO public_rate_limits
+          (scope, key_hash, bucket_started_at, hit_count, updated_at)
+        VALUES ($1, $2, $3, 1, NOW())
+        ON CONFLICT (scope, key_hash, bucket_started_at)
+        DO UPDATE SET
+          hit_count = public_rate_limits.hit_count + 1,
+          updated_at = NOW()
+        RETURNING hit_count
+      )
+      SELECT
+        current_bucket.hit_count
+          + COALESCE(SUM(previous.hit_count), 0)::int AS hit_count
+      FROM current_bucket
+      LEFT JOIN public_rate_limits previous
+        ON previous.scope = $1
+       AND previous.key_hash = $2
+       AND previous.bucket_started_at >= $4
+       AND previous.bucket_started_at <> $3
+      GROUP BY current_bucket.hit_count
     `,
-    [scope, hashKey(key), startedAt],
+    [scope, hashKey(key), startedAt, windowStartedAt],
   );
 
   cleanupCounter += 1;
   if (cleanupCounter >= 100) {
     cleanupCounter = 0;
-    query(
+    queryImpl(
       "DELETE FROM public_rate_limits WHERE bucket_started_at < NOW() - INTERVAL '7 days'",
     ).catch(() => {});
   }
@@ -45,10 +59,7 @@ export const consumeRateLimit = async ({
   if (count > limit) {
     const error = new Error("RATE_LIMITED");
     error.statusCode = 429;
-    error.retryAfter = Math.max(
-      1,
-      Math.ceil((startedAt.getTime() + windowSeconds * 1000 - Date.now()) / 1000),
-    );
+    error.retryAfter = Math.max(1, Math.ceil(windowSeconds));
     throw error;
   }
 

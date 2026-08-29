@@ -1016,7 +1016,9 @@ const createAppointment = async (payload, response, url, link) => {
       }
 
       let patientId = link.patient_id;
-      if (patientEmail) {
+      // Public intake data only becomes canonical after email verification.
+      // Links without an intake are created by authenticated staff workflows.
+      if (patientEmail && !link.patient_intake_id) {
         const canonicalPatient = await client.query(
           `
             INSERT INTO patients

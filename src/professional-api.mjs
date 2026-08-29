@@ -1,15 +1,18 @@
 import { one, query, recordAudit, tx } from "./db.mjs";
+import { config } from "./config.mjs";
+import { agreementBookingUrl } from "./agreement-domains.mjs";
 import { getClientIp, readBody, sendJson, sendRedirect } from "./http.mjs";
 import {
   clearSessionCookie,
   createSessionToken,
   enforceCsrf,
-  enforceLoginRateLimit,
   hashPassword,
   readSessionFromRequest,
   sessionCookie,
   verifyPassword,
+  verifyPasswordOrDummy,
 } from "./security.mjs";
+import { enforceLoginRateLimit } from "./login-rate-limit.mjs";
 import {
   exchangeProfessionalAccessLink,
   professionalSessionCookie,
@@ -42,6 +45,10 @@ import {
   sendPushToProfessional,
 } from "./web-push.mjs";
 import { sendProfessionalPushActivationEmail } from "./professional-push-notifications.mjs";
+import {
+  permissionsForUser,
+  requireProfessionalApiPermission,
+} from "./authorization.mjs";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -157,6 +164,7 @@ const mapAccount = (row) => ({
   email: row.user_email || row.email,
   name: row.user_name || row.name || "",
   role: row.role,
+  permissions: permissionsForUser(row),
   professional_id: Number(row.professional_id),
 });
 
@@ -170,6 +178,7 @@ const loadProfessionalAccount = async (request) => {
         u.email AS user_email,
         u.name AS user_name,
         u.role,
+        u.permissions,
         u.session_version,
         u.professional_id,
         p.name AS professional_name,
@@ -221,7 +230,7 @@ const handleAccountLogin = async (request, response) => {
     sendJson(response, 401, { error: "Credenciales inválidas." });
     return;
   }
-  enforceLoginRateLimit(getClientIp(request), email);
+  await enforceLoginRateLimit(getClientIp(request), email);
   const user = await one(
     `
       SELECT
@@ -229,6 +238,7 @@ const handleAccountLogin = async (request, response) => {
         u.email,
         u.name,
         u.role,
+        u.permissions,
         u.password_hash,
         u.session_version,
         u.professional_id,
@@ -241,13 +251,14 @@ const handleAccountLogin = async (request, response) => {
     `,
     [email],
   );
+  const passwordValid = await verifyPasswordOrDummy(password, user?.password_hash);
   const valid =
     user?.role === "professional" &&
     user.is_active &&
     user.professional_id &&
     user.professional_active &&
     !user.professional_deleted_at &&
-    (await verifyPassword(password, user.password_hash));
+    passwordValid;
   if (!valid) {
     await recordAudit("professional.auth.login_failed", {
       detail: { email, client_ip: getClientIp(request) },
@@ -276,7 +287,7 @@ const handleAccountLogin = async (request, response) => {
 const handleInvitationAcceptance = async (request, response) => {
   const payload = await parseJsonBody(request);
   const token = String(payload.token || "").trim();
-  enforceLoginRateLimit(getClientIp(request), `invite:${token.slice(0, 16)}`);
+  await enforceLoginRateLimit(getClientIp(request), `invite:${token.slice(0, 16)}`);
   const accepted = await acceptProfessionalInvitation({
     token,
     password: String(payload.password || ""),
@@ -663,6 +674,8 @@ const listPatients = async (url, response, account) => {
         next_appointment.service_name AS next_service_name,
         next_appointment.triage_url AS next_triage_url,
         next_appointment.triage_assignment_error AS next_triage_error,
+        next_appointment.agreement_slug AS next_agreement_slug,
+        next_appointment.agreement_subdomain_prefix AS next_agreement_subdomain_prefix,
         next_appointment.triage_reminder_sent_at AS next_triage_reminder_sent_at,
         next_appointment.triage_reminder_count AS next_triage_reminder_count,
         next_appointment.documents AS next_documents,
@@ -683,6 +696,8 @@ const listPatients = async (url, response, account) => {
           appointment.triage_assignment_error,
           appointment.triage_reminder_sent_at,
           appointment.triage_reminder_count,
+          COALESCE(agreement.slug, NULLIF(appointment.agreement_slug_snapshot, '')) AS agreement_slug,
+          agreement.subdomain_prefix AS agreement_subdomain_prefix,
           (
             SELECT COALESCE(
               jsonb_agg(
@@ -709,6 +724,9 @@ const listPatients = async (url, response, account) => {
           service.name AS service_name
         FROM appointments appointment
         INNER JOIN services service ON service.id = appointment.service_id
+        LEFT JOIN agreements agreement
+          ON agreement.id = appointment.agreement_id
+         AND agreement.deleted_at IS NULL
         WHERE appointment.professional_id = $3
           AND appointment.status = 'confirmed'
           AND appointment.appointment_date >= CURRENT_DATE
@@ -744,6 +762,19 @@ const listPatients = async (url, response, account) => {
         LIMIT 1
       ) latest_appointment ON TRUE
       WHERE patient.active = TRUE
+        AND EXISTS (
+          SELECT 1
+          FROM appointments related_appointment
+          WHERE related_appointment.professional_id = $3
+            AND related_appointment.status = 'confirmed'
+            AND (
+              related_appointment.patient_id = patient.id
+              OR (
+                related_appointment.patient_id IS NULL
+                AND lower(trim(related_appointment.patient_email)) = patient.email_normalized
+              )
+            )
+        )
         AND (
           $1 = ''
           OR patient.full_name ILIKE $2
@@ -776,6 +807,14 @@ const listPatients = async (url, response, account) => {
             start_time: String(row.next_start_time || "").slice(0, 5),
             end_time: String(row.next_end_time || "").slice(0, 5),
             service_name: row.next_service_name || "",
+            triage_url: row.next_triage_url || "",
+            booking_url: agreementBookingUrl(
+              {
+                slug: row.next_agreement_slug || "",
+                subdomain_prefix: row.next_agreement_subdomain_prefix || "",
+              },
+              config.appPublicUrl,
+            ),
             triage_reminder_sent_at: row.next_triage_reminder_sent_at || null,
             triage_reminder_count: Number(row.next_triage_reminder_count || 0),
             documents: (row.next_documents || []).map(mapAppointmentDocument),
@@ -814,6 +853,13 @@ const mapAppointment = (row) => ({
   patient_phone: row.patient_phone || "",
   agreement_name: row.agreement_name || "",
   agreement_type: row.agreement_type || "",
+  booking_url: agreementBookingUrl(
+    {
+      slug: row.agreement_slug || "",
+      subdomain_prefix: row.agreement_subdomain_prefix || "",
+    },
+    config.appPublicUrl,
+  ),
   amount: Number(row.amount || 0),
   payment_status: row.payment_status || "",
   status: row.status || "",
@@ -829,6 +875,7 @@ const mapAppointment = (row) => ({
     : row.triage_assignment_error
       ? "failed"
       : "pending",
+  triage_url: row.triage_url || "",
   triage_reminder_sent_at: row.triage_reminder_sent_at || null,
   triage_reminder_count: Number(row.triage_reminder_count || 0),
   documents: (row.documents || []).map(mapAppointmentDocument),
@@ -852,6 +899,8 @@ const listProfessionalAppointments = async (
         a.patient_phone,
         a.agreement_name_snapshot AS agreement_name,
         a.agreement_type_snapshot AS agreement_type,
+        COALESCE(agreement.slug, NULLIF(a.agreement_slug_snapshot, '')) AS agreement_slug,
+        agreement.subdomain_prefix AS agreement_subdomain_prefix,
         a.amount,
         a.payment_status,
         a.status,
@@ -888,6 +937,9 @@ const listProfessionalAppointments = async (
         s.name AS service_name
       FROM appointments a
       INNER JOIN services s ON s.id = a.service_id
+      LEFT JOIN agreements agreement
+        ON agreement.id = a.agreement_id
+       AND agreement.deleted_at IS NULL
       WHERE a.professional_id = $1
         AND ($2::boolean = FALSE OR a.appointment_date >= CURRENT_DATE)
         AND a.status IN ('confirmed', 'pending_payment', 'cancelled')
@@ -1135,6 +1187,7 @@ export const handleProfessionalApi = async (request, response, url) => {
 
     account ||= await requireProfessionalAccount(request);
     requireMutation(request, account);
+    requireProfessionalApiPermission(account.user, request.method, pathname);
 
     if (pathname === "/api/professional/auth/me" && request.method === "GET") {
       await handleAccountMe(request, response, account);
@@ -1374,6 +1427,10 @@ export const handleProfessionalApi = async (request, response, url) => {
     }
     if (error.message === "PROFESSIONAL_ACCOUNT_REQUIRED") {
       sendJson(response, 401, { error: "Iniciá sesión como profesional." });
+      return true;
+    }
+    if (error.message === "PERMISSION_DENIED") {
+      sendJson(response, 403, { error: "No tenés permiso para realizar esta acción." });
       return true;
     }
     if (error.message === "PROFESSIONAL_INVITATION_INVALID") {

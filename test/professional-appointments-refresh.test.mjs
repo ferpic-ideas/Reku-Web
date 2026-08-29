@@ -103,6 +103,8 @@ test("professional appointments refresh on entry and poll every five minutes", a
                 agreement_type: "Nomina",
                 status: "confirmed",
                 google_meet_url: "https://meet.google.com/available",
+                triage_url: "https://patient-dev2.rehub.cloud/opentriage/completed-form",
+                booking_url: "https://ypf.reku.io/turnos/",
                 documents: [
                   {
                     id: 50,
@@ -201,7 +203,9 @@ test("professional appointments refresh on entry and poll every five minutes", a
   assert.equal(appointmentsRequests, 2);
   assert.match(html, /Paciente actualizado/);
   assert.match(html, /Acuerdo: YPF/);
-  assert.match(html, /https:\/\/meet\.google\.com\/available/);
+  assert.match(html, /\/profesional\/\?module=appointments&amp;appointment=10&amp;room=1/);
+  assert.match(html, /Abrir sala/);
+  assert.doesNotMatch(html, /https:\/\/meet\.google\.com\/available/);
   assert.doesNotMatch(html, /https:\/\/meet\.google\.com\/too-early/);
   assert.doesNotMatch(html, /https:\/\/meet\.google\.com\/cancelled/);
   assert.match(html, /Disponible desde las 14:01/);
@@ -213,8 +217,16 @@ test("professional appointments refresh on entry and poll every five minutes", a
   assert.ok([...timers.values()].some((timer) => timer.delay === 60 * 1000));
 
   appointmentDetailsHandler();
+  assert.match(html, /Sala profesional/);
+  assert.match(html, /https:\/\/meet\.google\.com\/available/);
+  assert.match(html, /target="_blank"[^>]*>Entrar a Google Meet/);
+  assert.match(html, /https:\/\/patient-dev2\.rehub\.cloud\/opentriage\/completed-form/);
+  assert.match(html, /Ver Formulario Triage/);
   assert.match(html, /Documentación del turno/);
   assert.match(html, /https:\/\/imagenes\.example\.com\/estudio\/50/);
+  assert.match(html, /paciente quiere comenzar el tratamiento/);
+  assert.match(html, /https:\/\/ypf\.reku\.io\/turnos\//);
+  assert.match(html, /data-action="copy-booking-url"/);
 
   appointmentSearchHandler({
     preventDefault() {},

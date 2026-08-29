@@ -10,20 +10,34 @@ import {
 import { query } from "./db.mjs";
 import { sendJson } from "./http.mjs";
 
-const adminBundleFiles = [
+const essentialBundleFiles = [
+  join(root, "index.html"),
   join(root, "admin", "index.html"),
   join(root, "admin", "app.js"),
   join(root, "admin", "styles.css"),
+  join(root, "agenda", "index.html"),
+  join(root, "agenda", "app.js"),
+  join(root, "agenda", "styles.css"),
+  join(root, "profesional-turnos", "index.html"),
+  join(root, "profesional-turnos", "app.js"),
+  join(root, "profesional-turnos", "styles.css"),
+  join(root, "profesional", "index.html"),
+  join(root, "profesional", "app.js"),
+  join(root, "profesional", "styles.css"),
 ];
+
+const defaultCheckTimeoutMs = 3_000;
 
 const defaultChecks = {
   postgres: async () => {
     await query("SELECT 1");
   },
   static_bundle: async () => {
-    const fileStats = await Promise.all(adminBundleFiles.map((file) => stat(file)));
+    const fileStats = await Promise.all(
+      essentialBundleFiles.map((file) => stat(file)),
+    );
     if (fileStats.some((fileStat) => !fileStat.isFile())) {
-      throw new Error("ADMIN_BUNDLE_UNAVAILABLE");
+      throw new Error("ESSENTIAL_BUNDLE_UNAVAILABLE");
     }
   },
   storage: async () => {
@@ -35,10 +49,19 @@ const defaultChecks = {
   },
 };
 
-const runCheck = async (check) => {
+const runCheck = async (check, timeoutMs) => {
   const startedAt = performance.now();
+  let timeoutId;
   try {
-    await check();
+    await Promise.race([
+      Promise.resolve().then(check),
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error("HEALTH_CHECK_TIMEOUT")),
+          timeoutMs,
+        );
+      }),
+    ]);
     return {
       status: "ok",
       latency_ms: Math.round((performance.now() - startedAt) * 100) / 100,
@@ -48,14 +71,19 @@ const runCheck = async (check) => {
       status: "error",
       latency_ms: Math.round((performance.now() - startedAt) * 100) / 100,
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 };
 
-export const buildHealthReport = async (checks = defaultChecks) => {
+export const buildHealthReport = async (
+  checks = defaultChecks,
+  { checkTimeoutMs = defaultCheckTimeoutMs } = {},
+) => {
   const results = await Promise.all(
     Object.entries(checks).map(async ([name, check]) => [
       name,
-      await runCheck(check),
+      await runCheck(check, checkTimeoutMs),
     ]),
   );
   const reportChecks = Object.fromEntries(results);

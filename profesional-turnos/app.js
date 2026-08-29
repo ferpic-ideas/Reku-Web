@@ -1,6 +1,7 @@
 (() => {
   const app = document.getElementById('professional-app');
   const queryToken = new URLSearchParams(window.location.search).get('token') || '';
+  const requestedAppointmentId = Number(new URLSearchParams(window.location.search).get('appointment')) || null;
   const hashToken = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token') || '';
   const token = hashToken || queryToken;
   const meetEarlyMinutes = 20;
@@ -11,6 +12,7 @@
     professional: null,
     expiresAt: '',
     appointments: [],
+    copiedAppointmentId: null,
   };
 
   const escapeHtml = (value) =>
@@ -36,6 +38,23 @@
       month: 'long',
     }).format(new Date(year, month - 1, day, 12));
   };
+
+  const normalizeSearchText = (value) =>
+    String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+  const isConsultationService = (value) =>
+    /\b(consulta|evaluacion|valoracion)\b/.test(normalizeSearchText(value));
+
+  const copyIcon = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="8" y="8" width="11" height="11" rx="2"></rect>
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+    </svg>
+  `;
 
   const appointmentTime = (appointment, field) => {
     const value = new Date(`${appointment.date}T${appointment[field]}:00-03:00`).getTime();
@@ -91,7 +110,13 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),
         });
-        window.history.replaceState({}, '', '/profesional-turnos/');
+        window.history.replaceState(
+          {},
+          '',
+          requestedAppointmentId
+            ? `/profesional-turnos/?appointment=${requestedAppointmentId}`
+            : '/profesional-turnos/',
+        );
       }
       const payload = await api(
         '/api/professional/appointments',
@@ -112,7 +137,7 @@
       <header class="page-header">
         <img src="/images/logo-reku.svg" alt="Reku" />
         <div>
-          <span>Próximos turnos</span>
+          <span>${requestedAppointmentId ? 'Sala profesional' : 'Próximos turnos'}</span>
           <h1>${escapeHtml(state.professional?.name || 'Profesional')}</h1>
         </div>
       </header>
@@ -120,21 +145,85 @@
   }
 
   function renderAppointment(appointment) {
+    const documents = appointment.documents || [];
+    const consultation = isConsultationService(appointment.service_name);
+    const featured = Number(appointment.id) === Number(requestedAppointmentId);
     return `
-      <article class="appointment-row">
-        <time>${escapeHtml(appointment.start_time)} - ${escapeHtml(appointment.end_time)}</time>
-        <div class="appointment-main">
-          <strong>${escapeHtml(appointment.patient_name || 'Paciente')}</strong>
-          <span>${escapeHtml(appointment.service_name)}</span>
-          ${appointment.agreement_name ? `<span class="appointment-agreement">Acuerdo: ${escapeHtml(appointment.agreement_name)}</span>` : ''}
-          ${meetAvailable(appointment) ? `<a class="meet-button" href="${escapeHtml(appointment.google_meet_url)}" target="_blank" rel="noopener noreferrer">Acceder a Google Meet</a>` : ''}
+      <article class="appointment-row ${featured ? 'appointment-featured' : ''}">
+        <div class="appointment-heading">
+          <div>
+            <time>${escapeHtml(appointment.start_time)} - ${escapeHtml(appointment.end_time)}</time>
+            <strong>${escapeHtml(appointment.patient_name || 'Paciente')}</strong>
+          </div>
+          ${featured ? '<span class="featured-badge">Turno seleccionado</span>' : ''}
         </div>
-        <div class="appointment-contact">
-          ${appointment.patient_phone ? `<a href="tel:${escapeHtml(appointment.patient_phone)}">${escapeHtml(appointment.patient_phone)}</a>` : ''}
-          ${appointment.patient_email ? `<a href="mailto:${escapeHtml(appointment.patient_email)}">${escapeHtml(appointment.patient_email)}</a>` : ''}
+        <dl class="appointment-facts">
+          <div><dt>Práctica</dt><dd>${escapeHtml(appointment.service_name || 'Sin información')}</dd></div>
+          <div><dt>Acuerdo / origen</dt><dd>${escapeHtml(appointment.agreement_name || 'Particular')}</dd></div>
+          <div><dt>Email</dt><dd>${appointment.patient_email ? `<a href="mailto:${escapeHtml(appointment.patient_email)}">${escapeHtml(appointment.patient_email)}</a>` : '—'}</dd></div>
+          <div><dt>Teléfono</dt><dd>${appointment.patient_phone ? `<a href="tel:${escapeHtml(appointment.patient_phone)}">${escapeHtml(appointment.patient_phone)}</a>` : '—'}</dd></div>
+        </dl>
+        <div class="room-actions">
+          ${meetAvailable(appointment) ? `<a class="meet-button" href="${escapeHtml(appointment.google_meet_url)}" target="_blank" rel="noopener noreferrer">Entrar a Google Meet</a>` : '<span class="action-unavailable">Meet disponible 20 minutos antes</span>'}
+          ${appointment.triage_url ? `<a class="triage-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Ver Formulario Triage</a>` : '<span class="action-unavailable">Formulario Triage no disponible</span>'}
+        </div>
+        <section class="appointment-documents">
+          <div>
+            <strong>Estudios del paciente</strong>
+            <span>${documents.length ? `${documents.length} archivo${documents.length === 1 ? '' : 's'} o enlace${documents.length === 1 ? '' : 's'}` : 'Sin documentación enviada'}</span>
+          </div>
+          ${documents.length
+            ? `<ul>${documents.map((document) => `<li><a href="${escapeHtml(document.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(document.name)}</a><small>${document.kind === 'link' ? 'Enlace externo' : 'Archivo adjunto'}</small></li>`).join('')}</ul>`
+            : ''}
+        </section>
+        ${consultation && appointment.booking_url
+          ? `<section class="treatment-note">
+              <span>Después de la consulta</span>
+              <strong>Si el paciente quiere comenzar el tratamiento</strong>
+              <p>Pasale esta URL para que ingrese a la agenda y seleccione el tratamiento.</p>
+              <div class="booking-url-box">
+                <a href="${escapeHtml(appointment.booking_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(appointment.booking_url)}</a>
+                <button class="copy-url-button" data-action="copy-booking-url" data-id="${appointment.id}" data-url="${escapeHtml(appointment.booking_url)}" type="button" aria-label="Copiar URL de turnos" title="Copiar URL de turnos">${copyIcon}</button>
+              </div>
+              ${Number(state.copiedAppointmentId) === Number(appointment.id) ? '<small class="copy-success" role="status">URL copiada</small>' : ''}
+            </section>`
+          : ''}
+        <div class="triage-note">
+          <strong>Formulario Triage</strong>
+          <span>${appointment.triage_url ? 'Disponible para consulta. Mientras cerramos la integración con ReHub, se muestra el enlace asignado como si ya estuviera completo.' : 'No se obtuvo un formulario para este turno.'}</span>
         </div>
       </article>
     `;
+  }
+
+  async function copyBookingUrl(button) {
+    const bookingUrl = String(button.dataset.url || '');
+    if (!bookingUrl) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(bookingUrl);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = bookingUrl;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        if (!document.execCommand('copy')) throw new Error('COPY_FAILED');
+        textarea.remove();
+      }
+      state.copiedAppointmentId = Number(button.dataset.id);
+      render();
+    } catch {
+      button.title = 'No se pudo copiar. Abrí la URL para copiarla.';
+    }
+  }
+
+  function bindActions() {
+    (app.querySelectorAll?.('[data-action="copy-booking-url"]') || []).forEach((button) => {
+      button.addEventListener('click', () => copyBookingUrl(button));
+    });
   }
 
   function renderAppointments() {
@@ -180,6 +269,7 @@
       ${renderHeader()}
       ${renderAppointments()}
     `;
+    bindActions();
     scheduleMeetRefresh();
   }
 

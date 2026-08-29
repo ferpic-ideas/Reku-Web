@@ -345,10 +345,15 @@ const insertCongressRegistration = async (submission, requestUrl) => {
 
 const updateEmailResult = async (table, id, { messageId = null, error = null }) => {
   if (!pool || !id) return;
-  await query(
-    `UPDATE ${table} SET email_message_id = $1, email_error = $2 WHERE id = $3`,
-    [messageId, error, id],
-  );
+  const statements = {
+    contacts:
+      "UPDATE contacts SET email_message_id = $1, email_error = $2 WHERE id = $3",
+    congreso_cokiba_registrations:
+      "UPDATE congreso_cokiba_registrations SET email_message_id = $1, email_error = $2 WHERE id = $3",
+  };
+  const statement = statements[table];
+  if (!statement) throw new Error("EMAIL_RESULT_TARGET_INVALID");
+  await query(statement, [messageId, error, id]);
 };
 
 const handleContact = async (submission, request, response) => {

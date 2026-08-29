@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import {
   resolvePublicUploadPath,
   resolveStaticRequestPath,
@@ -29,6 +30,71 @@ test("security headers only omit frame protection when explicitly requested", ()
     crossOriginPreviewHeaders["Content-Security-Policy"],
     /frame-ancestors https:\/\/www\.reku\.io/,
   );
+});
+
+test("CSP blocks arbitrary inline scripts and authorizes every shipped inline block by hash", async () => {
+  const policy = withSecurityHeaders()["Content-Security-Policy"];
+  const scriptDirective = policy
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("script-src "));
+  assert.doesNotMatch(scriptDirective, /'unsafe-inline'/);
+  assert.match(scriptDirective, /https:\/\/www\.googletagmanager\.com/);
+
+  for (const path of [
+    "../404.html",
+    "../alta-pacientes/index.html",
+    "../evidencia.html",
+    "../index.html",
+    "../producto.html",
+  ]) {
+    const html = await readFile(new URL(path, import.meta.url), "utf8");
+    for (const match of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)) {
+      const openingTag = match[0].slice(0, match[0].indexOf(">"));
+      if (/\bsrc=/.test(openingTag)) continue;
+      const hash = createHash("sha256").update(match[1]).digest("base64");
+      assert.match(scriptDirective, new RegExp(`sha256-${hash.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    }
+  }
+});
+
+test("CSP blocks arbitrary inline styles and authorizes shipped styles by hash", async () => {
+  const policy = withSecurityHeaders()["Content-Security-Policy"];
+  const styleDirective = policy
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("style-src "));
+  assert.doesNotMatch(styleDirective, /'unsafe-inline'/);
+  assert.match(styleDirective, /'unsafe-hashes'/);
+
+  for (const path of [
+    "../404.html",
+    "../admin/index.html",
+    "../agenda/index.html",
+    "../alta-pacientes/index.html",
+    "../congreso-cokiba/index.html",
+    "../evidencia.html",
+    "../google85f04377b6d8f892.html",
+    "../index.html",
+    "../integraciones/api/index.html",
+    "../privacidad/index.html",
+    "../producto.html",
+    "../profesional-turnos/index.html",
+    "../profesional/index.html",
+    "../terminos/index.html",
+  ]) {
+    const html = await readFile(new URL(path, import.meta.url), "utf8");
+    const inlineStyles = [
+      ...[...html.matchAll(/<style(?:\s[^>]*)?>([\s\S]*?)<\/style>/gi)].map(
+        (match) => match[1],
+      ),
+      ...[...html.matchAll(/\sstyle=(['"])(.*?)\1/gi)].map((match) => match[2]),
+    ];
+    for (const inlineStyle of inlineStyles) {
+      const hash = createHash("sha256").update(inlineStyle).digest("base64");
+      assert.match(styleDirective, new RegExp(`sha256-${hash.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    }
+  }
 });
 
 const captureStaticHeaders = async (pathname, options) => {

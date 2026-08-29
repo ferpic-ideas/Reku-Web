@@ -754,6 +754,12 @@ td a {
   white-space: nowrap;
 }
 
+.consultation-room-entry {
+  color: var(--brand-dark);
+  font-weight: 800;
+  text-underline-offset: 3px;
+}
+
 .appointment-agreement {
   display: block;
   margin-top: 4px;
@@ -956,6 +962,93 @@ td a {
   width: min(100%, 1080px);
 }
 
+.consultation-room-panel {
+  width: min(100%, 980px);
+  border: 1px solid rgba(108, 75, 244, 0.14);
+  background:
+    linear-gradient(180deg, rgba(247, 245, 255, 0.9), #fff 180px),
+    var(--surface);
+}
+
+.consultation-room-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 20px;
+  border: 1px solid #d9d2ff;
+  border-radius: 16px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f3f0ff 0%, #edf9fb 100%);
+}
+
+.consultation-room-hero strong,
+.consultation-room-hero p,
+.consultation-room-kicker {
+  display: block;
+}
+
+.consultation-room-hero strong {
+  margin-top: 6px;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.consultation-room-hero p {
+  max-width: 560px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.consultation-room-kicker {
+  color: var(--brand-dark);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.consultation-room-actions {
+  display: grid;
+  min-width: 220px;
+  gap: 9px;
+}
+
+.consultation-room-actions .primary-button,
+.consultation-room-actions .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
+}
+
+.triage-form-button {
+  color: var(--brand-dark);
+}
+
+.room-action-disabled {
+  border: 1px dashed #cbd3df;
+  border-radius: 11px;
+  padding: 10px 13px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.waiting-room-ready {
+  border-radius: 999px;
+  padding: 7px 11px;
+  color: var(--danger);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
 .action-modal-backdrop {
   z-index: 60;
 }
@@ -1087,6 +1180,89 @@ td a {
   font-weight: 800;
 }
 
+.treatment-handoff-card {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  border: 1px solid #bde2d5;
+  border-radius: 14px;
+  padding: 17px;
+  background: linear-gradient(135deg, #effbf6, #f8fdfb);
+}
+
+.treatment-handoff-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.treatment-handoff-copy p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.treatment-handoff-label {
+  color: var(--success);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.booking-url-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #cce8de;
+  border-radius: 11px;
+  padding: 8px 8px 8px 12px;
+  background: #fff;
+}
+
+.booking-url-box > a {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy-url-button {
+  display: inline-grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  background: var(--success);
+  cursor: pointer;
+}
+
+.copy-url-button:hover {
+  background: #0f6653;
+  transform: translateY(-1px);
+}
+
+.copy-url-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.copy-success {
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .patient-detail-actions {
   margin-top: 18px;
 }
@@ -1186,6 +1362,15 @@ td a {
   .block-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .consultation-room-hero {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .consultation-room-actions {
+    min-width: 0;
   }
 
   .appointments-panel-tools {

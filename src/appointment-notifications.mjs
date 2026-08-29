@@ -6,7 +6,10 @@ import { syncAppointmentToGoogleCalendar } from "./google-calendar.mjs";
 import { config } from "./config.mjs";
 import { ensureAppointmentTriage } from "./appointment-triage.mjs";
 import { isReHubConfigured } from "./rehub.mjs";
-import { createPatientAppointmentAccessLink } from "./patient-appointment-links.mjs";
+import {
+  createPatientAppointmentAccessLink,
+  revokeOtherPatientAppointmentAccessLinks,
+} from "./patient-appointment-links.mjs";
 import {
   googleCalendarTemplateUrl,
   isGoogleCalendarEmail,
@@ -52,6 +55,23 @@ const professionalNotificationLead = (appointment) => {
 
 const patientMeetWindowText = () =>
   `Por seguridad, el acceso a la videollamada se habilita ${config.patientMeetEarlyMinutes} minutos antes del turno y permanece disponible hasta ${config.patientMeetLateMinutes} minutos después de su finalización.`;
+
+const rotateDeliveredPatientAccessLink = async (appointmentId, linkId) => {
+  try {
+    await revokeOtherPatientAppointmentAccessLinks({
+      appointmentId,
+      keepLinkId: linkId,
+    });
+  } catch (error) {
+    await recordAudit("appointment.patient_access_link_rotation_failed", {
+      detail: {
+        appointment_id: Number(appointmentId),
+        access_link_id: Number(linkId),
+        error: String(error?.message || "LINK_ROTATION_FAILED").slice(0, 160),
+      },
+    }).catch(() => {});
+  }
+};
 
 const patientMeetTextLines = (appointment, manageUrl) =>
   appointment.google_meet_url && manageUrl
@@ -114,7 +134,7 @@ export const appointmentText = ({ appointment, link }) =>
       ? `Acuerdo: ${appointmentAgreementName(appointment)}`
       : null,
     "",
-    `Ver próximos turnos: ${link.url}`,
+    `Ver ficha del turno: ${link.url}`,
   ].filter((line) => line !== null).join("\n");
 
 export const appointmentHtml = ({ appointment, link }) => `
@@ -132,10 +152,10 @@ export const appointmentHtml = ({ appointment, link }) => `
     </table>
     <p style="margin-top:20px">
       <a href="${escapeHtml(link.url)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">
-        Ver próximos turnos
+        Ver ficha del turno
       </a>
     </p>
-    <p style="color:#64738a;font-size:13px">Este link permite ver tus turnos confirmados hacia adelante.</p>
+    <p style="color:#64738a;font-size:13px">Este acceso privado abre la ficha del turno y también permite consultar los próximos turnos confirmados.</p>
   </div>
 `;
 
@@ -151,9 +171,8 @@ export const professionalFollowupText = ({ appointment, link }) =>
       ? `Acuerdo: ${appointmentAgreementName(appointment)}`
       : "",
     appointment.google_meet_url
-      ? `Entrar a Google Meet: ${appointment.google_meet_url}`
-      : "",
-    `Ver próximos turnos: ${link.url}`,
+      ? `Abrir sala de preparación e ingresar a Meet: ${link.url}`
+      : `Ver ficha del turno: ${link.url}`,
   ].filter(Boolean).join("\n");
 
 export const professionalFollowupHtml = ({ appointment, link }) => `
@@ -167,10 +186,10 @@ export const professionalFollowupHtml = ({ appointment, link }) => `
       <tr><td><strong>Paciente</strong></td><td>${escapeHtml(appointment.patient_name)}</td></tr>
       ${appointmentAgreementName(appointment) ? `<tr><td><strong>Acuerdo</strong></td><td>${escapeHtml(appointmentAgreementName(appointment))}</td></tr>` : ""}
     </table>
-    ${appointment.google_meet_url ? `<p style="margin-top:20px"><a href="${escapeHtml(appointment.google_meet_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Entrar a Google Meet</a></p>` : ""}
     <p style="margin-top:20px">
-      <a href="${escapeHtml(link.url)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Ver próximos turnos</a>
+      <a href="${escapeHtml(link.url)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">${appointment.google_meet_url ? "Abrir sala de preparación" : "Ver ficha del turno"}</a>
     </p>
+    <p style="color:#64738a;font-size:13px">Desde la sala vas a poder revisar la información del paciente, sus estudios y el formulario de triaje antes de abrir Meet.</p>
   </div>
 `;
 
@@ -578,6 +597,7 @@ export const notifyProfessionalForAppointment = async (appointmentId) => {
   try {
     const link = await createProfessionalAccessLink({
       professionalId: appointment.professional_id,
+      appointmentId: appointment.id,
     });
     const subject = `${isRescheduled(appointment) ? "Turno reprogramado" : "Nuevo turno"} Reku - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`;
     const result = await sendEmail({
@@ -654,6 +674,7 @@ export const notifyPatientForAppointment = async (appointmentId) => {
       `,
       [appointment.id, result?.id || ""],
     );
+    await rotateDeliveredPatientAccessLink(appointment.id, manageLink.id);
     await recordAudit("appointment.patient_notified", {
       detail: {
         appointment_id: Number(appointment.id),
@@ -696,6 +717,7 @@ export const notifyPatientForPendingPayment = async (appointmentId) => {
       `,
       [appointment.id, result?.id || ""],
     );
+    await rotateDeliveredPatientAccessLink(appointment.id, manageLink.id);
     await recordAudit("appointment.pending_payment_patient_notified", {
       detail: { appointment_id: Number(appointment.id), message_id: result?.id || "" },
     });
@@ -789,6 +811,7 @@ export const notifyPatientAppointmentFollowup = async (appointmentId) => {
       `,
       [appointment.id, result?.id || ""],
     );
+    await rotateDeliveredPatientAccessLink(appointment.id, manageLink.id);
     await recordAudit("appointment.patient_followup_notified", {
       detail: {
         appointment_id: Number(appointment.id),
@@ -863,6 +886,7 @@ export const notifyProfessionalAppointmentFollowup = async (appointmentId) => {
   try {
     const link = await createProfessionalAccessLink({
       professionalId: appointment.professional_id,
+      appointmentId: appointment.id,
     });
     const result = await sendEmail({
       formName: "recordatorio-turno-profesional",

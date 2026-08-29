@@ -6,6 +6,7 @@ import { hashToken } from "./security.mjs";
 
 export const createProfessionalAccessLink = async ({
   professionalId,
+  appointmentId = null,
   ttlHours = config.professionalLinkTtlHours,
 } = {}) => {
   const token = randomBytes(32).toString("base64url");
@@ -20,11 +21,17 @@ export const createProfessionalAccessLink = async ({
     [tokenHash, Number(professionalId), Number(ttlHours)],
   );
 
+  const accessUrl = new URL("/profesional-turnos/", config.appPublicUrl);
+  if (Number(appointmentId) > 0) {
+    accessUrl.searchParams.set("appointment", String(Number(appointmentId)));
+  }
+  accessUrl.hash = `token=${encodeURIComponent(token)}`;
+
   return {
     id: Number(result.rows[0].id),
     token,
     expires_at: result.rows[0].expires_at,
-    url: `${config.appPublicUrl}/profesional-turnos/#token=${encodeURIComponent(token)}`,
+    url: accessUrl.toString(),
   };
 };
 

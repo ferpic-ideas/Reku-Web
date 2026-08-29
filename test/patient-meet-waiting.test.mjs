@@ -84,7 +84,7 @@ test("waiting notifications are deduplicated and Reku escalates after five minut
   assert.match(source, /patient_waiting_professional_push_notified_at IS NULL/);
   assert.match(source, /notifyProfessionalPatientWaitingPush/);
   assert.match(source, /sendPushToProfessional/);
-  assert.match(source, /module=appointments&appointment=\$\{appointment\.id\}&waiting=1/);
+  assert.match(source, /module=appointments&appointment=\$\{appointment\.id\}&room=1&waiting=1/);
   assert.match(source, /patient_waiting_escalated_at IS NULL/);
   assert.match(source, /INTERVAL '5 minutes'/);
   assert.match(source, /patient_waiting_last_seen_at >= NOW\(\) - INTERVAL '1 minute'/);

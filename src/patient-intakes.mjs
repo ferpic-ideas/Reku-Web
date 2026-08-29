@@ -114,10 +114,10 @@ export const validatePatientIntakeSubmission = async (submission, agreement) => 
 const patientFullName = (submission) =>
   [submission.values.nombre, submission.values.apellido].filter(Boolean).join(" ");
 
-const updateEmailResult = async (table, id, { messageId = null, error = null }) => {
+const updateEmailResult = async (id, { messageId = null, error = null }) => {
   if (!pool || !id) return;
   await query(
-    `UPDATE ${table} SET email_message_id = $1, email_error = $2 WHERE id = $3`,
+    "UPDATE patient_intakes SET email_message_id = $1, email_error = $2 WHERE id = $3",
     [messageId, error, id],
   );
 };
@@ -139,30 +139,6 @@ export const insertPatientIntake = async (submission, agreement, sourcePath) => 
   if (!pool) return { id: null, created: false };
 
   return tx(async (client) => {
-    const patient = await client.query(
-      `
-        INSERT INTO patients
-          (first_name, last_name, full_name, email, email_normalized, phone)
-        VALUES ($1, $2, $3, $4, lower(trim($4)), $5)
-        ON CONFLICT (email_normalized)
-        DO UPDATE SET
-          first_name = EXCLUDED.first_name,
-          last_name = EXCLUDED.last_name,
-          full_name = EXCLUDED.full_name,
-          email = EXCLUDED.email,
-          phone = EXCLUDED.phone,
-          active = TRUE,
-          updated_at = NOW()
-        RETURNING id
-      `,
-      [
-        submission.values.nombre,
-        submission.values.apellido,
-        patientFullName(submission),
-        submission.values.email,
-        submission.values.telefono,
-      ],
-    );
     const result = await client.query(
       `
         INSERT INTO patient_intakes
@@ -179,11 +155,10 @@ export const insertPatientIntake = async (submission, agreement, sourcePath) => 
             identificador,
             source_path
           )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES (NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id
       `,
       [
-        patient.rows[0].id,
         agreement?.id || null,
         agreement?.slug || submission.agreementSlug || "",
         agreement?.name || "",
@@ -259,10 +234,10 @@ export const sendPatientIntakeNotifications = async ({
       ...intakeEmail,
     });
     results.intake = { ok: true, id: result?.id || "" };
-    await updateEmailResult("patient_intakes", recordId, { messageId: result?.id });
+    await updateEmailResult(recordId, { messageId: result?.id });
   } catch (error) {
     results.intake = { ok: false, error: error.message };
-    await updateEmailResult("patient_intakes", recordId, { error: error.message });
+    await updateEmailResult(recordId, { error: error.message });
     await recordAudit("patient_intake.email_failed", {
       detail: { patient_intake_id: recordId, email: submission.values.email, error: error.message },
     });
@@ -381,6 +356,35 @@ export const redeemPatientIntakeVerification = async (token) => {
       logo_url: row.logo_path ? `/uploads/${row.logo_path}` : "",
       pdf_url: row.pdf_path ? `/uploads/${row.pdf_path}` : "",
     };
+    const canonicalPatient = await client.query(
+      `
+        INSERT INTO patients
+          (first_name, last_name, full_name, email, email_normalized, phone)
+        VALUES ($1, $2, $3, $4, lower(trim($4)), $5)
+        ON CONFLICT (email_normalized)
+        DO UPDATE SET
+          first_name = EXCLUDED.first_name,
+          last_name = EXCLUDED.last_name,
+          full_name = EXCLUDED.full_name,
+          email = EXCLUDED.email,
+          phone = EXCLUDED.phone,
+          active = TRUE,
+          updated_at = NOW()
+        RETURNING id
+      `,
+      [
+        submission.values.nombre,
+        submission.values.apellido,
+        patientFullName(submission),
+        submission.values.email,
+        submission.values.telefono,
+      ],
+    );
+    const patientId = Number(canonicalPatient.rows[0].id);
+    await client.query(
+      "UPDATE patient_intakes SET patient_id = $1 WHERE id = $2",
+      [patientId, row.id],
+    );
     const bookingLink = await createPatientBookingLink({
       recordId: Number(row.id),
       submission,
@@ -393,6 +397,7 @@ export const redeemPatientIntakeVerification = async (token) => {
     );
     return {
       patientIntakeId: Number(row.id),
+      patientId,
       bookingLink,
       patient: {
         name: patientFullName(submission),

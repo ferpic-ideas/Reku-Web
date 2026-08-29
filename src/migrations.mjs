@@ -18,8 +18,12 @@ export const runMigrations = async (pool) => {
     `);
 
     const files = (await readdir(migrationsRoot))
-      .filter((name) => /^\d+_[a-z0-9_-]+\.sql$/i.test(name))
-      .sort();
+      .filter((name) => /^\d{3}_[a-z0-9_-]+\.sql$/i.test(name))
+      .sort((left, right) => Number(left.slice(0, 3)) - Number(right.slice(0, 3)));
+    const versions = files.map((name) => name.slice(0, 3));
+    if (new Set(versions).size !== versions.length) {
+      throw new Error("MIGRATION_VERSION_DUPLICATED");
+    }
 
     for (const name of files) {
       const existing = await client.query(

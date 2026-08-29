@@ -11,7 +11,11 @@ test("patient identity is unique by normalized email across intake and booking",
     readSource("../migrations/012_patient_email_identity.sql"),
   ]);
 
-  assert.match(intakes, /ON CONFLICT \(email_normalized\)\s+DO UPDATE/s);
+  assert.match(intakes, /redeemPatientIntakeVerification[\s\S]+ON CONFLICT \(email_normalized\)\s+DO UPDATE/s);
+  assert.doesNotMatch(
+    intakes.match(/const insertPatientIntake[\s\S]+?^};/m)?.[0] || "",
+    /INSERT INTO patients/,
+  );
   assert.match(intakes, /INSERT INTO patient_intakes\s+\(\s*patient_id,/s);
   assert.match(booking, /ON CONFLICT \(email_normalized\) DO UPDATE SET/s);
   assert.match(booking, /patient_id,\s+service_id,/s);
@@ -27,9 +31,9 @@ test("admin patients uses canonical records instead of rendering each intake", a
   ]);
 
   assert.match(api, /FROM patients patient/);
-  assert.match(api, /sendJson\(response, 200, \{ patients:/);
+  assert.match(api, /patients: page\.rows\.map\(mapPatient\)/);
   assert.match(api, /COUNT\(\*\)::int AS appointment_count/);
-  assert.match(admin, /api\(`\/api\/admin\/patients/);
+  assert.match(admin, /apiAll\(`\/api\/admin\/patients/);
   assert.match(admin, /data\.patients \?\? data\.patient_intakes/);
   assert.doesNotMatch(admin, /Posible duplicado/);
 });

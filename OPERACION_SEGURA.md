@@ -50,8 +50,10 @@ Si una tarea puede repetirse, crear un script versionado. Ejemplo actual:
 scripts/import_mp_settings.mjs
 ```
 
-Ese script importa configuracion de Mercado Pago desde JSON por `stdin`, guarda
-en `app_settings` y solo imprime flags booleanos, no secretos.
+Ese script importa configuracion de Mercado Pago desde JSON por `stdin`, cifra
+`access_token`, `client_secret` y `webhook_secret` con
+`SETTINGS_ENCRYPTION_KEY`, guarda el sobre autenticado en `app_settings` y solo
+imprime flags booleanos, no secretos.
 
 Patron recomendado:
 
@@ -169,9 +171,11 @@ curl -fsS https://www.reku.io/health
 
 ## Healthchecks
 
-- `GET /health`: readiness pública del Admin. Devuelve `200` cuando PostgreSQL,
-  el bundle estático y los volúmenes de almacenamiento están disponibles; ante
-  cualquier fallo devuelve `503`.
+- `GET /health`: readiness pública de Reku. Devuelve `200` cuando PostgreSQL,
+  los archivos esenciales de las interfaces y los volúmenes de almacenamiento
+  están disponibles; ante cualquier fallo o timeout devuelve `503`. Las
+  integraciones externas no forman parte de esta respuesta para evitar falsas
+  alarmas por fallos transitorios de terceros.
 - `GET /healthz`: liveness mínima utilizada por el healthcheck del contenedor.
 
 ## Pruebas con datos temporales
@@ -202,7 +206,8 @@ REMOTE
 Para Checkout Pro:
 
 - Crear preferencias desde backend, no desde el browser.
-- Guardar token y client secret en `app_settings`, nunca en archivos versionados.
+- Guardar token y client secret cifrados en `app_settings` mediante
+  `saveMercadoPagoSettings`, nunca en texto plano ni en archivos versionados.
 - Usar `notification_url` HTTPS:
 
 ```text

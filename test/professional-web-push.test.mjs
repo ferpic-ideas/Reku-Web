@@ -67,7 +67,8 @@ test("patient waiting pushes open a protected appointment view with a live delay
   assert.match(waiting, /Tu paciente ya está esperando/);
   assert.match(waiting, /module=appointments&appointment=/);
   assert.match(portal, /Demora del profesional:/);
-  assert.match(portal, /Ingresar a Meet/);
+  assert.match(portal, /Entrar a Google Meet/);
+  assert.match(portal, /Ver Formulario Triage/);
   assert.match(portal, /agreement_name/);
   assert.match(adminApi, /push_mobile_devices/);
   assert.match(adminApp, /All connected/);

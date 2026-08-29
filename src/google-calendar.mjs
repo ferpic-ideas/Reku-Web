@@ -1,12 +1,8 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  createHash,
-  randomBytes,
-} from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { config } from "./config.mjs";
 import { one, query, recordAudit, tx } from "./db.mjs";
 import { hashToken } from "./security.mjs";
+import { decryptSecret, encryptSecret } from "./secret-envelope.mjs";
 
 const authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
@@ -49,49 +45,22 @@ export const googleOAuthRedirectUri = () =>
 export const googleIntegrationConfigured = () =>
   Boolean(config.googleOAuthClientId && config.googleOAuthClientSecret);
 
-const integrationKey = () => {
-  const material =
+const integrationKeyMaterial = () =>
     config.googleIntegrationEncryptionKey ||
     (config.appEnv === "production" ? "" : config.sessionSecret);
-  if (!material || material.length < 16) {
-    const error = new Error("GOOGLE_ENCRYPTION_KEY_REQUIRED");
-    error.statusCode = 503;
-    throw error;
-  }
-  return createHash("sha256").update(material).digest();
-};
 
-const encrypt = (plainText) => {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", integrationKey(), iv);
-  const encrypted = Buffer.concat([
-    cipher.update(String(plainText), "utf8"),
-    cipher.final(),
-  ]);
-  return [
-    "v1",
-    iv.toString("base64url"),
-    cipher.getAuthTag().toString("base64url"),
-    encrypted.toString("base64url"),
-  ].join(".");
-};
+const encrypt = (plainText) =>
+  encryptSecret(plainText, {
+    material: integrationKeyMaterial(),
+    errorCode: "GOOGLE_ENCRYPTION_KEY_REQUIRED",
+  });
 
-const decrypt = (payload) => {
-  const [version, iv, tag, encrypted] = String(payload || "").split(".");
-  if (version !== "v1" || !iv || !tag || !encrypted) {
-    throw new Error("GOOGLE_TOKEN_DECRYPT_FAILED");
-  }
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    integrationKey(),
-    Buffer.from(iv, "base64url"),
-  );
-  decipher.setAuthTag(Buffer.from(tag, "base64url"));
-  return Buffer.concat([
-    decipher.update(Buffer.from(encrypted, "base64url")),
-    decipher.final(),
-  ]).toString("utf8");
-};
+const decrypt = (payload) =>
+  decryptSecret(payload, {
+    material: integrationKeyMaterial(),
+    keyErrorCode: "GOOGLE_ENCRYPTION_KEY_REQUIRED",
+    decryptErrorCode: "GOOGLE_TOKEN_DECRYPT_FAILED",
+  });
 
 const googleError = (status, detail = "") => {
   const error = new Error("GOOGLE_API_ERROR");
@@ -662,6 +631,46 @@ export const getGoogleBusyRanges = async ({
 
 const eventIdForAppointment = (appointmentId) => `rekuappointment${appointmentId}`;
 
+export const buildConfirmedCalendarRequest = ({
+  appointment,
+  appointmentId,
+  eventId,
+  calendarId = "primary",
+  method = "POST",
+}) => {
+  const event = {
+    summary: `Turno Reku · ${appointment.service_name}`,
+    description: "Reserva gestionada por Reku. No incluye información clínica.",
+    start: {
+      dateTime: `${appointment.appointment_date_text}T${appointment.start_time_text}:00`,
+      timeZone: config.googleCalendarTimeZone,
+    },
+    end: {
+      dateTime: `${appointment.appointment_date_text}T${appointment.end_time_text}:00`,
+      timeZone: config.googleCalendarTimeZone,
+    },
+    attendees: [],
+    conferenceData: {
+      createRequest: {
+        requestId: `reku-appointment-${appointmentId}`,
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    },
+    reminders: { useDefault: true },
+  };
+  const encodedCalendarId = encodeURIComponent(calendarId || "primary");
+  return {
+    path:
+      method === "POST"
+        ? `/calendars/${encodedCalendarId}/events?conferenceDataVersion=1&sendUpdates=none`
+        : `/calendars/${encodedCalendarId}/events/${encodeURIComponent(eventId)}?conferenceDataVersion=1&sendUpdates=none`,
+    options: {
+      method,
+      body: JSON.stringify(method === "POST" ? { id: eventId, ...event } : event),
+    },
+  };
+};
+
 const meetUrlFromEvent = (event) =>
   event.hangoutLink ||
   (event.conferenceData?.entryPoints || []).find(
@@ -866,47 +875,25 @@ export const syncAppointmentToGoogleCalendar = async (
     [appointmentId, eventId],
   );
 
-  const confirmedEvent = {
-    summary: `Turno Reku · ${appointment.service_name}`,
-    description: "Reserva gestionada por Reku. No incluye información clínica.",
-    start: {
-      dateTime: `${appointment.appointment_date_text}T${appointment.start_time_text}:00`,
-      timeZone: config.googleCalendarTimeZone,
-    },
-    end: {
-      dateTime: `${appointment.appointment_date_text}T${appointment.end_time_text}:00`,
-      timeZone: config.googleCalendarTimeZone,
-    },
-    // The patient receives Reku's time-gated access instead of Google's raw Meet URL.
-    attendees: [],
-    conferenceData: {
-      createRequest: {
-        requestId: `reku-appointment-${appointmentId}`,
-        conferenceSolutionKey: { type: "hangoutsMeet" },
-      },
-    },
-    reminders: { useDefault: true },
-  };
+  const createRequest = buildConfirmedCalendarRequest({
+    appointment,
+    appointmentId,
+    eventId,
+    calendarId: connection.calendar_id,
+  });
   let event;
   try {
-    event = await calendarRequest(
-      connection,
-      `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events?conferenceDataVersion=1&sendUpdates=none`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          id: eventId,
-          ...confirmedEvent,
-        }),
-      },
-    );
+    event = await calendarRequest(connection, createRequest.path, createRequest.options);
   } catch (error) {
     if (error.googleStatus === 409) {
-      event = await calendarRequest(
-        connection,
-        `/calendars/${encodeURIComponent(connection.calendar_id || "primary")}/events/${encodeURIComponent(eventId)}?conferenceDataVersion=1&sendUpdates=none`,
-        { method: "PATCH", body: JSON.stringify(confirmedEvent) },
-      );
+      const updateRequest = buildConfirmedCalendarRequest({
+        appointment,
+        appointmentId,
+        eventId,
+        calendarId: connection.calendar_id,
+        method: "PATCH",
+      });
+      event = await calendarRequest(connection, updateRequest.path, updateRequest.options);
     } else {
       await query(
         `

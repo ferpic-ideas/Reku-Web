@@ -123,7 +123,7 @@ test("patient confirmation places protected video access after the questionnaire
   assert.doesNotMatch(html, /background:#18213f[^>]*>Gestionar o mover mi turno/);
 });
 
-test("professional confirmation names the agreement and defers Meet to the reminder", () => {
+test("professional confirmation names the agreement and the reminder opens the preparation room", () => {
   const professionalAppointment = {
     ...appointment,
     agreement_name: "YPF",
@@ -141,8 +141,9 @@ test("professional confirmation names the agreement and defers Meet to the remin
   }
   for (const content of [reminderText, reminderHtml]) {
     assert.match(content, /Acuerdo(?:: YPF|<\/strong><\/td><td>YPF)/i);
-    assert.match(content, /meet\.google\.com\/professional-room/);
-    assert.match(content, /Ver próximos turnos/i);
+    assert.doesNotMatch(content, /meet\.google\.com\/professional-room/);
+    assert.match(content, /sala de preparación/i);
+    assert.match(content, /profesional-turnos\/\#token=private/);
   }
 
   const withoutAgreement = appointmentHtml({ appointment, link });

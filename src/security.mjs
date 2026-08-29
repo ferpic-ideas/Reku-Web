@@ -10,7 +10,8 @@ import { config } from "./config.mjs";
 import { parseCookies } from "./http.mjs";
 
 const scrypt = promisify(scryptCallback);
-const loginAttempts = new Map();
+const dummyPasswordHash =
+  "scrypt$16384$8$1$quKgA5zDzFZgfhckSZvHjg$nAvgtoMhe8foW-y6asrnY5XrqSYjgg5Dev9LwRXlgULqwhwFwac-u4xOiogDOsWA4dpZ__ZhIx0y88LuswAh7g";
 
 const base64url = (value) => Buffer.from(value).toString("base64url");
 
@@ -34,6 +35,9 @@ export const verifyPassword = async (password, storedHash) => {
   const expected = Buffer.from(hash, "base64url");
   return expected.length === key.length && timingSafeEqual(expected, key);
 };
+
+export const verifyPasswordOrDummy = (password, storedHash) =>
+  verifyPassword(password, storedHash || dummyPasswordHash);
 
 const signPayload = (payload) =>
   createHmac("sha256", config.sessionSecret).update(payload).digest("base64url");
@@ -101,26 +105,6 @@ export const enforceCsrf = (request, sessionPayload) => {
     const error = new Error("CSRF_REQUIRED");
     error.statusCode = 403;
     throw error;
-  }
-};
-
-export const enforceLoginRateLimit = (clientIp, email) => {
-  const now = Date.now();
-  const windowMs = 5 * 60 * 1000;
-  const limit = 10;
-  const keys = [`ip:${clientIp}`, `email:${String(email).toLowerCase()}`];
-
-  for (const key of keys) {
-    const attempts = (loginAttempts.get(key) || []).filter(
-      (timestamp) => now - timestamp < windowMs,
-    );
-    attempts.push(now);
-    loginAttempts.set(key, attempts);
-    if (attempts.length > limit) {
-      const error = new Error("RATE_LIMITED");
-      error.statusCode = 429;
-      throw error;
-    }
   }
 };
 

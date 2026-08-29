@@ -500,6 +500,23 @@
     return payload;
   }
 
+  async function apiAll(path, collectionKey) {
+    const url = new URL(path, window.location.origin);
+    const records = [];
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+      url.searchParams.set('page', String(page));
+      url.searchParams.set('page_size', '500');
+      const payload = await api(`${url.pathname}${url.search}`);
+      records.push(...(payload[collectionKey] || []));
+      hasMore = payload.pagination?.has_more === true;
+      page += 1;
+      if (page > 1000) throw new Error('El listado supera el máximo seguro de páginas.');
+    }
+    return { [collectionKey]: records };
+  }
+
   async function loadSession() {
     state.active = moduleFromPath();
     applyModuleFiltersFromSearch(state.active);
@@ -546,24 +563,24 @@
       can('dashboard.read') ? api('/api/admin/dashboard') : Promise.resolve({}),
       can('agreements.read') ? api('/api/admin/agreements') : Promise.resolve({ agreements: [] }),
       can('patient_intakes.read')
-        ? api(`/api/admin/patients${state.patientAgreementFilter ? `?agreement_id=${state.patientAgreementFilter}` : ''}`)
+        ? apiAll(`/api/admin/patients${state.patientAgreementFilter ? `?agreement_id=${state.patientAgreementFilter}` : ''}`, 'patients')
         : Promise.resolve({ patients: [] }),
-      can('contacts.read') ? api('/api/admin/contacts') : Promise.resolve({ contacts: [] }),
+      can('contacts.read') ? apiAll('/api/admin/contacts', 'contacts') : Promise.resolve({ contacts: [] }),
       can('contacts.read')
-        ? api('/api/admin/congress-registrations')
+        ? apiAll('/api/admin/congress-registrations', 'congress_registrations')
         : Promise.resolve({ congress_registrations: [] }),
       can('nomina.read')
-        ? api(`/api/admin/nomina${state.nominaAgreementFilter ? `?agreement_id=${state.nominaAgreementFilter}` : ''}`)
+        ? apiAll(`/api/admin/nomina${state.nominaAgreementFilter ? `?agreement_id=${state.nominaAgreementFilter}` : ''}`, 'nomina_entries')
         : Promise.resolve({ nomina_entries: [] }),
       can('services.read') ? api('/api/admin/services') : Promise.resolve({ services: [] }),
       can('professionals.read')
         ? api('/api/admin/professionals')
         : Promise.resolve({ professionals: [] }),
       can('appointments.read')
-        ? api('/api/admin/appointments')
+        ? apiAll('/api/admin/appointments', 'appointments')
         : Promise.resolve({ appointments: [] }),
       can('schedule_blocks.read')
-        ? api('/api/admin/schedule-blocks')
+        ? apiAll('/api/admin/schedule-blocks', 'schedule_blocks')
         : Promise.resolve({ schedule_blocks: [] }),
       can('users.read')
         ? api('/api/admin/users')
@@ -1808,8 +1825,8 @@
     const appointments = settlement?.appointments || [];
     return `
       <section class="panel settlement-panel">
-        <div class="toolbar appointments-toolbar">
-          <div class="toolbar-actions">
+        <div class="toolbar settlement-toolbar">
+          <div class="toolbar-actions settlement-filter-actions">
             <label>
               Acuerdo
               <select id="settlement-agreement-filter">
@@ -1823,12 +1840,12 @@
               <input id="settlement-month-filter" type="month" value="${escapeHtml(state.settlementMonth)}" />
             </label>
           </div>
-          <div class="toolbar-actions toolbar-end-actions">
+          <div class="toolbar-actions settlement-end-actions">
             ${settlement?.generated_settlement
-              ? `<a class="secondary-button" href="/api/admin/settlements/${settlement.generated_settlement.id}/pdf" target="_blank" rel="noopener">Descargar PDF actual</a>`
+              ? `<a class="secondary-button" href="/api/admin/settlements/${settlement.generated_settlement.id}/pdf" target="_blank" rel="noopener" title="Descarga la última versión guardada para este acuerdo y mes">Descargar PDF generado</a>`
               : ''}
             ${can('settlements.write') && state.settlementAgreementId
-              ? '<button type="button" class="primary-button" data-action="generate-settlement">Generar PDF</button>'
+              ? `<button type="button" class="primary-button" data-action="generate-settlement">${settlement?.generated_settlement ? 'Regenerar PDF' : 'Generar PDF'}</button>`
               : ''}
           </div>
         </div>
@@ -1842,7 +1859,7 @@
                 <article><span>Cancelados</span><strong>${settlement.totals.cancelled}</strong></article>
                 <article><span>Total</span><strong>${escapeHtml(formatMoney(settlement.totals.amount))}</strong></article>
               </div>
-              <p class="field-help">Incluye únicamente turnos creados por la API del acuerdo. Los cancelados quedan visibles para conciliación pero no suman al total.</p>
+              <p class="field-help">Incluye únicamente turnos creados por la API del acuerdo. Los cancelados quedan visibles para conciliación pero no suman al total. Generar el PDF guarda una versión del período, pero no cambia el estado de los turnos.</p>
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -3779,7 +3796,7 @@
 
   async function loadAuditEvents() {
     if (!can('audit.read')) return;
-    const payload = await api('/api/admin/audit');
+    const payload = await apiAll('/api/admin/audit', 'audit_events');
     state.auditEvents = payload.audit_events || [];
   }
 

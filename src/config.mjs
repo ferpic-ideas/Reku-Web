@@ -25,6 +25,8 @@ export const config = {
   uploadMaxBytes: Number(process.env.UPLOAD_MAX_BYTES || 10 * 1024 * 1024),
   csvUploadMaxBytes: Number(process.env.CSV_UPLOAD_MAX_BYTES || 2 * 1024 * 1024),
   databaseUrl: process.env.DATABASE_URL || "",
+  databaseSslMode: (process.env.DATABASE_SSL_MODE || "disable").trim().toLowerCase(),
+  databaseSslCa: (process.env.DATABASE_SSL_CA || "").replaceAll("\\n", "\n"),
   sessionCookieName: process.env.SESSION_COOKIE_NAME || "reku_admin_session",
   sessionSecret: process.env.SESSION_SECRET || "development-session-secret",
   sessionTtlSeconds: Number(process.env.SESSION_TTL_SECONDS || 259_200),
@@ -36,12 +38,17 @@ export const config = {
   bookingAccessCookieName:
     process.env.BOOKING_ACCESS_COOKIE_NAME || "reku_booking_access",
   bookingEmailVerificationEnabled:
-    process.env.BOOKING_EMAIL_VERIFICATION_ENABLED === "true",
+    process.env.BOOKING_EMAIL_VERIFICATION_ENABLED !== "false",
   patientAppointmentSessionCookieName:
     process.env.PATIENT_APPOINTMENT_SESSION_COOKIE_NAME ||
     "reku_patient_appointment_session",
-  patientAppointmentLinkTtlDays: Number(
-    process.env.PATIENT_APPOINTMENT_LINK_TTL_DAYS || 365,
+  patientAppointmentLinkGraceDays: Number(
+    process.env.PATIENT_APPOINTMENT_LINK_GRACE_DAYS ||
+      process.env.PATIENT_APPOINTMENT_LINK_TTL_DAYS ||
+      7,
+  ),
+  patientAppointmentLinkMaxExchanges: Number(
+    process.env.PATIENT_APPOINTMENT_LINK_MAX_EXCHANGES || 5,
   ),
   patientAppointmentSessionTtlSeconds: Number(
     process.env.PATIENT_APPOINTMENT_SESSION_TTL_SECONDS || 43_200,
@@ -74,6 +81,7 @@ export const config = {
   googleOAuthRedirectUri: (process.env.GOOGLE_OAUTH_REDIRECT_URI || "").trim(),
   googleIntegrationEncryptionKey:
     process.env.GOOGLE_INTEGRATION_ENCRYPTION_KEY || "",
+  settingsEncryptionKey: process.env.SETTINGS_ENCRYPTION_KEY || "",
   googleCalendarTimeZone:
     process.env.GOOGLE_CALENDAR_TIME_ZONE || "America/Argentina/Buenos_Aires",
   googleCalendarRequired: process.env.GOOGLE_CALENDAR_REQUIRED === "true",
@@ -115,6 +123,9 @@ export const assertSafeStartup = () => {
   if (isProduction && !config.databaseUrl) {
     throw new Error("DATABASE_URL is required in production");
   }
+  if (!["disable", "require", "verify-full"].includes(config.databaseSslMode)) {
+    throw new Error("DATABASE_SSL_MODE must be disable, require or verify-full");
+  }
   if (
     isProduction &&
     (config.sessionSecret === "development-session-secret" ||
@@ -125,12 +136,18 @@ export const assertSafeStartup = () => {
   if (isProduction && !config.sessionSecure) {
     throw new Error("SESSION_SECURE must be true in production");
   }
+  if (isProduction && !config.bookingEmailVerificationEnabled) {
+    throw new Error("BOOKING_EMAIL_VERIFICATION_ENABLED must be true in production");
+  }
   if (config.uploadMaxBytes < 1 || config.csvUploadMaxBytes < 1) {
     throw new Error("Upload limits must be positive");
   }
   if (
     config.professionalLinkTtlHours < 1 ||
-    config.patientAppointmentLinkTtlDays < 1 ||
+    config.patientAppointmentLinkGraceDays < 1 ||
+    config.patientAppointmentLinkGraceDays > 30 ||
+    config.patientAppointmentLinkMaxExchanges < 1 ||
+    config.patientAppointmentLinkMaxExchanges > 20 ||
     config.patientAppointmentSessionTtlSeconds < 300 ||
     !Number.isFinite(config.patientMeetEarlyMinutes) ||
     config.patientMeetEarlyMinutes < 0 ||
@@ -155,6 +172,11 @@ export const assertSafeStartup = () => {
     (!config.googleOAuthClientId || !config.googleOAuthClientSecret)
   ) {
     throw new Error("Google OAuth client id and secret must be configured together");
+  }
+  if (isProduction && config.settingsEncryptionKey.length < 32) {
+    throw new Error(
+      "SETTINGS_ENCRYPTION_KEY must have at least 32 characters in production",
+    );
   }
   if (
     googleConfigured &&

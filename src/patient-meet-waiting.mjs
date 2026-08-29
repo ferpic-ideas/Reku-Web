@@ -180,8 +180,8 @@ const professionalWaitingText = ({ appointment, link }) =>
     `Servicio: ${appointment.service_name}`,
     appointment.agreement_name ? `Acuerdo: ${appointment.agreement_name}` : "",
     "",
-    "Google Meet todavía no registra una videollamada activa. Ingresá desde tu agenda para comenzar la consulta.",
-    `Ver próximos turnos: ${link.url}`,
+    "Google Meet todavía no registra una videollamada activa. Abrí la sala profesional para revisar la ficha y comenzar la consulta.",
+    `Abrir sala profesional: ${link.url}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -189,7 +189,7 @@ const professionalWaitingText = ({ appointment, link }) =>
 const professionalWaitingHtml = ({ appointment, link }) => `
   <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
     <h1 style="font-size:24px;margin:0 0 16px">Tu paciente ya está esperando</h1>
-    <p>Google Meet todavía no registra una videollamada activa. Ingresá desde tu agenda para comenzar la consulta.</p>
+    <p>Google Meet todavía no registra una videollamada activa. Abrí la sala profesional para revisar la ficha y comenzar la consulta.</p>
     <table cellpadding="6" cellspacing="0" style="border-collapse:collapse">
       <tr><td><strong>Paciente</strong></td><td>${escapeHtml(appointment.patient_name)}</td></tr>
       <tr><td><strong>Fecha</strong></td><td>${escapeHtml(formatDate(appointment.appointment_date))}</td></tr>
@@ -197,7 +197,7 @@ const professionalWaitingHtml = ({ appointment, link }) => `
       <tr><td><strong>Servicio</strong></td><td>${escapeHtml(appointment.service_name)}</td></tr>
       ${appointment.agreement_name ? `<tr><td><strong>Acuerdo</strong></td><td>${escapeHtml(appointment.agreement_name)}</td></tr>` : ""}
     </table>
-    <p style="margin-top:20px"><a href="${escapeHtml(link.url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Ver próximos turnos</a></p>
+    <p style="margin-top:20px"><a href="${escapeHtml(link.url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Abrir sala profesional</a></p>
   </div>
 `;
 
@@ -207,6 +207,7 @@ export const notifyProfessionalPatientWaiting = async (appointmentId) => {
   try {
     const link = await createProfessionalAccessLink({
       professionalId: appointment.professional_id,
+      appointmentId: appointment.id,
     });
     const result = await sendEmail({
       formName: "paciente-esperando-profesional",
@@ -307,7 +308,7 @@ export const notifyProfessionalPatientWaitingPush = async (appointmentId) => {
     {
       title: "Tu paciente ya está esperando",
       body: `Hay un paciente esperando para el turno de ${appointment.start_time}. Tocá para ver sus datos e ingresar a Meet.`,
-      url: `/profesional/?module=appointments&appointment=${appointment.id}&waiting=1`,
+      url: `/profesional/?module=appointments&appointment=${appointment.id}&room=1&waiting=1`,
       tag: `reku-patient-waiting-${appointment.id}`,
     },
     { eventType: "appointment.patient_waiting_professional_push_sent" },

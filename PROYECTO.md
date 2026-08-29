@@ -306,6 +306,9 @@ Variables clave:
 - `POSTGRES_DB`
 - `POSTGRES_USER`
 - `POSTGRES_PASSWORD`
+- `DATABASE_SSL_MODE` (`disable` para la DB interna de Compose, `verify-full`
+  para PostgreSQL gestionado)
+- `DATABASE_SSL_CA` (CA PEM opcional para `verify-full`)
 - `SESSION_SECRET`
 - `SESSION_SECURE`
 - `BOOTSTRAP_ADMIN_EMAIL`
@@ -315,12 +318,15 @@ Variables clave:
 - `UPLOAD_MAX_BYTES`
 - `CSV_UPLOAD_MAX_BYTES`
 - `BOOKING_ACCESS_COOKIE_NAME`
-- `BOOKING_EMAIL_VERIFICATION_ENABLED` (actualmente `false`; permite reactivar la
-  verificación antes de continuar a la agenda)
+- `BOOKING_EMAIL_VERIFICATION_ENABLED` (debe permanecer `true` en producción;
+  verifica el email antes de habilitar la agenda)
+- `PATIENT_APPOINTMENT_LINK_GRACE_DAYS` (7 por defecto)
+- `PATIENT_APPOINTMENT_LINK_MAX_EXCHANGES` (5 por defecto)
 - `PROFESSIONAL_LINK_TTL_HOURS`
 - `PROFESSIONAL_SESSION_TTL_SECONDS`
 - `PROFESSIONAL_SESSION_COOKIE_NAME`
 - `MP_WEBHOOK_MAX_AGE_SECONDS`
+- `SETTINGS_ENCRYPTION_KEY` (cifra access tokens y secretos de Mercado Pago)
 - `GOOGLE_OAUTH_CLIENT_ID`
 - `GOOGLE_OAUTH_CLIENT_SECRET`
 - `GOOGLE_OAUTH_REDIRECT_URI`
@@ -345,9 +351,11 @@ Variables clave:
 - `RESEND_FROM_EMAIL`
 - `EMAIL_DRY_RUN`
 
-En produccion, `SESSION_SECRET` y `POSTGRES_PASSWORD` son obligatorios. Si Google
-OAuth está habilitado, `GOOGLE_INTEGRATION_ENCRYPTION_KEY` debe tener al menos 32
-caracteres y ser independiente del secreto de sesión. No
+En produccion, `SESSION_SECRET`, `POSTGRES_PASSWORD` y
+`SETTINGS_ENCRYPTION_KEY` son obligatorios; las dos claves deben tener al menos
+32 caracteres y ser independientes. Si Google OAuth está habilitado,
+`GOOGLE_INTEGRATION_ENCRYPTION_KEY` también debe tener al menos 32 caracteres y
+ser independiente del secreto de sesión. No
 imprimir ni pegar el `.env` en chats, commits o logs.
 
 Para usar Resend temporalmente mientras SES esta en sandbox:

@@ -477,6 +477,36 @@ a:focus-visible {
   margin: 20px 0 12px;
 }
 
+.settlement-toolbar {
+  align-items: flex-end;
+  flex-wrap: nowrap;
+}
+
+.settlement-filter-actions {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(170px, 220px);
+  align-items: end;
+  gap: 12px;
+}
+
+.settlement-filter-actions label {
+  min-width: 0;
+}
+
+.settlement-end-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  margin-left: auto;
+  flex-wrap: nowrap;
+}
+
+.settlement-end-actions .primary-button,
+.settlement-end-actions .secondary-button {
+  width: auto;
+  white-space: nowrap;
+}
+
 .settlement-summary-grid article {
   display: grid;
   gap: 8px;
@@ -567,6 +597,20 @@ a:focus-visible {
   .api-token-value {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settlement-toolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .settlement-filter-actions {
+    width: 100%;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .settlement-end-actions {
+    width: 100%;
   }
 }
 
@@ -1573,6 +1617,20 @@ code {
   }
 
   .mini-button {
+    width: 100%;
+  }
+
+  .settlement-filter-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .settlement-end-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settlement-end-actions .primary-button,
+  .settlement-end-actions .secondary-button {
     width: 100%;
   }
 

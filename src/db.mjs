@@ -9,6 +9,13 @@ const { Pool } = pg;
 export const pool = config.databaseUrl
   ? new Pool({
       connectionString: config.databaseUrl,
+      ssl:
+        config.databaseSslMode === "disable"
+          ? false
+          : {
+              rejectUnauthorized: config.databaseSslMode === "verify-full",
+              ...(config.databaseSslCa ? { ca: config.databaseSslCa } : {}),
+            },
       max: 10,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,

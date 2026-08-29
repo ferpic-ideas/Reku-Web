@@ -26,22 +26,40 @@ test("idempotency payload hashing is independent of object key order", () => {
   );
 });
 
-test("agreement API applies a stricter write rate limit", () => {
+test("agreement API applies a stricter write rate limit", async () => {
   const identity = `${Date.now()}-${Math.random()}`;
+  const buckets = new Map();
+  const consume = async ({ scope, key, limit }) => {
+    const bucketKey = `${scope}:${key}`;
+    const count = (buckets.get(bucketKey) || 0) + 1;
+    buckets.set(bucketKey, count);
+    if (count > limit) {
+      const error = new Error("RATE_LIMITED");
+      error.statusCode = 429;
+      error.retryAfter = 30;
+      throw error;
+    }
+  };
   for (let index = 0; index < 30; index += 1) {
-    enforceAgreementApiRateLimit({
-      credentialId: identity,
-      clientIp: "127.0.0.1",
-      mutation: true,
-    });
-  }
-  assert.throws(
-    () =>
-      enforceAgreementApiRateLimit({
+    await enforceAgreementApiRateLimit(
+      {
         credentialId: identity,
         clientIp: "127.0.0.1",
         mutation: true,
-      }),
+      },
+      { consume },
+    );
+  }
+  await assert.rejects(
+    () =>
+      enforceAgreementApiRateLimit(
+        {
+          credentialId: identity,
+          clientIp: "127.0.0.1",
+          mutation: true,
+        },
+        { consume },
+      ),
     (error) => error.statusCode === 429 && error.retryAfter > 0,
   );
 });

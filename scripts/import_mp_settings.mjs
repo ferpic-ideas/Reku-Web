@@ -1,6 +1,9 @@
 import { stdin } from "node:process";
-import { initDb, one, query } from "../src/db.mjs";
-import { publicMercadoPagoSettings } from "../src/mercado-pago.mjs";
+import { initDb } from "../src/db.mjs";
+import {
+  publicMercadoPagoSettings,
+  saveMercadoPagoSettings,
+} from "../src/mercado-pago.mjs";
 
 const chunks = [];
 for await (const chunk of stdin) chunks.push(chunk);
@@ -8,18 +11,8 @@ for await (const chunk of stdin) chunks.push(chunk);
 const settings = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 
 await initDb();
-await query(
-  `
-    INSERT INTO app_settings (key, value, updated_at)
-    VALUES ('mercado_pago', $1::jsonb, NOW())
-    ON CONFLICT (key)
-    DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-  `,
-  [JSON.stringify(settings)],
-);
-
-const row = await one("SELECT value FROM app_settings WHERE key = 'mercado_pago'");
-const publicSettings = publicMercadoPagoSettings(row.value);
+const saved = await saveMercadoPagoSettings(settings);
+const publicSettings = publicMercadoPagoSettings(saved);
 
 console.log(
   JSON.stringify({
