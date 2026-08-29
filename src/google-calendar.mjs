@@ -636,16 +636,36 @@ const calendarAttendeesForAppointment = (appointment) => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? [{ email }] : [];
 };
 
+const professionalRoomUrlForAppointment = (appointmentId) => {
+  const url = new URL("/profesional/", config.appPublicUrl);
+  url.searchParams.set("module", "appointments");
+  url.searchParams.set("appointment", String(Number(appointmentId)));
+  url.searchParams.set("room", "1");
+  return url.toString();
+};
+
+const protectedCalendarDescription = ({ appointmentId, patientLobbyUrl = "" }) =>
+  [
+    "Accesos protegidos por Reku.",
+    patientLobbyUrl ? `Paciente · Sala de espera: ${patientLobbyUrl}` : "",
+    `Profesional · Sala profesional: ${professionalRoomUrlForAppointment(appointmentId)}`,
+    "La URL real de Google Meet se habilita únicamente dentro de cada sala.",
+    "No incluye información clínica.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
 export const buildConfirmedCalendarRequest = ({
   appointment,
   appointmentId,
   eventId,
   calendarId = "primary",
   method = "POST",
+  includeConference = true,
 }) => {
   const event = {
     summary: `Turno Reku · ${appointment.service_name}`,
-    description: "Reserva gestionada por Reku. No incluye información clínica.",
+    description: protectedCalendarDescription({ appointmentId }),
     start: {
       dateTime: `${appointment.appointment_date_text}T${appointment.start_time_text}:00`,
       timeZone: config.googleCalendarTimeZone,
@@ -654,14 +674,18 @@ export const buildConfirmedCalendarRequest = ({
       dateTime: `${appointment.appointment_date_text}T${appointment.end_time_text}:00`,
       timeZone: config.googleCalendarTimeZone,
     },
-    attendees: calendarAttendeesForAppointment(appointment),
-    conferenceData: {
-      createRequest: {
-        requestId: `reku-appointment-${appointmentId}`,
-        conferenceSolutionKey: { type: "hangoutsMeet" },
-      },
-    },
+    attendees: [],
     reminders: { useDefault: true },
+    ...(includeConference
+      ? {
+          conferenceData: {
+            createRequest: {
+              requestId: `reku-appointment-${appointmentId}`,
+              conferenceSolutionKey: { type: "hangoutsMeet" },
+            },
+          },
+        }
+      : {}),
   };
   const encodedCalendarId = encodeURIComponent(calendarId || "primary");
   return {
@@ -672,6 +696,42 @@ export const buildConfirmedCalendarRequest = ({
     options: {
       method,
       body: JSON.stringify(method === "POST" ? { id: eventId, ...event } : event),
+    },
+  };
+};
+
+export const buildProtectedCalendarRequest = ({
+  appointment,
+  appointmentId,
+  eventId,
+  calendarId = "primary",
+  patientLobbyUrl = "",
+}) => {
+  const event = {
+    summary: `Turno Reku · ${appointment.service_name}`,
+    description: protectedCalendarDescription({ appointmentId, patientLobbyUrl }),
+    start: {
+      dateTime: `${appointment.appointment_date_text}T${appointment.start_time_text}:00`,
+      timeZone: config.googleCalendarTimeZone,
+    },
+    end: {
+      dateTime: `${appointment.appointment_date_text}T${appointment.end_time_text}:00`,
+      timeZone: config.googleCalendarTimeZone,
+    },
+    attendees: patientLobbyUrl ? calendarAttendeesForAppointment(appointment) : [],
+    conferenceData: null,
+    reminders: { useDefault: true },
+    guestsCanInviteOthers: false,
+    guestsCanModify: false,
+    guestsCanSeeOtherGuests: false,
+    ...(patientLobbyUrl ? { location: patientLobbyUrl } : {}),
+  };
+  const encodedCalendarId = encodeURIComponent(calendarId || "primary");
+  return {
+    path: `/calendars/${encodedCalendarId}/events/${encodeURIComponent(eventId)}?conferenceDataVersion=1&sendUpdates=none`,
+    options: {
+      method: "PATCH",
+      body: JSON.stringify(event),
     },
   };
 };
@@ -812,7 +872,7 @@ export const cancelGoogleCalendarEventForProfessional = async ({
 
 export const syncAppointmentToGoogleCalendar = async (
   appointmentId,
-  { force = false } = {},
+  { force = false, patientLobbyUrl = "" } = {},
 ) => {
   if (!googleIntegrationConfigured()) return { skipped: true, reason: "not_configured" };
   const appointment = await one(
@@ -885,6 +945,7 @@ export const syncAppointmentToGoogleCalendar = async (
     appointmentId,
     eventId,
     calendarId: connection.calendar_id,
+    includeConference: !appointment.google_meet_url,
   });
   let event;
   try {
@@ -897,6 +958,7 @@ export const syncAppointmentToGoogleCalendar = async (
         eventId,
         calendarId: connection.calendar_id,
         method: "PATCH",
+        includeConference: !appointment.google_meet_url,
       });
       event = await calendarRequest(connection, updateRequest.path, updateRequest.options);
     } else {
@@ -912,7 +974,7 @@ export const syncAppointmentToGoogleCalendar = async (
     }
   }
 
-  let meetUrl = meetUrlFromEvent(event);
+  let meetUrl = appointment.google_meet_url || meetUrlFromEvent(event);
   if (!meetUrl) {
     for (let attempt = 0; attempt < 3 && !meetUrl; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 350));
@@ -944,6 +1006,32 @@ export const syncAppointmentToGoogleCalendar = async (
       );
       const error = new Error("GOOGLE_MEET_DUPLICATE");
       error.conflictingAppointmentId = Number(duplicate.id);
+      throw error;
+    }
+  }
+  if (meetUrl) {
+    try {
+      const protectedRequest = buildProtectedCalendarRequest({
+        appointment,
+        appointmentId,
+        eventId,
+        calendarId: connection.calendar_id,
+        patientLobbyUrl,
+      });
+      event = await calendarRequest(
+        connection,
+        protectedRequest.path,
+        protectedRequest.options,
+      );
+    } catch (error) {
+      await query(
+        `
+          UPDATE appointments
+          SET google_sync_status = 'failed', google_sync_error = $2, updated_at = NOW()
+          WHERE id = $1
+        `,
+        [appointmentId, String(error.detail || error.message).slice(0, 500)],
+      );
       throw error;
     }
   }

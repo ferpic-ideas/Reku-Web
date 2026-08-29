@@ -46,6 +46,10 @@ test("Gmail patients receive a direct prefilled Google Calendar action", () => {
   assert.equal(url.searchParams.get("dates"), "20260827T100000/20260827T103000");
   assert.equal(url.searchParams.get("ctz"), "America/Argentina/Buenos_Aires");
   assert.match(url.searchParams.get("details"), /manage=protected/);
+  assert.equal(
+    url.searchParams.get("location"),
+    "https://www.reku.io/turnos/#manage=protected",
+  );
   assert.doesNotMatch(url.toString(), /meet\.google\.com/);
 });
 
@@ -62,6 +66,7 @@ test("patient calendar contains the appointment and only the protected Reku URL"
   assert.match(content, /SEQUENCE:2/);
   assert.match(content, /Evaluación Kinésica con Fisio Reku/);
   assert.match(content, /manage=protected/);
+  assert.match(content, /LOCATION:https:\/\/www\.reku\.io\/turnos\/#manage=protected/);
   assert.match(content, /TRIGGER:-PT24H/);
   assert.doesNotMatch(content, /meet\.google\.com/);
   assert.equal(appointmentCalendarFilename(appointment), "turno-reku-2026-08-27.ics");

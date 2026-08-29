@@ -263,7 +263,7 @@ test("Google synchronization failures do not suppress booking confirmation email
   assert.doesNotMatch(source, /reason: "google_calendar_pending"/);
   assert.match(
     source,
-    /googleCalendar = \{ ok: false, error: error\.message \};[\s\S]*notifyPatientForAppointment\(appointmentId\)[\s\S]*notifyProfessionalForAppointment\(appointmentId\)/,
+    /googleCalendar = \{ ok: false, error: error\.message \};[\s\S]*notifyPatientForAppointment\(appointmentId,[\s\S]*notifyProfessionalForAppointment\(appointmentId\)/,
   );
 });
 

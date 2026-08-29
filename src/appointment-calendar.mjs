@@ -87,7 +87,7 @@ export const googleCalendarTemplateUrl = ({
     `${googleCalendarDate(date, startTime)}/${googleCalendarDate(date, endTime)}`,
   );
   url.searchParams.set("details", appointmentDescription(manageUrl));
-  url.searchParams.set("location", "Videollamada online");
+  url.searchParams.set("location", manageUrl);
   url.searchParams.set("ctz", timeZone);
   return url.toString();
 };
@@ -119,7 +119,7 @@ export const appointmentCalendarContent = ({
     `SUMMARY:${escapeCalendarText(summary)}`,
     `DESCRIPTION:${escapeCalendarText(description)}`,
     `URL:${escapeCalendarText(manageUrl)}`,
-    "LOCATION:Videollamada online",
+    `LOCATION:${escapeCalendarText(manageUrl)}`,
     "BEGIN:VALARM",
     "TRIGGER:-PT24H",
     "ACTION:DISPLAY",

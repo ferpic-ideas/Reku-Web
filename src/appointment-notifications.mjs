@@ -641,12 +641,16 @@ export const notifyProfessionalForAppointment = async (appointmentId) => {
   }
 };
 
-export const notifyPatientForAppointment = async (appointmentId) => {
+export const notifyPatientForAppointment = async (
+  appointmentId,
+  { accessLink = null } = {},
+) => {
   const appointment = await claimPatientConfirmation(appointmentId);
   if (!appointment) return { ok: true, skipped: true };
 
   try {
-    const manageLink = await createPatientAppointmentAccessLink({ appointmentId });
+    const manageLink =
+      accessLink || (await createPatientAppointmentAccessLink({ appointmentId }));
     const subject = patientConfirmationSubject(appointment);
     const result = await sendEmail({
       formName: "turno-paciente",
@@ -1072,9 +1076,16 @@ export const notifyConfirmedAppointment = async (
     }
   }
   let googleCalendar;
+  let patientAccessLink = null;
+  try {
+    patientAccessLink = await createPatientAppointmentAccessLink({ appointmentId });
+  } catch {
+    // Confirmation remains available by email even if the early shared link cannot be created.
+  }
   try {
     googleCalendar = await syncAppointmentToGoogleCalendar(appointmentId, {
       force: forceGoogleSync,
+      patientLobbyUrl: patientAccessLink?.meet_url || "",
     });
   } catch (error) {
     googleCalendar = { ok: false, error: error.message };
@@ -1086,7 +1097,7 @@ export const notifyConfirmedAppointment = async (
     });
   }
   const [patient, professional] = await Promise.all([
-    notifyPatientForAppointment(appointmentId),
+    notifyPatientForAppointment(appointmentId, { accessLink: patientAccessLink }),
     notifyProfessionalForAppointment(appointmentId),
   ]);
   return { patient, professional, google_calendar: googleCalendar, triage };
