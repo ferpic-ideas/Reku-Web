@@ -87,7 +87,23 @@
 
           <div class="quick-step">
             <span class="step-marker">3</span>
-            <div><h3>Confirmar un turno pagado</h3><p>Creá la reserva después de haber confirmado el pago en tu plataforma.</p></div>
+            <div><h3>Pre-reservar durante 10 minutos</h3><p>Protegé el horario mientras completás el pago en tu plataforma.</p></div>
+          </div>
+          <pre><code>curl https://www.reku.io/api/partners/v1/holds \
+  -X <span class="code-keyword">POST</span> \
+  -H <span class="code-string">"Authorization: Bearer rku_ag_REEMPLAZAR"</span> \
+  -H <span class="code-string">"Content-Type: application/json"</span> \
+  -H <span class="code-string">"Idempotency-Key: hold-ORD-90821"</span> \
+  -d <span class="code-string">'{
+    "service_id": 2,
+    "professional_id": 7,
+    "date": "2026-09-03",
+    "start_time": "15:30"
+  }'</span></code></pre>
+
+          <div class="quick-step">
+            <span class="step-marker">4</span>
+            <div><h3>Confirmar un turno pagado</h3><p>Después del pago, creá la reserva usando el <code>hold_id</code> recibido.</p></div>
           </div>
           <pre><code>curl https://www.reku.io/api/partners/v1/appointments \
   -X <span class="code-keyword">POST</span> \
@@ -96,10 +112,7 @@
   -H <span class="code-string">"Idempotency-Key: reserva-ORD-90821"</span> \
   -d <span class="code-string">'{
     "external_id": "ORD-90821",
-    "service_id": 2,
-    "professional_id": 7,
-    "date": "2026-09-03",
-    "start_time": "15:30",
+    "hold_id": "hold_REEMPLAZAR",
     "payment_reference": "PAY-44339",
     "patient": {
       "first_name": "Ana",
@@ -110,7 +123,7 @@
   }'</span></code></pre>
           <div class="success-callout">
             <span class="success-icon" aria-hidden="true">✓</span>
-            <p>Una respuesta <code>201 Created</code> confirma el turno. Reku lo registra como pagado por el acuerdo, reserva el horario, gestiona Google Calendar/Meet y envía las notificaciones habituales.</p>
+            <p>Una respuesta <code>201 Created</code> confirma el turno. La pre-reserva vence automáticamente a los 10 minutos, pero si el pago tarda más y nadie tomó el horario, la confirmación continúa normalmente.</p>
           </div>
         </section>
 
@@ -137,12 +150,13 @@
           <ol class="flow-list">
             <li><span>1</span><div><strong>Obtené las prácticas</strong><p>Consultá <code>GET /services</code>.</p></div></li>
             <li><span>2</span><div><strong>Elegí el horario</strong><p>Consultá profesionales o directamente la disponibilidad.</p></div></li>
-            <li><span>3</span><div><strong>Procesá el pago</strong><p>El cobro se realiza íntegramente en tu sistema.</p></div></li>
-            <li><span>4</span><div><strong>Confirmá la reserva</strong><p>Después del pago, ejecutá <code>POST /appointments</code>. Un <code>201</code> significa turno confirmado y pago externo declarado.</p></div></li>
-            <li><span>5</span><div><strong>Guardá los identificadores</strong><p>Persistí el <code>data.id</code> de Reku junto con tu <code>external_id</code>.</p></div></li>
-            <li><span>6</span><div><strong>Gestioná cambios</strong><p>Reprogramá con <code>PATCH /appointments/{id}</code> o cancelá con <code>POST /appointments/{id}/cancel</code>.</p></div></li>
+            <li><span>3</span><div><strong>Protegé el horario</strong><p>Ejecutá <code>POST /holds</code>. Reku lo retira de disponibilidad durante 10 minutos y devuelve un <code>hold_id</code>.</p></div></li>
+            <li><span>4</span><div><strong>Procesá el pago</strong><p>El cobro se realiza íntegramente en tu sistema mientras la pre-reserva está activa.</p></div></li>
+            <li><span>5</span><div><strong>Confirmá la reserva</strong><p>Después del pago, ejecutá <code>POST /appointments</code> con el <code>hold_id</code>. Un <code>201</code> significa turno confirmado y pago externo declarado.</p></div></li>
+            <li><span>6</span><div><strong>Guardá los identificadores</strong><p>Persistí el <code>data.id</code> de Reku junto con tu <code>external_id</code>.</p></div></li>
+            <li><span>7</span><div><strong>Gestioná cambios</strong><p>Reprogramá con <code>PATCH /appointments/{id}</code> o cancelá con <code>POST /appointments/{id}/cancel</code>.</p></div></li>
           </ol>
-          <div class="warning"><strong>Orden recomendado:</strong><span>no cobres y confirmes en paralelo. Si el horario deja de estar disponible, Reku responde <code>409 slot_unavailable</code> y tu sistema debe ofrecer otro horario o resolver el pago según su política.</span></div>
+          <div class="warning"><strong>Vencimiento automático:</strong><span>al cumplirse 10 minutos el horario vuelve a ofrecerse sin intervención. Si el pago termina después, <code>POST /appointments</code> todavía confirma normalmente mientras nadie más lo haya tomado; sólo devuelve <code>409 slot_unavailable</code> si otro usuario lo reservó.</span></div>
         </section>
 
         <section id="endpoints">
@@ -155,7 +169,8 @@
           <div class="endpoint"><div><span class="method get">GET</span><code>/services</code></div><p>Prácticas que tienen al menos un profesional activo asignado al acuerdo.</p></div>
           <div class="endpoint"><div><span class="method get">GET</span><code>/professionals?service_id={id}</code></div><p>Profesionales habilitados para la práctica y el acuerdo.</p></div>
           <div class="endpoint"><div><span class="method get">GET</span><code>/availability?service_id={id}&amp;date=YYYY-MM-DD</code></div><p>Slots de un día. También admite <code>from</code>/<code>to</code> —máximo 31 días— y <code>professional_id</code> opcional.</p></div>
-          <div class="endpoint"><div><span class="method post">POST</span><code>/appointments</code></div><p>Confirma una reserva ya pagada. <code>professional_id</code> es opcional; si se omite, Reku asigna el primer profesional disponible.</p></div>
+          <div class="endpoint"><div><span class="method post">POST</span><code>/holds</code></div><p>Pre-reserva un horario durante 10 minutos. <code>professional_id</code> es opcional; si se omite, Reku asigna el primer profesional disponible.</p></div>
+          <div class="endpoint"><div><span class="method post">POST</span><code>/appointments</code></div><p>Confirma una reserva ya pagada usando <code>hold_id</code>. Un hold vencido sigue siendo utilizable mientras el horario permanezca libre.</p></div>
           <div class="endpoint"><div><span class="method get">GET</span><code>/appointments</code></div><p>Lista paginada. Filtros: <code>from</code>, <code>to</code>, <code>status</code>, <code>external_id</code>, <code>page</code> y <code>limit</code>.</p></div>
           <div class="endpoint"><div><span class="method get">GET</span><code>/appointments/{id}</code></div><p>Detalle de un turno propio del acuerdo.</p></div>
           <div class="endpoint"><div><span class="method patch">PATCH</span><code>/appointments/{id}</code></div><p>Modifica paciente, práctica, profesional, fecha u horario. Requiere un nuevo <code>Idempotency-Key</code>.</p></div>
@@ -183,7 +198,7 @@
                 <tr><td><span class="status-code client">400</span></td><td>JSON o Idempotency-Key inválido.</td><td>Corregir la solicitud.</td></tr>
                 <tr><td><span class="status-code client">401</span></td><td>Token ausente, inválido o revocado.</td><td>Revisar o rotar la credencial.</td></tr>
                 <tr><td><span class="status-code client">404</span></td><td>Recurso inexistente o ajeno al acuerdo.</td><td>Revisar el ID.</td></tr>
-                <tr><td><span class="status-code conflict">409</span></td><td>Horario ocupado o conflicto de idempotencia.</td><td>Consultar disponibilidad.</td></tr>
+                <tr><td><span class="status-code conflict">409</span></td><td>Horario ocupado tras vencer el hold, hold ya consumido o conflicto de idempotencia.</td><td>Consultar disponibilidad o revisar la operación original.</td></tr>
                 <tr><td><span class="status-code client">422</span></td><td>Datos válidos como JSON pero incorrectos.</td><td>Corregir campos.</td></tr>
                 <tr><td><span class="status-code rate">429</span></td><td>Límite temporal superado.</td><td>Esperar <code>Retry-After</code>.</td></tr>
                 <tr><td><span class="status-code server">5xx</span></td><td>Error transitorio de Reku.</td><td>Reintentar con la misma clave y backoff.</td></tr>
@@ -197,7 +212,7 @@
 
     <footer>
       <img src="../../images/logo-reku.svg" alt="Reku" />
-      <p>API de acuerdos v1 · <a href="mailto:hola@reku.io">hola@reku.io</a></p>
+      <p>API de acuerdos v1.1 · <a href="mailto:hola@reku.io">hola@reku.io</a></p>
     </footer>
   </body>
 </html>

@@ -2625,7 +2625,21 @@ const updateAdminAppointment = async (request, response, user, appointmentId) =>
       `,
       [professionalId, appointmentDate, startTime, endTime],
     );
-    if (conflict.rows[0] || block.rows[0]) {
+    const activeHold = await client.query(
+      `
+        SELECT id
+        FROM agreement_api_holds
+        WHERE professional_id = $1
+          AND hold_date = $2::date
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+          AND start_time < $4::time
+          AND end_time > $3::time
+        LIMIT 1
+      `,
+      [professionalId, appointmentDate, startTime, endTime],
+    );
+    if (conflict.rows[0] || block.rows[0] || activeHold.rows[0]) {
       throw appointmentManagementError("ADMIN_APPOINTMENT_SLOT_TAKEN");
     }
     const professionalChanged = professionalId !== Number(current.professional_id);

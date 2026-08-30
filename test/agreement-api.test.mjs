@@ -65,15 +65,19 @@ test("agreement API applies a stricter write rate limit", async () => {
 });
 
 test("partner API schema isolates credentials, external ids and settlement snapshots", async () => {
-  const migration = await readFile(
-    new URL("../migrations/016_agreement_partner_api.sql", import.meta.url),
-    "utf8",
-  );
+  const [migration, holdsMigration] = await Promise.all([
+    readFile(new URL("../migrations/016_agreement_partner_api.sql", import.meta.url), "utf8"),
+    readFile(new URL("../migrations/020_agreement_api_holds.sql", import.meta.url), "utf8"),
+  ]);
   assert.match(migration, /token_hash TEXT NOT NULL UNIQUE/);
   assert.match(migration, /UNIQUE \(credential_id, idempotency_key\)/);
   assert.match(migration, /appointments_agreement_api_external_id_key/);
   assert.match(migration, /booking_channel = 'agreement_api'/);
   assert.match(migration, /snapshot JSONB NOT NULL/);
+  assert.match(holdsMigration, /CREATE TABLE IF NOT EXISTS agreement_api_holds/);
+  assert.match(holdsMigration, /DEFAULT NOW\(\) \+ INTERVAL '10 minutes'/);
+  assert.match(holdsMigration, /consumed_at IS NULL/);
+  assert.match(holdsMigration, /expires_at/);
 });
 
 test("public documentation and Admin expose the complete agreement API workflow", async () => {
@@ -84,8 +88,15 @@ test("public documentation and Admin expose the complete agreement API workflow"
   ]);
   const openapi = JSON.parse(openapiText);
   assert.match(html, /Idempotency-Key/);
-  assert.match(html, /pagado por el acuerdo/);
+  assert.match(html, /pago externo declarado/);
+  assert.match(html, /vence automáticamente a los 10 minutos/i);
+  assert.ok(openapi.paths["/holds"].post);
   assert.ok(openapi.paths["/appointments"].post);
+  assert.deepEqual(openapi.components.schemas.CreateAppointment.required, [
+    "external_id",
+    "hold_id",
+    "patient",
+  ]);
   assert.ok(openapi.paths["/appointments/{appointmentId}"].patch);
   assert.ok(openapi.paths["/appointments/{appointmentId}/cancel"].post);
   assert.match(admin, /Liquidaciones/);

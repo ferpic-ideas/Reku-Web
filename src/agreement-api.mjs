@@ -25,7 +25,9 @@ const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^\d{2}:\d{2}$/;
 const externalIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 const publicIdPattern = /^apt_[a-f0-9]{32}$/;
+const holdPublicIdPattern = /^hold_[a-f0-9]{32}$/;
 const idempotencyKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
+const agreementApiHoldMinutes = 10;
 
 const apiError = (code, message, statusCode = 422, detail = undefined) => {
   const error = new Error(code);
@@ -421,6 +423,31 @@ const mapProfessional = (row) => ({
   specialty: row.specialty || "",
 });
 
+const mapPartnerHold = (row) => ({
+  id: row.public_id,
+  status: row.consumed_at
+    ? "consumed"
+    : new Date(row.expires_at).getTime() > Date.now()
+      ? "active"
+      : "expired",
+  expires_at: row.expires_at,
+  service: {
+    id: Number(row.service_id),
+    name: row.service_name || "",
+    duration_minutes: Number(row.duration_minutes || 0),
+  },
+  professional: {
+    id: Number(row.professional_id),
+    name: row.professional_name || "",
+  },
+  schedule: {
+    date: row.hold_date,
+    start_time: String(row.start_time || "").slice(0, 5),
+    end_time: String(row.end_time || "").slice(0, 5),
+    timezone: config.googleCalendarTimeZone,
+  },
+});
+
 const mapPartnerAppointment = (row) => ({
   id: row.agreement_api_public_id,
   external_id: row.agreement_api_external_id,
@@ -644,6 +671,173 @@ const bookingCandidates = async ({ credential, serviceId, professionalId, date, 
   return { service, candidates };
 };
 
+const selectAvailableCandidate = async ({
+  client,
+  candidates,
+  date,
+  startTime,
+  endTime,
+  ignoreHoldId = null,
+}) => {
+  for (const candidate of candidates) {
+    const candidateId = Number(candidate.id);
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
+      [candidateId, date],
+    );
+    const conflict = await client.query(
+      `
+        SELECT 1
+        FROM appointments
+        WHERE professional_id = $1
+          AND appointment_date = $2::date
+          AND (
+            status = 'confirmed'
+            OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '40 minutes')
+          )
+          AND start_time < $4::time
+          AND end_time > $3::time
+        LIMIT 1
+      `,
+      [candidateId, date, startTime, endTime],
+    );
+    const block = await client.query(
+      `
+        SELECT 1
+        FROM schedule_blocks
+        WHERE professional_id = $1
+          AND block_date = $2::date
+          AND start_time < $4::time
+          AND end_time > $3::time
+        LIMIT 1
+      `,
+      [candidateId, date, startTime, endTime],
+    );
+    const hold = await client.query(
+      `
+        SELECT 1
+        FROM agreement_api_holds
+        WHERE professional_id = $1
+          AND hold_date = $2::date
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+          AND ($5::bigint IS NULL OR id <> $5)
+          AND start_time < $4::time
+          AND end_time > $3::time
+        LIMIT 1
+      `,
+      [candidateId, date, startTime, endTime, ignoreHoldId],
+    );
+    if (!conflict.rows[0] && !block.rows[0] && !hold.rows[0]) return candidate;
+  }
+  return null;
+};
+
+const createHold = async (request, credential, payload, response, requestId) => {
+  const replay = await lookupIdempotentResult({ request, credential, payload });
+  if (replay) {
+    sendPartnerJson(response, replay.statusCode, replay.body, requestId, {
+      "Idempotent-Replayed": "true",
+    });
+    return;
+  }
+  const serviceId = parsePositiveInteger(payload.service_id, "service_id");
+  const professionalId = payload.professional_id
+    ? parsePositiveInteger(payload.professional_id, "professional_id")
+    : null;
+  const date = validateDate(payload.date);
+  const startTime = validateTime(payload.start_time);
+  const { service, candidates } = await bookingCandidates({
+    credential,
+    serviceId,
+    professionalId,
+    date,
+    startTime,
+  });
+  const endTime = addMinutes(startTime, Number(service.duration_minutes));
+
+  const result = await runIdempotent({
+    request,
+    credential,
+    payload,
+    execute: async (client) => {
+      const selectedProfessional = await selectAvailableCandidate({
+        client,
+        candidates,
+        date,
+        startTime,
+        endTime,
+      });
+      if (!selectedProfessional) {
+        throw apiError("slot_unavailable", "Ese horario ya no está disponible.", 409);
+      }
+      const publicId = `hold_${randomUUID().replaceAll("-", "")}`;
+      const inserted = await client.query(
+        `
+          INSERT INTO agreement_api_holds (
+            public_id, agreement_id, credential_id, service_id, professional_id,
+            hold_date, start_time, end_time, expires_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5,
+            $6::date, $7::time, $8::time,
+            NOW() + ($9::text || ' minutes')::interval
+          )
+          RETURNING *,
+            to_char(hold_date, 'YYYY-MM-DD') AS hold_date,
+            to_char(start_time, 'HH24:MI') AS start_time,
+            to_char(end_time, 'HH24:MI') AS end_time
+        `,
+        [
+          publicId,
+          credential.agreement_id,
+          credential.id,
+          serviceId,
+          Number(selectedProfessional.id),
+          date,
+          startTime,
+          endTime,
+          agreementApiHoldMinutes,
+        ],
+      );
+      return {
+        statusCode: 201,
+        body: {
+          data: mapPartnerHold({
+            ...inserted.rows[0],
+            service_name: service.name,
+            duration_minutes: service.duration_minutes,
+            professional_name: selectedProfessional.name,
+          }),
+        },
+      };
+    },
+  });
+
+  if (!result.replay) {
+    await safelyAfterCommit("hold.created", async () => {
+      await recordAudit("agreement_api.hold.created", {
+        detail: {
+          hold_id: result.body.data.id,
+          agreement_id: credential.agreement_id,
+          credential_id: credential.id,
+          professional_id: result.body.data.professional.id,
+          date: result.body.data.schedule.date,
+          start_time: result.body.data.schedule.start_time,
+          expires_at: result.body.data.expires_at,
+        },
+      });
+    });
+  }
+  sendPartnerJson(
+    response,
+    result.statusCode,
+    result.body,
+    requestId,
+    result.replay ? { "Idempotent-Replayed": "true" } : {},
+  );
+};
+
 const createAppointment = async (request, credential, payload, response, requestId) => {
   const replay = await lookupIdempotentResult({ request, credential, payload });
   if (replay) {
@@ -653,22 +847,15 @@ const createAppointment = async (request, credential, payload, response, request
     return;
   }
   const externalId = normalizeExternalId(payload.external_id);
-  const serviceId = parsePositiveInteger(payload.service_id, "service_id");
-  const professionalId = payload.professional_id
-    ? parsePositiveInteger(payload.professional_id, "professional_id")
-    : null;
-  const date = validateDate(payload.date);
-  const startTime = validateTime(payload.start_time);
+  const holdId = String(payload.hold_id || "").trim();
+  if (!holdPublicIdPattern.test(holdId)) {
+    throw apiError(
+      "validation_error",
+      "hold_id es obligatorio y debe ser una pre-reserva válida.",
+    );
+  }
   const patient = normalizePatient(payload.patient);
   const paymentReference = normalizePaymentReference(payload.payment_reference, externalId);
-  const { service, candidates } = await bookingCandidates({
-    credential,
-    serviceId,
-    professionalId,
-    date,
-    startTime,
-  });
-  const endTime = addMinutes(startTime, Number(service.duration_minutes));
 
   const result = await runIdempotent({
     request,
@@ -692,48 +879,72 @@ const createAppointment = async (request, credential, payload, response, request
         );
       }
 
-      let selectedProfessional = null;
-      for (const candidate of candidates) {
-        const candidateId = Number(candidate.id);
-        await client.query(
-          `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
-          [candidateId, date],
-        );
-        const conflict = await client.query(
-          `
-            SELECT 1
-            FROM appointments
-            WHERE professional_id = $1
-              AND appointment_date = $2::date
-              AND (
-                status = 'confirmed'
-                OR (status = 'pending_payment' AND created_at > NOW() - INTERVAL '40 minutes')
-              )
-              AND start_time < $4::time
-              AND end_time > $3::time
-            LIMIT 1
-          `,
-          [candidateId, date, startTime, endTime],
-        );
-        const block = await client.query(
-          `
-            SELECT 1
-            FROM schedule_blocks
-            WHERE professional_id = $1
-              AND block_date = $2::date
-              AND start_time < $4::time
-              AND end_time > $3::time
-            LIMIT 1
-          `,
-          [candidateId, date, startTime, endTime],
-        );
-        if (!conflict.rows[0] && !block.rows[0]) {
-          selectedProfessional = candidate;
-          break;
-        }
+      const holdResult = await client.query(
+        `
+          SELECT hold.*,
+                 to_char(hold.hold_date, 'YYYY-MM-DD') AS hold_date,
+                 to_char(hold.start_time, 'HH24:MI') AS start_time,
+                 to_char(hold.end_time, 'HH24:MI') AS end_time,
+                 hold.expires_at > NOW() AS active,
+                 service.name AS service_name,
+                 service.duration_minutes,
+                 service.cost_amount,
+                 professional.name AS professional_name,
+                 professional.specialty AS professional_specialty
+          FROM agreement_api_holds hold
+          INNER JOIN services service ON service.id = hold.service_id
+          INNER JOIN professionals professional ON professional.id = hold.professional_id
+          WHERE hold.public_id = $1
+            AND hold.agreement_id = $2
+            AND hold.credential_id = $3
+          FOR UPDATE OF hold
+        `,
+        [holdId, credential.agreement_id, credential.id],
+      );
+      const hold = holdResult.rows[0];
+      if (!hold) {
+        throw apiError("hold_not_found", "Pre-reserva no encontrada.", 404);
       }
+      if (hold.consumed_at) {
+        throw apiError(
+          "hold_already_consumed",
+          "La pre-reserva ya fue utilizada.",
+          409,
+          hold.appointment_id ? { appointment_id: Number(hold.appointment_id) } : undefined,
+        );
+      }
+
+      const serviceId = Number(hold.service_id);
+      const date = hold.hold_date;
+      const startTime = hold.start_time;
+      const endTime = hold.end_time;
+      const service = {
+        id: serviceId,
+        name: hold.service_name,
+        duration_minutes: Number(hold.duration_minutes),
+        cost_amount: Number(hold.cost_amount || 0),
+      };
+      const selectedProfessional = await selectAvailableCandidate({
+        client,
+        candidates: [
+          {
+            id: Number(hold.professional_id),
+            name: hold.professional_name,
+            specialty: hold.professional_specialty || "",
+          },
+        ],
+        date,
+        startTime,
+        endTime,
+        ignoreHoldId: Number(hold.id),
+      });
       if (!selectedProfessional) {
-        throw apiError("slot_unavailable", "Ese horario ya no está disponible.", 409);
+        throw apiError(
+          "slot_unavailable",
+          "Ese horario ya no está disponible.",
+          409,
+          { hold_id: holdId, hold_expired: !Boolean(hold.active) },
+        );
       }
 
       const canonicalPatient = await client.query(
@@ -790,7 +1001,12 @@ const createAppointment = async (request, credential, payload, response, request
           Boolean(credential.agreement_cobranded),
           Number(service.cost_amount || 0),
           paymentReference,
-          JSON.stringify({ confirmed_by: "agreement_api", external_id: externalId }),
+          JSON.stringify({
+            confirmed_by: "agreement_api",
+            external_id: externalId,
+            hold_id: holdId,
+            hold_expired_at_confirmation: !Boolean(hold.active),
+          }),
           credential.id,
           externalId,
           publicId,
@@ -807,6 +1023,14 @@ const createAppointment = async (request, credential, payload, response, request
         patient_first_name: patient.first_name,
         patient_last_name: patient.last_name,
       };
+      await client.query(
+        `
+          UPDATE agreement_api_holds
+          SET consumed_at = NOW(), appointment_id = $2
+          WHERE id = $1
+        `,
+        [hold.id, appointment.id],
+      );
       return {
         statusCode: 201,
         body: { data: mapPartnerAppointment(appointment) },
@@ -824,6 +1048,7 @@ const createAppointment = async (request, credential, payload, response, request
           agreement_id: credential.agreement_id,
           credential_id: credential.id,
           external_id: externalId,
+          hold_id: holdId,
           patient_notified: notification.patient?.ok === true,
           professional_notified: notification.professional?.ok === true,
         },
@@ -1008,7 +1233,21 @@ const updateAppointment = async (
         `,
         [professionalId, date, startTime, endTime],
       );
-      if (conflict.rows[0] || block.rows[0]) {
+      const activeHold = await client.query(
+        `
+          SELECT 1
+          FROM agreement_api_holds
+          WHERE professional_id = $1
+            AND hold_date = $2::date
+            AND consumed_at IS NULL
+            AND expires_at > NOW()
+            AND start_time < $4::time
+            AND end_time > $3::time
+          LIMIT 1
+        `,
+        [professionalId, date, startTime, endTime],
+      );
+      if (conflict.rows[0] || block.rows[0] || activeHold.rows[0]) {
         throw apiError("slot_unavailable", "Ese horario ya no está disponible.", 409);
       }
       const canonicalPatient = await client.query(
@@ -1354,7 +1593,7 @@ export const handleAgreementApi = async (request, response, url) => {
             id: credential.agreement_id,
             name: credential.agreement_name,
             timezone: config.googleCalendarTimeZone,
-            capabilities: ["availability", "create", "list", "reschedule", "cancel"],
+            capabilities: ["availability", "hold", "create", "list", "reschedule", "cancel"],
           },
         },
         requestId,
@@ -1371,6 +1610,11 @@ export const handleAgreementApi = async (request, response, url) => {
     }
     if (url.pathname === "/api/partners/v1/availability" && request.method === "GET") {
       await listAvailability(credential, url, response, requestId);
+      return true;
+    }
+    if (url.pathname === "/api/partners/v1/holds" && request.method === "POST") {
+      const payload = await readPartnerJson(request);
+      await createHold(request, credential, payload, response, requestId);
       return true;
     }
     if (url.pathname === "/api/partners/v1/appointments" && request.method === "GET") {

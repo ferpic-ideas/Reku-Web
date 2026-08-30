@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Reku API de acuerdos",
-    "version": "1.0.0",
-    "description": "API server-to-server para consultar disponibilidad y operar turnos pagados por acuerdos no nominados."
+    "version": "1.1.0",
+    "description": "API server-to-server para consultar disponibilidad, pre-reservar durante 10 minutos y operar turnos pagados por acuerdos no nominados."
   },
   "servers": [{ "url": "https://www.reku.io/api/partners/v1" }],
   "security": [{ "bearerAuth": [] }],
@@ -39,6 +39,26 @@
           { "name": "professional_id", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
         ],
         "responses": { "200": { "description": "Días y slots disponibles" }, "422": { "$ref": "#/components/responses/ValidationError" } }
+      }
+    },
+    "/holds": {
+      "post": {
+        "summary": "Pre-reservar un horario durante 10 minutos",
+        "description": "El horario deja de ofrecerse inmediatamente. Al vencer, se libera automáticamente. Un hold vencido todavía puede confirmarse si el horario continúa libre; si otro lo tomó, responde 409 slot_unavailable.",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateHold" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Horario pre-reservado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HoldResponse" } } } },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
       }
     },
     "/appointments": {
@@ -118,15 +138,38 @@
       },
       "CreateAppointment": {
         "type": "object",
-        "required": ["external_id", "service_id", "date", "start_time", "patient"],
+        "required": ["external_id", "hold_id", "patient"],
         "properties": {
           "external_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$" },
+          "hold_id": { "type": "string", "pattern": "^hold_[a-f0-9]{32}$", "description": "Pre-reserva obtenida con POST /holds. Puede confirmarse después de vencer si el horario aún está libre." },
+          "payment_reference": { "type": "string", "maxLength": 200, "description": "Referencia del pago en el sistema del acuerdo. Si se omite, se usa external_id." },
+          "patient": { "$ref": "#/components/schemas/Patient" }
+        }
+      },
+      "CreateHold": {
+        "type": "object",
+        "required": ["service_id", "date", "start_time"],
+        "properties": {
           "service_id": { "type": "integer", "minimum": 1 },
           "professional_id": { "type": "integer", "minimum": 1, "description": "Opcional. Si se omite, Reku asigna el primer profesional disponible." },
           "date": { "type": "string", "format": "date" },
-          "start_time": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" },
-          "payment_reference": { "type": "string", "maxLength": 200, "description": "Referencia del pago en el sistema del acuerdo. Si se omite, se usa external_id." },
-          "patient": { "$ref": "#/components/schemas/Patient" }
+          "start_time": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" }
+        }
+      },
+      "HoldResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "pattern": "^hold_[a-f0-9]{32}$" },
+              "status": { "type": "string", "enum": ["active", "expired", "consumed"] },
+              "expires_at": { "type": "string", "format": "date-time" },
+              "schedule": { "type": "object" },
+              "service": { "type": "object" },
+              "professional": { "type": "object" }
+            }
+          }
         }
       },
       "UpdateAppointment": {

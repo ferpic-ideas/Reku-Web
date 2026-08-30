@@ -742,7 +742,7 @@ export const computeSlots = async ({
   }
 
   const dayOfWeek = dateToDow(date);
-  const [availability, blocks, appointments, googleBusyByDate] = await Promise.all([
+  const [availability, blocks, appointments, agreementApiHolds, googleBusyByDate] = await Promise.all([
     query(
       `
         SELECT to_char(start_time, 'HH24:MI') AS start_time,
@@ -778,6 +778,18 @@ export const computeSlots = async ({
       `,
       [professionalId, date, excludeAppointmentId],
     ),
+    query(
+      `
+        SELECT to_char(start_time, 'HH24:MI') AS start_time,
+               to_char(end_time, 'HH24:MI') AS end_time
+        FROM agreement_api_holds
+        WHERE professional_id = $1
+          AND hold_date = $2::date
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+      `,
+      [professionalId, date],
+    ),
     externalBusyRanges
       ? Promise.resolve({ [date]: externalBusyRanges })
       : getBookingGoogleBusyRanges({
@@ -794,6 +806,7 @@ export const computeSlots = async ({
   const busyRanges = [
     ...blocks.rows,
     ...appointments.rows,
+    ...agreementApiHolds.rows,
     ...(googleBusyByDate[date] || []),
   ];
   const slots = filterSlotsByMinimumNotice({
@@ -1017,6 +1030,25 @@ const createAppointment = async (payload, response, url, link) => {
         [professionalId, date, startTime, endTime],
       );
       if (conflict.rows.length) {
+        const error = new Error("BOOKING_SLOT_TAKEN");
+        error.statusCode = 409;
+        throw error;
+      }
+      const activeHold = await client.query(
+        `
+          SELECT id
+          FROM agreement_api_holds
+          WHERE professional_id = $1
+            AND hold_date = $2::date
+            AND consumed_at IS NULL
+            AND expires_at > NOW()
+            AND start_time < $4::time
+            AND end_time > $3::time
+          LIMIT 1
+        `,
+        [professionalId, date, startTime, endTime],
+      );
+      if (activeHold.rows.length) {
         const error = new Error("BOOKING_SLOT_TAKEN");
         error.statusCode = 409;
         throw error;
@@ -1762,6 +1794,25 @@ const reschedulePatientAppointment = async (request, response) => {
       [appointment.professional_id, date, appointment.id, startTime, endTime],
     );
     if (conflict.rows.length) {
+      const error = new Error("BOOKING_SLOT_TAKEN");
+      error.statusCode = 409;
+      throw error;
+    }
+    const activeHold = await client.query(
+      `
+        SELECT id
+        FROM agreement_api_holds
+        WHERE professional_id = $1
+          AND hold_date = $2::date
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+          AND start_time < $4::time
+          AND end_time > $3::time
+        LIMIT 1
+      `,
+      [appointment.professional_id, date, startTime, endTime],
+    );
+    if (activeHold.rows.length) {
       const error = new Error("BOOKING_SLOT_TAKEN");
       error.statusCode = 409;
       throw error;

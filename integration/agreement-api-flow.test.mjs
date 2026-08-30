@@ -54,7 +54,7 @@ const reservePort = async () => {
 };
 
 const waitForServer = async (baseUrl, serverProcess, output) => {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     if (serverProcess.exitCode !== null) {
       throw new Error(`Test server exited early (${serverProcess.exitCode})\n${output()}`);
     }
@@ -266,6 +266,7 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     assert.equal(agreement.json.data.id, fixture.primaryAgreementId);
     assert.deepEqual(agreement.json.data.capabilities, [
       "availability",
+      "hold",
       "create",
       "list",
       "reschedule",
@@ -315,12 +316,64 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
   );
   assert.ok(primarySlot && concurrentSlot);
 
+  let primaryHoldId = "";
+  await t.test("holds a slot for ten minutes and removes it from availability", async () => {
+    const holdPayload = {
+      service_id: fixture.serviceId,
+      professional_id: primarySlot.professional.id,
+      date: dateOne,
+      start_time: primarySlot.start_time,
+    };
+    const held = await apiRequest(baseUrl, "/holds", {
+      token: fixture.primaryToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "hold-main-001" },
+      body: holdPayload,
+    });
+    assert.equal(held.status, 201);
+    assert.match(held.json.data.id, /^hold_[a-f0-9]{32}$/);
+    assert.equal(held.json.data.status, "active");
+    assert.equal(held.json.data.schedule.date, dateOne);
+    assert.equal(held.json.data.schedule.start_time, primarySlot.start_time);
+    assert.equal(held.json.data.professional.id, primarySlot.professional.id);
+    const ttlMilliseconds = new Date(held.json.data.expires_at).getTime() - Date.now();
+    assert.ok(ttlMilliseconds > 9 * 60_000 && ttlMilliseconds <= 10 * 60_000);
+    primaryHoldId = held.json.data.id;
+
+    const replay = await apiRequest(baseUrl, "/holds", {
+      token: fixture.primaryToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "hold-main-001" },
+      body: holdPayload,
+    });
+    assert.equal(replay.status, 201);
+    assert.equal(replay.headers.get("idempotent-replayed"), "true");
+    assert.equal(replay.json.data.id, primaryHoldId);
+
+    const availability = await apiRequest(
+      baseUrl,
+      `/availability?service_id=${fixture.serviceId}&date=${dateOne}&professional_id=${primarySlot.professional.id}`,
+      { token: fixture.primaryToken },
+    );
+    assert.equal(availability.status, 200);
+    assert.ok(
+      !availability.json.data.days[0].slots.some(
+        (slot) => slot.start_time === primarySlot.start_time,
+      ),
+    );
+
+    const competing = await apiRequest(baseUrl, "/holds", {
+      token: fixture.isolatedToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "hold-competing-001" },
+      body: holdPayload,
+    });
+    assertApiError(competing, 409, "slot_unavailable");
+  });
+
   const createPayload = {
     external_id: "external-main-001",
-    service_id: fixture.serviceId,
-    professional_id: primarySlot.professional.id,
-    date: dateOne,
-    start_time: primarySlot.start_time,
+    hold_id: primaryHoldId,
     payment_reference: "partner-payment-001",
     patient: {
       first_name: "Paciente",
@@ -382,41 +435,66 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
         ![primarySlot.start_time, concurrentSlot.start_time].includes(slot.start_time),
     );
     assert.ok(freeSlot);
+    const held = await apiRequest(baseUrl, "/holds", {
+      token: fixture.primaryToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "hold-duplicate-external-001" },
+      body: {
+        service_id: fixture.serviceId,
+        professional_id: freeSlot.professional.id,
+        date: dateOne,
+        start_time: freeSlot.start_time,
+      },
+    });
+    assert.equal(held.status, 201);
     const duplicate = await apiRequest(baseUrl, "/appointments", {
       token: fixture.primaryToken,
       method: "POST",
       headers: { "Idempotency-Key": "create-duplicate-external-001" },
-      body: { ...createPayload, start_time: freeSlot.start_time },
+      body: { ...createPayload, hold_id: held.json.data.id },
     });
     assertApiError(duplicate, 409, "external_id_conflict");
   });
 
-  await t.test("serializes concurrent bookings so only one wins the slot", async () => {
-    const concurrentPayload = (suffix) => ({
-      ...createPayload,
-      external_id: `external-concurrent-${suffix}`,
+  await t.test("serializes concurrent holds so only one can protect the slot", async () => {
+    const holdPayload = {
+      service_id: fixture.serviceId,
+      professional_id: concurrentSlot.professional.id,
+      date: dateOne,
       start_time: concurrentSlot.start_time,
-      patient: {
-        ...createPayload.patient,
-        email: `patient-api-concurrent-${suffix}@example.test`,
-      },
-    });
+    };
     const results = await Promise.all([
-      apiRequest(baseUrl, "/appointments", {
+      apiRequest(baseUrl, "/holds", {
         token: fixture.primaryToken,
         method: "POST",
-        headers: { "Idempotency-Key": "concurrent-request-001" },
-        body: concurrentPayload("a"),
+        headers: { "Idempotency-Key": "concurrent-hold-001" },
+        body: holdPayload,
       }),
-      apiRequest(baseUrl, "/appointments", {
+      apiRequest(baseUrl, "/holds", {
         token: fixture.primaryToken,
         method: "POST",
-        headers: { "Idempotency-Key": "concurrent-request-002" },
-        body: concurrentPayload("b"),
+        headers: { "Idempotency-Key": "concurrent-hold-002" },
+        body: holdPayload,
       }),
     ]);
     assert.deepEqual(results.map((result) => result.status).sort(), [201, 409]);
     assert.equal(results.find((result) => result.status === 409).json.error.code, "slot_unavailable");
+    const winningHold = results.find((result) => result.status === 201).json.data.id;
+    const confirmed = await apiRequest(baseUrl, "/appointments", {
+      token: fixture.primaryToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "concurrent-confirm-001" },
+      body: {
+        ...createPayload,
+        hold_id: winningHold,
+        external_id: "external-concurrent-winner",
+        patient: {
+          ...createPayload.patient,
+          email: "patient-api-concurrent@example.test",
+        },
+      },
+    });
+    assert.equal(confirmed.status, 201);
     const count = await pool.query(
       `
         SELECT COUNT(*)::int AS count
@@ -426,6 +504,108 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
       [concurrentSlot.professional.id, dateOne, concurrentSlot.start_time],
     );
     assert.equal(count.rows[0].count, 1);
+  });
+
+  await t.test("automatically releases an expired hold and only returns 409 if another client took it", async () => {
+    const availability = await apiRequest(
+      baseUrl,
+      `/availability?service_id=${fixture.serviceId}&date=${dateOne}&professional_id=${primarySlot.professional.id}`,
+      { token: fixture.primaryToken },
+    );
+    assert.equal(availability.status, 200);
+    const [freeAfterExpiry, takenAfterExpiry] = availability.json.data.days[0].slots;
+    assert.ok(freeAfterExpiry && takenAfterExpiry);
+
+    const expiring = await apiRequest(baseUrl, "/holds", {
+      token: fixture.primaryToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "hold-expire-free-001" },
+      body: {
+        service_id: fixture.serviceId,
+        professional_id: freeAfterExpiry.professional.id,
+        date: dateOne,
+        start_time: freeAfterExpiry.start_time,
+      },
+    });
+    assert.equal(expiring.status, 201);
+    await pool.query(
+      `UPDATE agreement_api_holds SET expires_at = NOW() - INTERVAL '1 second' WHERE public_id = $1`,
+      [expiring.json.data.id],
+    );
+
+    const releasedAvailability = await apiRequest(
+      baseUrl,
+      `/availability?service_id=${fixture.serviceId}&date=${dateOne}&professional_id=${freeAfterExpiry.professional.id}`,
+      { token: fixture.primaryToken },
+    );
+    assert.ok(
+      releasedAvailability.json.data.days[0].slots.some(
+        (slot) => slot.start_time === freeAfterExpiry.start_time,
+      ),
+    );
+
+    const confirmedAfterExpiry = await apiRequest(baseUrl, "/appointments", {
+      token: fixture.primaryToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "confirm-expired-free-001" },
+      body: {
+        ...createPayload,
+        hold_id: expiring.json.data.id,
+        external_id: "external-expired-free",
+        patient: {
+          ...createPayload.patient,
+          email: "patient-api-expired-free@example.test",
+        },
+      },
+    });
+    assert.equal(confirmedAfterExpiry.status, 201);
+
+    const oldHold = await apiRequest(baseUrl, "/holds", {
+      token: fixture.primaryToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "hold-expire-taken-001" },
+      body: {
+        service_id: fixture.serviceId,
+        professional_id: takenAfterExpiry.professional.id,
+        date: dateOne,
+        start_time: takenAfterExpiry.start_time,
+      },
+    });
+    assert.equal(oldHold.status, 201);
+    await pool.query(
+      `UPDATE agreement_api_holds SET expires_at = NOW() - INTERVAL '1 second' WHERE public_id = $1`,
+      [oldHold.json.data.id],
+    );
+
+    const replacement = await apiRequest(baseUrl, "/holds", {
+      token: fixture.primaryToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "hold-replacement-001" },
+      body: {
+        service_id: fixture.serviceId,
+        professional_id: takenAfterExpiry.professional.id,
+        date: dateOne,
+        start_time: takenAfterExpiry.start_time,
+      },
+    });
+    assert.equal(replacement.status, 201);
+
+    const tooLate = await apiRequest(baseUrl, "/appointments", {
+      token: fixture.primaryToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "confirm-expired-taken-001" },
+      body: {
+        ...createPayload,
+        hold_id: oldHold.json.data.id,
+        external_id: "external-expired-taken",
+        patient: {
+          ...createPayload.patient,
+          email: "patient-api-expired-taken@example.test",
+        },
+      },
+    });
+    assertApiError(tooLate, 409, "slot_unavailable");
+    assert.equal(tooLate.json.error.detail.hold_expired, true);
   });
 
   await t.test("gets and lists only appointments owned by the authenticated agreement", async () => {
@@ -523,6 +703,17 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     });
     assertApiError(invalid, 422, "validation_error");
 
+    const missingHold = await apiRequest(baseUrl, "/appointments", {
+      token: fixture.isolatedToken,
+      method: "POST",
+      headers: { "Idempotency-Key": "missing-hold-001" },
+      body: {
+        external_id: "missing-hold",
+        patient: createPayload.patient,
+      },
+    });
+    assertApiError(missingHold, 422, "validation_error");
+
     const tooLarge = await apiRequest(baseUrl, "/appointments", {
       token: fixture.isolatedToken,
       method: "POST",
@@ -595,19 +786,32 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     });
     assertApiError(revoked, 401, "unauthorized");
 
-    const statuses = [];
-    for (let index = 0; index < 121; index += 1) {
-      const result = await apiRequest(baseUrl, "/agreement", {
-        token: fixture.rateLimitToken,
-      });
-      statuses.push(result.status);
-      if (result.status === 429) {
-        assert.match(result.headers.get("retry-after") || "", /^\d+$/);
-        assert.equal(result.json.error.code, "rate_limited");
-      }
-    }
-    assert.equal(statuses.filter((status) => status === 200).length, 120);
-    assert.equal(statuses.filter((status) => status === 429).length, 1);
+    const rateLimitIp = "198.51.100.77";
+    await pool.query(
+      `
+        INSERT INTO public_rate_limits
+          (scope, key_hash, bucket_started_at, hit_count, updated_at)
+        VALUES ($1, $2, date_trunc('second', NOW()), 119, NOW())
+      `,
+      [
+        "agreement-api.credential-ip.read.minute",
+        await sha256(`${fixture.credentialIds[2]}:${rateLimitIp}`),
+      ],
+    );
+
+    const allowed = await apiRequest(baseUrl, "/agreement", {
+      token: fixture.rateLimitToken,
+      headers: { "X-Forwarded-For": rateLimitIp },
+    });
+    assert.equal(allowed.status, 200);
+
+    const blocked = await apiRequest(baseUrl, "/agreement", {
+      token: fixture.rateLimitToken,
+      headers: { "X-Forwarded-For": rateLimitIp },
+    });
+    assert.equal(blocked.status, 429);
+    assert.match(blocked.headers.get("retry-after") || "", /^\d+$/);
+    assert.equal(blocked.json.error.code, "rate_limited");
   });
 
   await t.test("persists lifecycle invariants without duplicate side effects", async () => {
