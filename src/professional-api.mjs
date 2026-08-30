@@ -913,6 +913,8 @@ const mapAppointment = (row) => ({
   status: row.status || "",
   cancelled_at: row.cancelled_at || null,
   cancellation_reason: row.cancellation_reason || "",
+  patient_waiting_started_at: row.patient_waiting_started_at || null,
+  patient_waiting_last_seen_at: row.patient_waiting_last_seen_at || null,
   refund_status: row.refund_status || "not_required",
   google_meet_url: professionalMeetUrl(
     row.google_meet_url,
@@ -957,6 +959,8 @@ const listProfessionalAppointments = async (
         a.status,
         a.cancelled_at,
         a.cancellation_reason,
+        a.patient_waiting_started_at,
+        a.patient_waiting_last_seen_at,
         a.refund_status,
         a.google_meet_url,
         google_connection.google_email AS professional_google_email,

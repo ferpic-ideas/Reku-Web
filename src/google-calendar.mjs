@@ -62,12 +62,49 @@ const decrypt = (payload) =>
     decryptErrorCode: "GOOGLE_TOKEN_DECRYPT_FAILED",
   });
 
-const googleError = (status, detail = "") => {
+const googleError = (status, detail = "", retryAfter = "") => {
   const error = new Error("GOOGLE_API_ERROR");
   error.statusCode = status === 429 ? 503 : 502;
   error.googleStatus = status;
   error.detail = String(detail || "").slice(0, 500);
+  error.googleRetryAfter = Math.max(0, Number.parseFloat(retryAfter) || 0);
   return error;
+};
+
+export const isRetryableGoogleError = (error) => {
+  const status = Number(error?.googleStatus || 0);
+  if ([429, 500, 502, 503, 504].includes(status)) return true;
+  if (status !== 403) return false;
+  return /(?:rate\s*limit|userRateLimitExceeded|quotaExceeded)/i.test(
+    String(error?.detail || ""),
+  );
+};
+
+export const googleRetryDelayMs = (error, attempt, random = Math.random) => {
+  const retryAfterMs = Number(error?.googleRetryAfter || 0) * 1_000;
+  if (retryAfterMs > 0) return Math.min(10_000, retryAfterMs);
+  const exponentialMs = 500 * 2 ** Math.max(0, Number(attempt) || 0);
+  const jitterMs = Math.floor(Math.max(0, Math.min(1, Number(random()) || 0)) * 250);
+  return Math.min(10_000, exponentialMs + jitterMs);
+};
+
+export const withGoogleRetry = async (
+  operation,
+  {
+    maxRetries = 3,
+    sleep = (milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    random = Math.random,
+  } = {},
+) => {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt >= maxRetries || !isRetryableGoogleError(error)) throw error;
+      await sleep(googleRetryDelayMs(error, attempt, random));
+    }
+  }
 };
 
 const fetchGoogle = async (url, options = {}) => {
@@ -86,6 +123,7 @@ const fetchGoogle = async (url, options = {}) => {
     throw googleError(
       response.status,
       payload.error_description || payload.error?.message || payload.error || text,
+      response.headers.get("retry-after"),
     );
   }
   return payload;
@@ -423,28 +461,32 @@ const accessTokenFor = async (connection, { forceRefresh = false } = {}) => {
 };
 
 const calendarRequest = async (connection, path, options = {}) => {
-  const token = await accessTokenFor(connection);
-  try {
-    return await fetchGoogle(`${calendarApi}${path}`, {
-      ...options,
-      headers: {
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...(options.headers || {}),
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  } catch (error) {
-    if (error.googleStatus !== 401) throw error;
-    const refreshed = await accessTokenFor(connection, { forceRefresh: true });
-    return fetchGoogle(`${calendarApi}${path}`, {
-      ...options,
-      headers: {
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...(options.headers || {}),
-        Authorization: `Bearer ${refreshed}`,
-      },
-    });
-  }
+  let token = await accessTokenFor(connection);
+  let refreshedAfterUnauthorized = false;
+  return withGoogleRetry(async () => {
+    try {
+      return await fetchGoogle(`${calendarApi}${path}`, {
+        ...options,
+        headers: {
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          ...(options.headers || {}),
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    } catch (error) {
+      if (error.googleStatus !== 401 || refreshedAfterUnauthorized) throw error;
+      token = await accessTokenFor(connection, { forceRefresh: true });
+      refreshedAfterUnauthorized = true;
+      return fetchGoogle(`${calendarApi}${path}`, {
+        ...options,
+        headers: {
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          ...(options.headers || {}),
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    }
+  });
 };
 
 const meetRequest = async (connection, path, options = {}) => {

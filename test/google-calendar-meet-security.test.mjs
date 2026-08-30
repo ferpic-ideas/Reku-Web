@@ -4,6 +4,9 @@ import test from "node:test";
 import {
   buildConfirmedCalendarRequest,
   buildProtectedCalendarRequest,
+  googleRetryDelayMs,
+  isRetryableGoogleError,
+  withGoogleRetry,
 } from "../src/google-calendar.mjs";
 
 const appointment = {
@@ -78,4 +81,54 @@ test("invalid patient emails are not sent to Google Calendar", () => {
   });
 
   assert.deepEqual(JSON.parse(request.options.body).attendees, []);
+});
+
+test("Calendar retries transient quota errors with bounded backoff", async () => {
+  const delays = [];
+  let calls = 0;
+  const result = await withGoogleRetry(
+    async () => {
+      calls += 1;
+      if (calls < 3) {
+        const error = new Error("GOOGLE_API_ERROR");
+        error.googleStatus = 403;
+        error.detail = "Rate Limit Exceeded";
+        throw error;
+      }
+      return { ok: true };
+    },
+    {
+      sleep: async (delay) => delays.push(delay),
+      random: () => 0,
+    },
+  );
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls, 3);
+  assert.deepEqual(delays, [500, 1000]);
+});
+
+test("Calendar does not retry permanent authorization errors", async () => {
+  const error = new Error("GOOGLE_API_ERROR");
+  error.googleStatus = 403;
+  error.detail = "Forbidden";
+  assert.equal(isRetryableGoogleError(error), false);
+  assert.equal(
+    isRetryableGoogleError({ googleStatus: 429, detail: "Too many requests" }),
+    true,
+  );
+  assert.equal(
+    googleRetryDelayMs({ googleRetryAfter: 30 }, 0, () => 0),
+    10_000,
+  );
+
+  let calls = 0;
+  await assert.rejects(
+    withGoogleRetry(async () => {
+      calls += 1;
+      throw error;
+    }),
+    error,
+  );
+  assert.equal(calls, 1);
 });

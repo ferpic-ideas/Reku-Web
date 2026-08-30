@@ -1081,8 +1081,15 @@
       (!patient.detail_appointment || isFutureAppointment(detailAppointment)) &&
       Boolean(detailAppointment?.id);
     const reminderSentAt = detailAppointment?.triage_reminder_sent_at;
+    const waitingLastSeenAt = detailAppointment?.patient_waiting_last_seen_at
+      ? new Date(detailAppointment.patient_waiting_last_seen_at).getTime()
+      : 0;
     const waitingForThisAppointment =
-      Number(state.waitingAppointmentId) === Number(detailAppointment?.id);
+      Number(state.waitingAppointmentId) === Number(detailAppointment?.id) &&
+      detailAppointment?.status === 'confirmed' &&
+      Number.isFinite(waitingLastSeenAt) &&
+      waitingLastSeenAt > 0 &&
+      Date.now() - waitingLastSeenAt <= 90_000;
     const waitingStartsAt = detailAppointment
       ? appointmentTime(detailAppointment, 'start_time')
       : null;
