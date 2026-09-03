@@ -13,5 +13,6 @@ backups
 logs
 *.txt
 !robots.txt
+!llms.txt
 docker-compose.yml
 *.md
