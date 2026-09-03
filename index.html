@@ -1476,6 +1476,105 @@
         height: 22px;
       }
 
+      /* COMO FUNCIONA */
+      #como-funciona .como-steps-grid {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0;
+      }
+      #como-funciona .como-steps-line {
+        position: absolute;
+        top: 52px;
+        left: calc(12.5% + 12px);
+        right: calc(12.5% + 12px);
+        height: 2px;
+        background: linear-gradient(90deg, var(--cyan), var(--navy-light));
+        z-index: 0;
+      }
+      #como-funciona .como-steps-grid > div:not(.como-steps-line) {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        align-items: center;
+        padding: 0 16px;
+      }
+      #como-funciona
+        .como-steps-grid
+        > div:not(.como-steps-line)
+        > div:first-child {
+        display: flex;
+        width: 100%;
+        min-height: 360px;
+        align-items: flex-end;
+        justify-content: center;
+        margin-bottom: 18px;
+        padding: 20px 18px 0;
+        overflow: hidden;
+        border: 1px solid rgba(47, 58, 104, 0.06);
+        border-radius: 22px;
+        background: linear-gradient(180deg, #f9fbfd 0%, #eef5f8 100%);
+      }
+      #como-funciona
+        .como-steps-grid
+        > div:not(.como-steps-line):last-child
+        > div:first-child {
+        align-items: center;
+        padding: 20px 18px;
+      }
+      #como-funciona
+        .como-steps-grid
+        > div:not(.como-steps-line)
+        > div:last-child {
+        width: 100%;
+        flex: 1;
+        padding: 22px 20px 24px;
+        border-radius: 16px;
+        background: var(--gray);
+      }
+      #como-funciona
+        .como-steps-grid
+        > div:not(.como-steps-line)
+        > div:last-child
+        > div:first-child {
+        display: inline-block;
+        margin-bottom: 10px;
+        color: var(--cyan-dark);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      #como-funciona .como-steps-grid h3 {
+        margin-bottom: 12px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.35;
+      }
+      #como-funciona .como-steps-grid ul {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        list-style: none;
+      }
+      #como-funciona .como-steps-grid li {
+        display: flex;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      #como-funciona .como-steps-grid li::marker {
+        content: '';
+      }
+      #como-funciona .como-steps-grid li span {
+        flex-shrink: 0;
+        color: var(--cyan);
+        font-weight: 600;
+      }
+
       /* COMO GALLERY */
       .como-gallery {
         margin-top: 40px;
@@ -1670,6 +1769,10 @@
           gap: 20px !important;
         }
 
+        #como-funciona .como-steps-grid > div:not(.como-steps-line) {
+          padding: 0;
+        }
+
         #como-funciona .como-steps-line {
           display: none;
         }
@@ -1857,6 +1960,29 @@
         .forwho-applications h3 {
           font-size: 24px;
           margin-bottom: 24px;
+        }
+
+        #como-funciona
+          .como-steps-grid
+          > div:not(.como-steps-line)
+          > div:first-child {
+          min-height: 280px;
+        }
+
+        #como-funciona
+          .como-steps-grid
+          > div:not(.como-steps-line)
+          > div:first-child
+          img {
+          max-height: 250px !important;
+        }
+
+        #como-funciona
+          .como-steps-grid
+          > div:not(.como-steps-line):last-child
+          > div:first-child
+          img {
+          max-height: 220px !important;
         }
 
         .forwho-application-card img {

@@ -197,6 +197,7 @@ test("static request routing exposes only declared application entrypoints", () 
 
 test("static resolver serves only declared public files and mounts", async () => {
   assert.match(await resolveStaticPath("/index.html"), /index\.html$/);
+  assert.match(await resolveStaticPath("/llms.txt"), /llms\.txt$/);
   assert.match(await resolveStaticPath("/admin/app.js"), /admin\/app\.js$/);
   assert.match(
     await resolveStaticPath("/profesional/app.js"),
@@ -226,6 +227,21 @@ test("static resolver serves only declared public files and mounts", async () =>
   assert.match(
     await resolveStaticPath("/api/docs/openapi.json"),
     /integraciones\/api\/openapi\.json$/,
+  );
+});
+
+test("llms index promotes only public institutional content", async () => {
+  const llmsPath = await resolveStaticPath("/llms.txt");
+  const llms = await readFile(llmsPath, "utf8");
+
+  assert.match(llms, /^# Reku\n/);
+  assert.match(llms, /telerehabilitacion asistida por (?:inteligencia artificial|IA)/i);
+  assert.match(llms, /Diego Rivas/);
+  assert.match(llms, /Declaracion 922\/2024/);
+  assert.doesNotMatch(llms, /dycare|rehub/i);
+  assert.doesNotMatch(
+    llms,
+    /\/(?:admin|profesional(?:-turnos)?|turnos|agenda|alta-pacientes)(?:\/|\b)/i,
   );
 });
 
