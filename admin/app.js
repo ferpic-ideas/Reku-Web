@@ -394,6 +394,20 @@
     `;
   };
 
+  const destructiveIconButton = ({ action, id, label, disabled = false }) => `
+    <button
+      type="button"
+      class="table-icon-button danger"
+      data-action="${escapeHtml(action)}"
+      data-id="${Number(id) || 0}"
+      aria-label="${escapeHtml(label)}"
+      title="${escapeHtml(label)}"
+      ${disabled ? 'disabled' : ''}
+    >
+      ${actionIcon('trash')}
+    </button>
+  `;
+
   const formatDate = (value) => {
     if (!value) return '';
     return new Intl.DateTimeFormat('es-AR', {
@@ -1182,7 +1196,7 @@
             ${
               canManageAppointment(appointment)
                 ? `<div class="modal-actions appointment-detail-actions">
-                    <button type="button" class="danger-button" data-action="cancel-appointment" data-id="${appointment.id}">Cancelar turno</button>
+                    ${destructiveIconButton({ action: 'cancel-appointment', id: appointment.id, label: 'Cancelar turno' })}
                     <button type="button" class="primary-button" data-action="edit-appointment" data-id="${appointment.id}">Editar turno</button>
                   </div>`
                 : ''
@@ -1651,7 +1665,7 @@
             }
             ${
               can('services.delete')
-                ? `<button type="button" class="danger-button" data-action="delete-service" data-id="${service.id}">Eliminar</button>`
+                ? destructiveIconButton({ action: 'delete-service', id: service.id, label: 'Eliminar servicio' })
                 : ''
             }
             ${
@@ -1946,7 +1960,7 @@
             }
             ${
               can('professionals.delete')
-                ? `<button type="button" class="table-icon-button danger" data-action="delete-professional" data-id="${professional.id}" aria-label="Eliminar profesional" title="Eliminar profesional">${actionIcon('trash')}</button>`
+                ? destructiveIconButton({ action: 'delete-professional', id: professional.id, label: 'Eliminar profesional' })
                 : ''
             }
             ${
@@ -2212,14 +2226,7 @@
                     aria-label="Editar turno"
                     title="Editar turno"
                   >${actionIcon('edit')}</button>
-                  <button
-                    type="button"
-                    class="icon-button mini-button danger"
-                    data-action="cancel-appointment"
-                    data-id="${item.id}"
-                    aria-label="Cancelar turno"
-                    title="Cancelar turno"
-                  >${actionIcon('cancel')}</button>`
+                  ${destructiveIconButton({ action: 'cancel-appointment', id: item.id, label: 'Cancelar turno' })}`
                 : ''
             }
           </div>
@@ -2375,7 +2382,7 @@
           <div class="table-actions">
             ${
               can('schedule_blocks.delete')
-                ? `<button type="button" class="danger-button" data-action="delete-schedule-block" data-id="${item.id}">Eliminar</button>`
+                ? destructiveIconButton({ action: 'delete-schedule-block', id: item.id, label: 'Eliminar bloqueo' })
                 : can('schedule_blocks.write')
                   ? ''
                   : '<span class="muted">Solo lectura</span>'
@@ -2462,15 +2469,12 @@
         <td>${escapeHtml(formatDate(item.created_at))}</td>
         <td>
           <div class="table-actions">
-            <button
-              type="button"
-              class="danger-button"
-              data-action="delete-user"
-              data-id="${item.id}"
-              ${canDelete ? '' : 'disabled'}
-            >
-              Eliminar
-            </button>
+            ${destructiveIconButton({
+              action: 'delete-user',
+              id: item.id,
+              label: 'Eliminar usuario',
+              disabled: !canDelete,
+            })}
           </div>
         </td>
       </tr>
@@ -2772,7 +2776,7 @@
             }
             ${
               can('agreements.delete')
-                ? `<button type="button" class="danger-button" data-action="delete-agreement" data-id="${agreement.id}">Eliminar</button>`
+                ? destructiveIconButton({ action: 'delete-agreement', id: agreement.id, label: 'Eliminar acuerdo' })
                 : ''
             }
           </div>
@@ -2968,15 +2972,12 @@
         </td>
         <td>
           <div class="table-actions">
-            <button
-              type="button"
-              class="danger-button"
-              data-action="delete-patient"
-              data-id="${item.id}"
-              ${state.user.can_delete_records ? '' : 'disabled'}
-            >
-              Eliminar
-            </button>
+            ${destructiveIconButton({
+              action: 'delete-patient',
+              id: item.id,
+              label: 'Eliminar paciente',
+              disabled: !state.user.can_delete_records,
+            })}
           </div>
         </td>
       </tr>
@@ -3091,15 +3092,12 @@
         <td>${escapeHtml(item.pacientes)}</td>
         <td>
           <div class="table-actions">
-            <button
-              type="button"
-              class="danger-button"
-              data-action="delete-contact"
-              data-id="${item.id}"
-              ${state.user.can_delete_records ? '' : 'disabled'}
-            >
-              Eliminar
-            </button>
+            ${destructiveIconButton({
+              action: 'delete-contact',
+              id: item.id,
+              label: 'Eliminar contacto',
+              disabled: !state.user.can_delete_records,
+            })}
           </div>
         </td>
       </tr>
@@ -3223,15 +3221,12 @@
         </td>
         <td>
           <div class="table-actions">
-            <button
-              type="button"
-              class="danger-button"
-              data-action="${deleteAction}"
-              data-id="${item.id}"
-              ${state.user.can_delete_records ? '' : 'disabled'}
-            >
-              Eliminar
-            </button>
+            ${destructiveIconButton({
+              action: deleteAction,
+              id: item.id,
+              label: 'Eliminar registro',
+              disabled: !state.user.can_delete_records,
+            })}
           </div>
         </td>
       </tr>
@@ -3374,7 +3369,7 @@
           <div class="table-actions">
             ${
               can('nomina.delete')
-                ? `<button type="button" class="danger-button" data-action="delete-nomina" data-id="${item.id}">Eliminar</button>`
+                ? destructiveIconButton({ action: 'delete-nomina', id: item.id, label: 'Eliminar registro de nómina' })
                 : '<span class="muted">Solo lectura</span>'
             }
           </div>

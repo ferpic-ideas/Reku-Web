@@ -26,7 +26,8 @@ test("admin can edit or cancel only active future appointments", () => {
 test("admin turnos UI exposes reassignment, slot selection and cancellation", async () => {
   const source = await readFile(new URL("../admin/app.js", import.meta.url), "utf8");
   assert.match(source, /data-action="edit-appointment"/);
-  assert.match(source, /data-action="cancel-appointment"/);
+  assert.match(source, /action: 'cancel-appointment'/);
+  assert.match(source, /destructiveIconButton/);
   assert.match(source, /id="appointment-edit-professional"/);
   assert.match(source, /id="appointment-edit-date"/);
   assert.match(source, /id="appointment-edit-slot"/);

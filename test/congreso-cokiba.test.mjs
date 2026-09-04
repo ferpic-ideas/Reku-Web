@@ -181,4 +181,6 @@ test("admin keeps professional applications in the second contacts tab", async (
   assert.match(adminApp, /filterId: 'professional-application-text-filter'/);
   assert.match(adminApp, /\/api\/admin\/professional-applications\.csv/);
   assert.match(adminApp, /deleteAction: 'delete-professional-application'/);
+  assert.match(adminApp, /label: 'Eliminar registro'/);
+  assert.match(adminApp, /destructiveIconButton/);
 });
