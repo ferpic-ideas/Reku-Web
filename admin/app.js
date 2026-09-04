@@ -20,6 +20,7 @@
     agreements: [],
     patients: [],
     contacts: [],
+    professionalApplications: [],
     congressRegistrations: [],
     nominaEntries: [],
     dashboard: null,
@@ -45,6 +46,7 @@
     contactTextFilter: '',
     contactOrganizationFilter: '',
     contactTab: 'website',
+    professionalApplicationTextFilter: '',
     congressTextFilter: '',
     nominaAgreementFilter: '',
     nominaFormFilter: '',
@@ -129,7 +131,7 @@
     appointments: ['appointments', 'professionals'],
     settlements: ['agreements'],
     'patient-intakes': ['agreements', 'patients'],
-    contacts: ['contacts', 'congress_registrations'],
+    contacts: ['contacts', 'professional_applications', 'congress_registrations'],
     users: ['users'],
     config: [],
     audit: [],
@@ -262,9 +264,10 @@
 
   const applyModuleFiltersFromSearch = (moduleId, search = window.location.search) => {
     if (moduleId === 'contacts') {
-      state.contactTab = new URLSearchParams(search).get('tab') === 'cokiba'
-        ? 'congress'
-        : 'website';
+      const tab = new URLSearchParams(search).get('tab');
+      state.contactTab = tab === 'profesionales'
+        ? 'professionals'
+        : tab === 'cokiba' ? 'congress' : 'website';
       return;
     }
     if (moduleId !== 'appointments') return;
@@ -298,6 +301,8 @@
     const params = new URLSearchParams(window.location.search);
     if (state.contactTab === 'congress') {
       params.set('tab', 'cokiba');
+    } else if (state.contactTab === 'professionals') {
+      params.set('tab', 'profesionales');
     } else {
       params.delete('tab');
     }
@@ -603,6 +608,12 @@
         ? await apiAll('/api/admin/contacts', 'contacts')
         : { contacts: [] };
       state.contacts = payload.contacts || [];
+    },
+    professional_applications: async () => {
+      const payload = can('contacts.read')
+        ? await apiAll('/api/admin/professional-applications', 'professional_applications')
+        : { professional_applications: [] };
+      state.professionalApplications = payload.professional_applications || [];
     },
     congress_registrations: async () => {
       const payload = can('contacts.read')
@@ -2867,6 +2878,23 @@
     );
   }
 
+  function filteredProfessionalApplications() {
+    const term = state.professionalApplicationTextFilter.trim().toLowerCase();
+    if (!term) return state.professionalApplications;
+    return state.professionalApplications.filter((item) =>
+      [
+        item.nombre_apellido,
+        item.email,
+        item.telefono,
+        item.profesion,
+        ...(item.ambitos || []),
+        item.interes_telerehabilitacion,
+        item.interes_tecnologia,
+        item.comentario,
+      ].join(' ').toLowerCase().includes(term),
+    );
+  }
+
   function renderPatients() {
     const items = filteredPatients();
     return `
@@ -2957,6 +2985,8 @@
 
   function renderContacts() {
     const websiteActive = state.contactTab === 'website';
+    const professionalsActive = state.contactTab === 'professionals';
+    const congressActive = state.contactTab === 'congress';
     return `
       <section class="panel">
         <div class="record-tabs" role="tablist" aria-label="Origen de los contactos">
@@ -2973,9 +3003,20 @@
           </button>
           <button
             type="button"
-            class="record-tab${websiteActive ? '' : ' active'}"
+            class="record-tab${professionalsActive ? ' active' : ''}"
             role="tab"
-            aria-selected="${!websiteActive}"
+            aria-selected="${professionalsActive}"
+            aria-controls="professional-contacts-panel"
+            data-action="set-contact-tab"
+            data-tab="professionals"
+          >
+            Profesionales <span>${state.professionalApplications.length}</span>
+          </button>
+          <button
+            type="button"
+            class="record-tab${congressActive ? ' active' : ''}"
+            role="tab"
+            aria-selected="${congressActive}"
             aria-controls="congress-contacts-panel"
             data-action="set-contact-tab"
             data-tab="congress"
@@ -2983,7 +3024,9 @@
             Congreso COKIBA <span>${state.congressRegistrations.length}</span>
           </button>
         </div>
-        ${websiteActive ? renderWebsiteContacts() : renderCongressContacts()}
+        ${websiteActive
+          ? renderWebsiteContacts()
+          : professionalsActive ? renderProfessionalApplications() : renderCongressContacts()}
       </section>
     `;
   }
@@ -3076,17 +3119,45 @@
   }
 
   function renderCongressContacts() {
-    const items = filteredCongressRegistrations();
+    return renderQuestionnaireContacts({
+      items: filteredCongressRegistrations(),
+      panelId: 'congress-contacts-panel',
+      filterId: 'congress-text-filter',
+      filterValue: state.congressTextFilter,
+      csvHref: '/api/admin/congress-registrations.csv',
+      csvFilename: 'reku-contactos-congreso-cokiba.csv',
+      emptyMessage: 'No hay registros del Congreso COKIBA.',
+      deleteAction: 'delete-congress-registration',
+    });
+  }
+
+  function renderProfessionalApplications() {
+    return renderQuestionnaireContacts({
+      items: filteredProfessionalApplications(),
+      panelId: 'professional-contacts-panel',
+      filterId: 'professional-application-text-filter',
+      filterValue: state.professionalApplicationTextFilter,
+      csvHref: '/api/admin/professional-applications.csv',
+      csvFilename: 'reku-profesionales-interesados.csv',
+      emptyMessage: 'Todavía no hay profesionales interesados.',
+      deleteAction: 'delete-professional-application',
+    });
+  }
+
+  function renderQuestionnaireContacts({
+    items, panelId, filterId, filterValue, csvHref, csvFilename,
+    emptyMessage, deleteAction,
+  }) {
     return `
-      <div class="record-tab-panel" id="congress-contacts-panel" role="tabpanel">
+      <div class="record-tab-panel" id="${panelId}" role="tabpanel">
         <div class="toolbar compact-filter-toolbar total-right-toolbar">
           <div class="toolbar-actions compact-filter-actions">
             <label class="wide-filter">
               Buscar
               <input
-                id="congress-text-filter"
+                id="${filterId}"
                 type="search"
-                value="${escapeHtml(state.congressTextFilter)}"
+                value="${escapeHtml(filterValue)}"
                 placeholder="Nombre, contacto, profesión o respuesta"
               />
             </label>
@@ -3094,8 +3165,8 @@
           <div class="toolbar-actions toolbar-end-actions">
             <a
               class="secondary-button"
-              href="/api/admin/congress-registrations.csv"
-              download="reku-contactos-congreso-cokiba.csv"
+              href="${csvHref}"
+              download="${csvFilename}"
             >
               Descargar CSV
             </a>
@@ -3119,7 +3190,7 @@
               </tr>
             </thead>
             <tbody>
-              ${items.length ? items.map(renderCongressContactRow).join('') : '<tr><td colspan="10">No hay registros del Congreso COKIBA.</td></tr>'}
+              ${items.length ? items.map((item) => renderQuestionnaireContactRow(item, deleteAction)).join('') : `<tr><td colspan="10">${emptyMessage}</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -3127,7 +3198,7 @@
     `;
   }
 
-  function renderCongressContactRow(item) {
+  function renderQuestionnaireContactRow(item, deleteAction) {
     return `
       <tr>
         <td>${escapeHtml(formatDate(item.created_at))}</td>
@@ -3155,7 +3226,7 @@
             <button
               type="button"
               class="danger-button"
-              data-action="delete-congress-registration"
+              data-action="${deleteAction}"
               data-id="${item.id}"
               ${state.user.can_delete_records ? '' : 'disabled'}
             >
@@ -3501,6 +3572,23 @@
       });
     }
 
+    const professionalApplicationTextFilter = document.getElementById(
+      'professional-application-text-filter',
+    );
+    if (professionalApplicationTextFilter) {
+      professionalApplicationTextFilter.value = state.professionalApplicationTextFilter;
+      professionalApplicationTextFilter.addEventListener('input', () => {
+        state.professionalApplicationTextFilter = professionalApplicationTextFilter.value;
+        render();
+        const nextInput = document.getElementById('professional-application-text-filter');
+        nextInput?.focus();
+        nextInput?.setSelectionRange(
+          state.professionalApplicationTextFilter.length,
+          state.professionalApplicationTextFilter.length,
+        );
+      });
+    }
+
     const nominaFilter = document.getElementById('nomina-agreement-filter');
     if (nominaFilter) {
       nominaFilter.value = state.nominaAgreementFilter;
@@ -3674,7 +3762,7 @@
         return;
       }
       if (action === 'set-contact-tab') {
-        state.contactTab = tab === 'congress' ? 'congress' : 'website';
+        state.contactTab = ['professionals', 'congress'].includes(tab) ? tab : 'website';
         syncContactTabSearch();
         render();
         return;
@@ -3966,6 +4054,17 @@
           id,
           title: 'Eliminar contacto de COKIBA',
           message: 'Esta acción elimina el registro de contacto de COKIBA.',
+        };
+        render();
+        return;
+      }
+      if (action === 'delete-professional-application') {
+        state.dialog = {
+          type: 'confirm-delete',
+          target: 'professional-application',
+          id,
+          title: 'Eliminar profesional interesado',
+          message: 'Esta acción elimina el registro del formulario Sumate a Reku.',
         };
         render();
         return;
@@ -4570,6 +4669,7 @@
       patient: `/api/admin/patients/${id}`,
       contact: `/api/admin/contacts/${id}`,
       'congress-registration': `/api/admin/congress-registrations/${id}`,
+      'professional-application': `/api/admin/professional-applications/${id}`,
       nomina: `/api/admin/nomina/${id}`,
       service: `/api/admin/services/${id}`,
       professional: `/api/admin/professionals/${id}`,
@@ -4582,6 +4682,7 @@
       patient: 'Paciente eliminado.',
       contact: 'Contacto eliminado.',
       'congress-registration': 'Contacto de COKIBA eliminado.',
+      'professional-application': 'Profesional interesado eliminado.',
       nomina: 'Registro eliminado.',
       service: 'Servicio eliminado.',
       professional: 'Profesional eliminado.',

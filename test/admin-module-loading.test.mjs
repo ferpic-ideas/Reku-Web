@@ -139,6 +139,12 @@ test("admin loads only the active module data and reuses fresh references", asyn
     if (path.startsWith("/api/admin/contacts")) {
       return jsonResponse({ contacts: [], pagination: { has_more: false } });
     }
+    if (path.startsWith("/api/admin/professional-applications")) {
+      return jsonResponse({
+        professional_applications: [],
+        pagination: { has_more: false },
+      });
+    }
     if (path.startsWith("/api/admin/congress-registrations")) {
       return jsonResponse({
         congress_registrations: [],
@@ -207,6 +213,7 @@ test("admin loads only the active module data and reuses fresh references", asyn
   assert.deepEqual(await clickModule("services"), ["/api/admin/services"]);
   assert.deepEqual(new Set(await clickModule("contacts")), new Set([
     "/api/admin/contacts?page=1&page_size=500",
+    "/api/admin/professional-applications?page=1&page_size=500",
     "/api/admin/congress-registrations?page=1&page_size=500",
   ]));
   assert.deepEqual(await clickModule("appointments"), [

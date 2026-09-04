@@ -214,6 +214,21 @@ test("admin route policy fails closed for missing and unknown routes", () => {
     "contacts.read",
   );
   assert.equal(
+    requiredPermissionForRequest("GET", "/api/admin/professional-applications"),
+    "contacts.read",
+  );
+  assert.equal(
+    requiredPermissionForRequest("GET", "/api/admin/professional-applications.csv"),
+    "contacts.read",
+  );
+  assert.equal(
+    requiredPermissionForRequest(
+      "DELETE",
+      "/api/admin/professional-applications/12",
+    ),
+    "records.delete",
+  );
+  assert.equal(
     requiredPermissionForRequest(
       "DELETE",
       "/api/admin/congress-registrations/12",

@@ -1153,6 +1153,11 @@ const congressRegistrationSelect = `
   ORDER BY created_at DESC, id DESC
 `;
 
+const professionalApplicationSelect = congressRegistrationSelect.replace(
+  "FROM congreso_cokiba_registrations",
+  "FROM professional_applications",
+);
+
 const mapCongressRegistration = (row) => ({
   id: Number(row.id),
   nombre_apellido: [row.nombre, row.apellido].filter(Boolean).join(" ").trim(),
@@ -1178,6 +1183,19 @@ const listCongressRegistrations = async (url, response) => {
   const page = pageResult(result.rows, pagination);
   sendJson(response, 200, {
     congress_registrations: page.rows.map(mapCongressRegistration),
+    pagination: page.pagination,
+  });
+};
+
+const listProfessionalApplications = async (url, response) => {
+  const pagination = readPagination(url, 500);
+  const result = await query(`${professionalApplicationSelect} LIMIT $1 OFFSET $2`, [
+    pagination.pageSize + 1,
+    pagination.offset,
+  ]);
+  const page = pageResult(result.rows, pagination);
+  sendJson(response, 200, {
+    professional_applications: page.rows.map(mapCongressRegistration),
     pagination: page.pagination,
   });
 };
@@ -1238,6 +1256,49 @@ const downloadCongressRegistrationsCsv = async (response) => {
   response.end(csv);
 };
 
+const downloadProfessionalApplicationsCsv = async (response) => {
+  const result = await query(professionalApplicationSelect);
+  const applications = result.rows.map(mapCongressRegistration);
+  const csv = serializeCsv(
+    [
+      "ID", "Fecha", "Nombre y apellido", "Correo electrónico",
+      "Teléfono / WhatsApp", "Profesión / especialidad", "Ámbitos de trabajo",
+      "Interés en telerehabilitación", "Interés en tecnología", "Comentario",
+      "Origen", "Estado del email",
+    ],
+    applications.map((application) => [
+      application.id,
+      application.created_at ? new Date(application.created_at).toISOString() : "",
+      application.nombre_apellido,
+      application.email,
+      application.telefono,
+      application.profesion,
+      application.ambitos,
+      application.interes_telerehabilitacion,
+      application.interes_tecnologia,
+      application.comentario,
+      application.source_path,
+      application.email_error
+        ? `Error: ${application.email_error}`
+        : application.email_message_id ? "Enviado" : "Pendiente",
+    ]),
+  );
+  response.writeHead(
+    200,
+    withSecurityHeaders(
+      {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Length": String(Buffer.byteLength(csv)),
+        "Content-Disposition":
+          'attachment; filename="reku-profesionales-interesados.csv"',
+        "Cache-Control": "no-store",
+      },
+      { privateRoute: true },
+    ),
+  );
+  response.end(csv);
+};
+
 const deletableRecordTypes = Object.freeze({
   patient_intakes: {
     sql: "DELETE FROM patient_intakes WHERE id = $1",
@@ -1250,6 +1311,10 @@ const deletableRecordTypes = Object.freeze({
   congreso_cokiba_registrations: {
     sql: "DELETE FROM congreso_cokiba_registrations WHERE id = $1",
     eventType: "congreso_cokiba_registrations.deleted",
+  },
+  professional_applications: {
+    sql: "DELETE FROM professional_applications WHERE id = $1",
+    eventType: "professional_applications.deleted",
   },
 });
 
@@ -2871,6 +2936,7 @@ const dashboard = async (response) => {
       (
         (SELECT COUNT(*)::int FROM contacts)
         + (SELECT COUNT(*)::int FROM congreso_cokiba_registrations)
+        + (SELECT COUNT(*)::int FROM professional_applications)
       ) AS contacts,
       (SELECT COUNT(*)::int FROM patients WHERE active = TRUE) AS patients,
       (SELECT COUNT(*)::int FROM patient_intakes) AS patient_intakes,
@@ -3332,6 +3398,32 @@ export const handleAdminApi = async (request, response, url) => {
       request.method === "GET"
     ) {
       await listCongressRegistrations(url, response);
+      return true;
+    }
+    if (
+      pathname === "/api/admin/professional-applications" &&
+      request.method === "GET"
+    ) {
+      await listProfessionalApplications(url, response);
+      return true;
+    }
+    if (
+      pathname === "/api/admin/professional-applications.csv" &&
+      request.method === "GET"
+    ) {
+      await downloadProfessionalApplicationsCsv(response);
+      return true;
+    }
+    const professionalApplicationMatch = pathname.match(
+      /^\/api\/admin\/professional-applications\/(\d+)$/,
+    );
+    if (professionalApplicationMatch && request.method === "DELETE") {
+      await deleteRecord(
+        response,
+        user,
+        "professional_applications",
+        Number(professionalApplicationMatch[1]),
+      );
       return true;
     }
     if (

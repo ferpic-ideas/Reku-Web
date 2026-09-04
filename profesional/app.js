@@ -499,6 +499,9 @@
         </section>
         <section class="login-panel">
           <form id="login-form" class="login-form form-stack">
+            <a class="mobile-login-brand" href="/" aria-label="Ir al inicio de Reku">
+              <img src="/images/logo-reku.svg" alt="Reku" />
+            </a>
             <div>
               <h2>Ingresar</h2>
               <p>Usá las credenciales de tu cuenta profesional.</p>
@@ -515,6 +518,7 @@
               ${state.authSubmitting ? 'Ingresando…' : 'Entrar al portal'}
             </button>
             <button class="auth-link" type="button" data-auth-view="forgot-password">Olvidé mi contraseña</button>
+            <a class="auth-link professional-signup-link" href="/sumate">¿Querés sumarte a Reku?</a>
             <div class="portal-legal-links" aria-label="Información legal">
               <a href="/privacidad/">Privacidad</a>
               <a href="/terminos/">Términos</a>

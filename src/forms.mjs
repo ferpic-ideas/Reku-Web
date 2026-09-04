@@ -62,6 +62,8 @@ const congressTechnologyInterests = new Set([
   "Sí, si es fácil de integrar a mi práctica actual.",
   "No estoy interesado/a.",
 ]);
+const isProfessionalQuestionnaire = (formName) =>
+  formName === "congreso-cokiba" || formName === "sumate-profesional";
 
 const getTrimmedValues = (params, key) =>
   params
@@ -134,11 +136,14 @@ export const normalizeSubmission = (params) => {
     };
   }
 
-  if (formName === "congreso-cokiba") {
+  if (isProfessionalQuestionnaire(formName)) {
     return {
       formName,
       to: config.contactToEmail,
-      subject: "Nuevo registro Congreso COKIBA - Reku",
+      subject:
+        formName === "sumate-profesional"
+          ? "Nuevo profesional interesado - Reku"
+          : "Nuevo registro Congreso COKIBA - Reku",
       replyTo: getTrimmed(params, "email").toLowerCase(),
       values: {
         nombre_apellido:
@@ -219,7 +224,7 @@ export const validateBaseSubmission = (submission) => {
   const errors = {};
   const { formName, values } = submission;
 
-  if (formName === "congreso-cokiba") {
+  if (isProfessionalQuestionnaire(formName)) {
     const fullNameError = validateName(
       values.nombre_apellido,
       "nombre y apellido",
@@ -252,7 +257,7 @@ export const validateBaseSubmission = (submission) => {
     }
   }
 
-  if (formName === "congreso-cokiba") {
+  if (isProfessionalQuestionnaire(formName)) {
     if (!values.profesion) {
       errors.profesion = "Seleccioná tu profesión o especialidad.";
     } else if (!congressProfessions.has(values.profesion)) {
@@ -344,6 +349,33 @@ const insertCongressRegistration = async (submission, requestUrl) => {
   return Number(result.rows[0].id);
 };
 
+const insertProfessionalApplication = async (submission, requestUrl) => {
+  if (!pool) return null;
+  const result = await query(
+    `
+      INSERT INTO professional_applications
+        (
+          nombre, apellido, profesion, telefono, email, ambitos,
+          interes_telerehabilitacion, interes_tecnologia, comentario, source_path
+        )
+      VALUES ($1, '', $2, $3, $4, $5::text[], $6, $7, $8, $9)
+      RETURNING id
+    `,
+    [
+      submission.values.nombre_apellido,
+      submission.values.profesion,
+      submission.values.telefono,
+      submission.values.email,
+      submission.values.ambitos,
+      submission.values.interes_telerehabilitacion || null,
+      submission.values.interes_tecnologia || null,
+      submission.values.comentario || null,
+      requestUrl,
+    ],
+  );
+  return Number(result.rows[0].id);
+};
+
 const updateEmailResult = async (table, id, { messageId = null, error = null }) => {
   if (!pool || !id) return;
   const statements = {
@@ -351,6 +383,8 @@ const updateEmailResult = async (table, id, { messageId = null, error = null }) 
       "UPDATE contacts SET email_message_id = $1, email_error = $2 WHERE id = $3",
     congreso_cokiba_registrations:
       "UPDATE congreso_cokiba_registrations SET email_message_id = $1, email_error = $2 WHERE id = $3",
+    professional_applications:
+      "UPDATE professional_applications SET email_message_id = $1, email_error = $2 WHERE id = $3",
   };
   const statement = statements[table];
   if (!statement) throw new Error("EMAIL_RESULT_TARGET_INVALID");
@@ -393,6 +427,29 @@ const handleCongressRegistration = async (submission, request, response) => {
     sendJson(response, 200, { ok: true, id: result?.id });
   } catch (error) {
     await updateEmailResult("congreso_cokiba_registrations", recordId, {
+      error: error.message,
+    });
+    throw error;
+  }
+};
+
+const handleProfessionalApplication = async (submission, request, response) => {
+  const recordId = await insertProfessionalApplication(submission, request.url);
+  const email = buildContactEmail(submission);
+
+  try {
+    const result = await sendEmail({
+      formName: submission.formName,
+      to: submission.to,
+      replyTo: submission.replyTo,
+      ...email,
+    });
+    await updateEmailResult("professional_applications", recordId, {
+      messageId: result?.id,
+    });
+    sendJson(response, 200, { ok: true, id: result?.id });
+  } catch (error) {
+    await updateEmailResult("professional_applications", recordId, {
       error: error.message,
     });
     throw error;
@@ -451,7 +508,7 @@ export const handleFormSubmission = async (request, response) => {
     const agreement = await loadSubmissionAgreement(submission);
     const baseErrors = validateBaseSubmission(submission);
 
-    if (["contact", "congreso-cokiba", "booking-help"].includes(submission.formName)) {
+    if (["contact", "congreso-cokiba", "sumate-profesional", "booking-help"].includes(submission.formName)) {
       await enforceContactRateLimits({
         clientIp: getClientIp(request),
         email: submission.values.email,
@@ -487,6 +544,14 @@ export const handleFormSubmission = async (request, response) => {
     if (submission.formName === "congreso-cokiba") {
       await handleCongressRegistration(submission, request, response);
       await recordAudit("congreso_cokiba.registration_created", {
+        detail: { email: submission.values.email },
+      });
+      return;
+    }
+
+    if (submission.formName === "sumate-profesional") {
+      await handleProfessionalApplication(submission, request, response);
+      await recordAudit("professional_application.created", {
         detail: { email: submission.values.email },
       });
       return;

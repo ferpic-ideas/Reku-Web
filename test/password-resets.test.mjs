@@ -72,6 +72,8 @@ test("admin and professional login screens expose scoped recovery flows", async 
   assert.match(admin, /\/api\/admin\/auth\/password-reset'/);
   assert.match(admin, /history\.replaceState/);
   assert.match(professional, /Olvidé mi contraseña/);
+  assert.match(professional, /¿Querés sumarte a Reku\?/);
+  assert.match(professional, /mobile-login-brand/);
   assert.match(professional, /\/api\/professional\/auth\/password-reset\/request/);
   assert.match(professional, /\/api\/professional\/auth\/password-reset'/);
   assert.match(professional, /history\.replaceState/);

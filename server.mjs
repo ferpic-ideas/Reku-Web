@@ -219,7 +219,7 @@ const server = createServer(async (request, response) => {
 
     if (
       request.method === "POST" &&
-      ["/", "/congreso-cokiba", "/congreso-cokiba/", "/turnos", "/turnos/"].includes(
+      ["/", "/congreso-cokiba", "/congreso-cokiba/", "/sumate", "/sumate/", "/turnos", "/turnos/"].includes(
         pathname,
       )
     ) {

@@ -107,6 +107,13 @@ const routeRules = [
     /^\/api\/admin\/congress-registrations\/\d+$/,
     "records.delete",
   ],
+  ["GET", /^\/api\/admin\/professional-applications$/, "contacts.read"],
+  ["GET", /^\/api\/admin\/professional-applications\.csv$/, "contacts.read"],
+  [
+    "DELETE",
+    /^\/api\/admin\/professional-applications\/\d+$/,
+    "records.delete",
+  ],
   ["GET", /^\/api\/admin\/nomina$/, "nomina.read"],
   ["POST", /^\/api\/admin\/nomina$/, "nomina.write"],
   ["POST", /^\/api\/admin\/nomina\/import$/, "nomina.write"],

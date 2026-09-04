@@ -169,6 +169,8 @@ test("static request routing exposes only declared application entrypoints", () 
     resolveStaticRequestPath("/congreso-cokiba/"),
     "/congreso-cokiba/index.html",
   );
+  assert.equal(resolveStaticRequestPath("/sumate"), "/congreso-cokiba/index.html");
+  assert.equal(resolveStaticRequestPath("/sumate/"), "/congreso-cokiba/index.html");
   assert.equal(
     resolveStaticRequestPath("/admin/turnos"),
     "/admin/index.html",
@@ -177,6 +179,7 @@ test("static request routing exposes only declared application entrypoints", () 
     resolveStaticRequestPath("/profesional-turnos/"),
     "/profesional-turnos/index.html",
   );
+  assert.equal(resolveStaticRequestPath("/profesionales"), "/profesional/index.html");
   assert.equal(
     resolveStaticRequestPath("/profesional-turnos"),
     "/profesional-turnos/index.html",

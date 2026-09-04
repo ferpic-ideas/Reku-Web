@@ -279,6 +279,10 @@ export const resolveStaticRequestPath = (pathname) => {
     return "/congreso-cokiba/index.html";
   }
 
+  if (pathname === "/sumate" || pathname === "/sumate/") {
+    return "/congreso-cokiba/index.html";
+  }
+
   if (pathname === "/integraciones/api" || pathname === "/integraciones/api/") {
     return "/integraciones/api/index.html";
   }
@@ -302,6 +306,8 @@ export const resolveStaticRequestPath = (pathname) => {
   const isProfessionalPage =
     pathname === "/profesional" ||
     pathname === "/profesional/" ||
+    pathname === "/profesionales" ||
+    pathname === "/profesionales/" ||
     (pathname.startsWith("/profesional/") &&
       !pathname.slice("/profesional/".length).includes("."));
   if (isProfessionalPage) return "/profesional/index.html";

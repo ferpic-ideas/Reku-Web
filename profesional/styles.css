@@ -111,6 +111,21 @@ button:disabled {
   margin: auto;
 }
 
+.mobile-login-brand {
+  display: none;
+}
+
+.mobile-login-brand img {
+  display: block;
+  width: 128px;
+  height: auto;
+}
+
+.professional-signup-link {
+  display: block;
+  text-align: center;
+}
+
 .login-form h2 {
   margin: 0 0 8px;
   font-size: 32px;
@@ -1350,6 +1365,12 @@ td a {
 
   .login-story {
     display: none;
+  }
+
+  .mobile-login-brand {
+    display: block;
+    width: fit-content;
+    margin: 0 auto 12px;
   }
 
   .form-grid {

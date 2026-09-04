@@ -1,4 +1,5 @@
 (() => {
+  const isProfessionalSignup = ["/sumate", "/sumate/"].includes(window.location.pathname);
   const form = document.getElementById("congreso-form");
   const submitButton = document.getElementById("submit-button");
   const formStatus = document.getElementById("form-status");
@@ -7,6 +8,26 @@
 
   if (!form || !submitButton || !formStatus || !successState || !newResponseButton) {
     return;
+  }
+
+  if (isProfessionalSignup) {
+    document.title = "Sumate a Reku | Profesionales";
+    document.querySelector('meta[name="description"]')?.setAttribute(
+      "content",
+      "Formulario para profesionales que quieren sumarse a Reku.",
+    );
+    document.querySelector(".eyebrow").textContent = "Profesionales Reku";
+    document.getElementById("page-title").textContent = "Sumate a Reku";
+    document.querySelector(".intro-copy").textContent =
+      "Completá tus datos, contanos cómo trabajás y conocé cómo formar parte de la red profesional de Reku.";
+    form.action = "/sumate";
+    form.querySelector('[name="reku-form"]').value = "sumate-profesional";
+    submitButton.textContent = "Quiero sumarme";
+    document.querySelector(".form-note").textContent =
+      "Usaremos estos datos únicamente para evaluar tu perfil y contactarte sobre Reku.";
+    successState.querySelector("h2").textContent = "¡Gracias por tu interés!";
+    successState.querySelector("p").textContent =
+      "Recibimos tus datos y nos pondremos en contacto a la brevedad.";
   }
 
   const requiredFields = ["nombre_apellido", "email", "telefono", "profesion"];
@@ -129,7 +150,7 @@
     submitButton.textContent = "Enviando...";
 
     try {
-      const response = await fetch("/congreso-cokiba/", {
+      const response = await fetch(isProfessionalSignup ? "/sumate" : "/congreso-cokiba/", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams(new FormData(form)).toString(),
@@ -158,7 +179,7 @@
       );
     } finally {
       submitButton.disabled = false;
-      submitButton.textContent = "Registrarme";
+      submitButton.textContent = isProfessionalSignup ? "Quiero sumarme" : "Registrarme";
     }
   });
 

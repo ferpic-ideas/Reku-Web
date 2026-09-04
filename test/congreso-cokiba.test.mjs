@@ -46,6 +46,27 @@ test("congreso COKIBA normalizes the questionnaire and accepts personal email", 
   });
 });
 
+test("sumate profesionales uses the same questionnaire with a separate form identity", () => {
+  const params = validParams();
+  params.set("reku-form", "sumate-profesional");
+  const submission = normalizeSubmission(params);
+
+  assert.equal(submission.formName, "sumate-profesional");
+  assert.equal(submission.subject, "Nuevo profesional interesado - Reku");
+  assert.deepEqual(validateBaseSubmission(submission), {});
+});
+
+test("sumate route customizes the shared COKIBA form for professionals", async () => {
+  const app = await readFile(
+    new URL("../congreso-cokiba/app.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(app, /isProfessionalSignup/);
+  assert.match(app, /sumate-profesional/);
+  assert.match(app, /Sumate a Reku/);
+  assert.match(app, /Quiero sumarme/);
+});
+
 test("congreso COKIBA only requires contact data and profession", () => {
   const params = validParams();
   params.delete("ambito");
@@ -142,10 +163,22 @@ test("admin exposes searchable, downloadable and deletable COKIBA contacts", asy
   );
 
   assert.match(adminApp, /Congreso COKIBA/);
-  assert.match(adminApp, /id="congress-text-filter"/);
+  assert.match(adminApp, /filterId: 'congress-text-filter'/);
   assert.match(adminApp, /\/api\/admin\/congress-registrations/);
   assert.match(adminApp, /\/api\/admin\/congress-registrations\.csv/);
-  assert.match(adminApp, /data-action="delete-congress-registration"/);
+  assert.match(adminApp, /deleteAction: 'delete-congress-registration'/);
   assert.match(adminApp, /\/api\/admin\/congress-registrations\/\$\{id\}/);
   assert.match(adminApp, /Descargar CSV/);
+});
+
+test("admin keeps professional applications in the second contacts tab", async () => {
+  const adminApp = await readFile(
+    new URL("../admin/app.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(adminApp, /data-tab="professionals"[\s\S]*Profesionales/);
+  assert.match(adminApp, /filterId: 'professional-application-text-filter'/);
+  assert.match(adminApp, /\/api\/admin\/professional-applications\.csv/);
+  assert.match(adminApp, /deleteAction: 'delete-professional-application'/);
 });
