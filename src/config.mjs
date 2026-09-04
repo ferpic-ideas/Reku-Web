@@ -39,6 +39,8 @@ export const config = {
     process.env.BOOKING_ACCESS_COOKIE_NAME || "reku_booking_access",
   bookingEmailVerificationEnabled:
     process.env.BOOKING_EMAIL_VERIFICATION_ENABLED !== "false",
+  allowBookingEmailVerificationDisabledInProduction:
+    process.env.ALLOW_BOOKING_EMAIL_VERIFICATION_DISABLED_IN_PRODUCTION === "true",
   patientAppointmentSessionCookieName:
     process.env.PATIENT_APPOINTMENT_SESSION_COOKIE_NAME ||
     "reku_patient_appointment_session",
@@ -136,8 +138,14 @@ export const assertSafeStartup = () => {
   if (isProduction && !config.sessionSecure) {
     throw new Error("SESSION_SECURE must be true in production");
   }
-  if (isProduction && !config.bookingEmailVerificationEnabled) {
-    throw new Error("BOOKING_EMAIL_VERIFICATION_ENABLED must be true in production");
+  if (
+    isProduction &&
+    !config.bookingEmailVerificationEnabled &&
+    !config.allowBookingEmailVerificationDisabledInProduction
+  ) {
+    throw new Error(
+      "BOOKING_EMAIL_VERIFICATION_ENABLED must be true in production unless the explicit temporary override is enabled",
+    );
   }
   if (config.uploadMaxBytes < 1 || config.csvUploadMaxBytes < 1) {
     throw new Error("Upload limits must be positive");
