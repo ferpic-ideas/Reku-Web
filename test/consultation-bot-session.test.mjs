@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Readable } from 'node:stream';
-import { forgetConsultationSession, handleConsultationBot } from '../src/consultation-bot.mjs';
+import { forgetConsultationSession, handleConsultationBot, welcomeMessages } from '../src/consultation-bot.mjs';
+
+test('second welcome message explains AI audio transcription', () => {
+  assert.equal(welcomeMessages.length, 2);
+  assert.equal(welcomeMessages[1], 'Podés escribirlo o, si te resulta más cómodo, mandar un audio. Nosotros lo transcribimos a texto con ayuda de IA.');
+});
 
 test('reset forgets only the session for this cookie and host', () => {
   const store = new Map([['a', { host: 'ypf.reku.io', instanceId: 'old' }], ['b', { host: 'www.reku.io', instanceId: 'other' }]]);

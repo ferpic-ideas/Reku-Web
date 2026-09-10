@@ -15,7 +15,7 @@ import { requireBotReportKey } from "./consultation-bot-report-storage.mjs";
 
 export const welcomeMessages = [
   "Hola, bienvenido a Reku. Necesitamos que nos cuentes el motivo de tu consulta: si es una lesión o una dolencia que venís arrastrando, cómo empezó, en qué zona, cuánto te duele del 1 al 10 y desde hace cuánto tiempo.",
-  "Podés escribirlo o, si te resulta más cómodo, mandar un audio.",
+  "Podés escribirlo o, si te resulta más cómodo, mandar un audio. Nosotros lo transcribimos a texto con ayuda de IA.",
 ];
 const cookieName = "reku_consultation_bot";
 const ttl = 2 * 60 * 60 * 1000;
