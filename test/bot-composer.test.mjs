@@ -7,7 +7,7 @@ import vm from 'node:vm';
 test('intro invites a detailed account and steps remain informational without progress highlighting', async () => {
   const html = await readFile(new URL('../bot/index.html', import.meta.url), 'utf8');
   const script = await readFile(new URL('../bot/app.js', import.meta.url), 'utf8');
-  assert.match(html, /con el mayor detalle que puedas\.<br \/>Si lo haces mandando un audio no te preocupes por el orden: contalo como te salga que nosotros con AI lo pasamos a texto y luego lo organizamos\./);
+  assert.match(html, /con el mayor detalle que puedas\.<br \/>Si preferís mandar un audio, no te preocupes por el orden: hablá como te salga\. Con ayuda de IA, lo pasamos a texto y lo organizamos para tu consulta\./);
   assert.equal((html.match(/class="step" id="step-/g) || []).length, 3);
   assert.doesNotMatch(html, /class="step active"/);
   assert.doesNotMatch(script, /\$\('step-(?:talk|detail|report)'\)/);
