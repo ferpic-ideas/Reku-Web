@@ -115,16 +115,20 @@ test("ambiguity pauses until the patient clarifies or explicitly cannot answer",
   assert.equal(turn.next.complete, true);
   assert.equal(turn.data.complaints[1].pain, 3);
 });
-test("zero followups is valid; no selection before essentials or after urgency", async () => {
+test("zero followups is valid; only missing essentials prevent selection, not legacy triage", async () => {
   let calls = 0;
   const chooseFollowup = async () => { calls++; return null; };
   const turn = await advanceConsultation({ data: state(), version: 1 }, msgs("ok"), { analyze: async () => state([]), chooseFollowup });
   assert.equal(turn.next.complete, true);
   assert.equal(calls, 1);
   await advanceConsultation({ data: state([complaint("c1", { onset: null })]), version: 1 }, msgs("hola"), { analyze: async () => state([]), chooseFollowup });
-  const urgent = await advanceConsultation({ data: state(), version: 1 }, msgs("alarma"), { analyze: async () => ({ ...state([]), urgent: true }), chooseFollowup });
-  assert.equal(urgent.next.urgent, true);
   assert.equal(calls, 1);
+  const legacy = await advanceConsultation({ data: state(), version: 1 }, msgs("ok"), { analyze: async () => ({ ...state([]), urgent: true, urgentReason: "legacy" }), chooseFollowup });
+  assert.equal(legacy.next.complete, true);
+  assert.equal(legacy.next.urgent, undefined);
+  assert.equal(legacy.data.urgent, undefined);
+  assert.equal(legacy.data.urgentReason, undefined);
+  assert.equal(calls, 2);
 });
 test("followup ledger allows at most three total and preserves literal answers for the report", async () => {
   let session = { data: state(), version: 1 };

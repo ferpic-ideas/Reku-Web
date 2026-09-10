@@ -15,7 +15,7 @@ const candidate = { sentences: [
   { text: "Refiere dolor en la rodilla derecha desde hace un mes, iniciado con un esfuerzo.", evidence: ["Me duele la rodilla derecha hace un mes por un esfuerzo."] },
   { text: "Lo califica en 8/10 y cuenta que le cuesta subir escaleras.", evidence: ["8. Me cuesta subir escaleras."] },
 ] };
-const approved = { faithful: true, complete: true, uncertaintyPreserved: true, noDiagnosisAdded: true, noContradictions: true, respectful: true, confidence: "high" };
+const approved = { faithful: true, complete: true, uncertaintyPreserved: true, noDiagnosisAdded: true, noRecommendations: true, noContradictions: true, respectful: true, confidence: "high" };
 function provider(outputs) {
   const requests = [];
   return { requests, settings: { apiKey: "test", model: "test" }, fetchImpl: async (_url, options) => {
@@ -38,6 +38,17 @@ test("unsupported citations never reach the reviewer", async () => {
   const mock = provider([{ sentences: [{ text: "Tiene una fractura.", evidence: ["tengo una fractura"] }] }]);
   assert.equal(await buildConsultationNarrative(session(), mock), fallbackConsultationNarrative(session().data));
   assert.equal(mock.requests.length, 1);
+});
+test("a recommendation disguised as a grounded narrative is rejected", async () => {
+  const advice = { sentences: [{ text: "Se sugiere evaluación presencial urgente.", evidence: ["8. Me cuesta subir escaleras."] }] };
+  const mock = provider([advice, { ...approved, noRecommendations: false }]);
+  const result = await buildConsultationNarrative(session(), mock);
+  assert.equal(result, fallbackConsultationNarrative(session().data));
+  assert.doesNotMatch(result, /Se sugiere|presencial urgente/);
+  assert.match(result, /8\/10/);
+  assert.match(result, /subir escaleras/);
+  assert.ok(mock.requests.every(request => request.instructions.includes("noRecommendations=false")));
+  assert.ok(mock.requests[1].text.format.schema.required.includes("noRecommendations"));
 });
 for (const key of Object.keys(approved)) test(`narrative falls back when review fails ${key}`, async () => {
   const mock = provider([candidate, { ...approved, [key]: key === "confidence" ? "uncertain" : false }]);

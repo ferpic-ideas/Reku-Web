@@ -143,8 +143,9 @@ export function mergeConsultationData(previous, extracted, latestText, lastQuest
       globalEvidence[field] = quote;
     }
   }
+  const { urgent: _legacyUrgent, urgentReason: _legacyUrgentReason, ...intake } = extracted;
   return {
-    ...extracted, complaints, corrections, retiredComplaintIds: [...retired], invalidatedFields,
+    ...intake, complaints, corrections, retiredComplaintIds: [...retired], invalidatedFields,
     ...globalValues, globalEvidence, invalidatedGlobalFields: [...invalidatedGlobalFields],
     followups: structuredClone(previous?.followups || []).filter(item => !retired.has(item.complaintId)
       && !corrections.some(correction => correction.complaintId === item.complaintId)),
@@ -162,13 +163,13 @@ export async function advanceConsultation(session, messages, { analyze = analyze
   signal.throwIfAborted();
   const data = mergeConsultationData(session.data, extracted, latestText, lastQuestion);
   const correcting = data.corrections.length > 0 || ["correction", "correction_unclear"].includes(extracted.lastAnswer?.status);
-  if (!data.urgent && extracted.lastAnswer?.status === "correction_unclear") {
+  if (extracted.lastAnswer?.status === "correction_unclear") {
     return { data, next: { key: "correction", field: "correction", text: "Perdón, puede que te haya entendido mal. ¿Qué dato querés corregir y cómo es en realidad?" } };
   }
-  if (!data.urgent && !correcting && lastQuestion?.field === "correction" && ["unclear", "unrelated"].includes(extracted.lastAnswer?.status)) {
+  if (!correcting && lastQuestion?.field === "correction" && ["unclear", "unrelated"].includes(extracted.lastAnswer?.status)) {
     return { data, next: { ...lastQuestion, text: "Todavía no me quedó claro qué entendí mal. ¿Podés decirme qué dato hay que cambiar y cuál sería el correcto?" } };
   }
-  if (!data.urgent && !correcting && lastQuestion?.field === "followup" && ["unclear", "unrelated"].includes(extracted.lastAnswer?.status)) {
+  if (!correcting && lastQuestion?.field === "followup" && ["unclear", "unrelated"].includes(extracted.lastAnswer?.status)) {
     const baseText = lastQuestion.baseText || lastQuestion.text;
     return { data, next: { ...lastQuestion, baseText, text: `No me quedó clara tu respuesta. ${baseText} Si no lo sabés o preferís no responder, podés decirlo.` } };
   }
@@ -178,7 +179,7 @@ export async function advanceConsultation(session, messages, { analyze = analyze
   }
   // Ambiguity is not a refusal: clarify without inventing an answer or marking
   // the field complete. Only an explicit unknown/refusal can close it.
-  if (!data.urgent && !correcting && lastQuestion?.complaintId && lastQuestion.field !== "followup" && extracted.lastAnswer?.status === "unclear") {
+  if (!correcting && lastQuestion?.complaintId && lastQuestion.field !== "followup" && extracted.lastAnswer?.status === "unclear") {
     const item = data.complaints.find(item => item.id === lastQuestion.complaintId);
     if (item) {
       const baseText = lastQuestion.baseText || lastQuestion.text;
@@ -189,7 +190,7 @@ export async function advanceConsultation(session, messages, { analyze = analyze
     }
   }
   const next = nextConsultationStep(data);
-  if (correcting && !data.urgent) next.text = `Gracias por aclararlo. ${next.text}`;
+  if (correcting) next.text = `Gracias por aclararlo. ${next.text}`;
   if (!next.complete || session.version >= 24 || data.followupCount >= MAX_CONSULTATION_FOLLOWUPS) return { data, next };
   const followup = await chooseFollowup(data, messages, { onDecision: onFollowupDecision, signal });
   parentSignal?.throwIfAborted();

@@ -22,6 +22,14 @@ function provider(outputs) {
   };
 }
 
+test("review rejects clinical advice disguised as a question", async () => {
+  const mock = provider([plan, { question: "¿Podés acudir a una guardia para una evaluación urgente?" }, { ...approved, noRecommendations: false }]);
+  assert.equal(await chooseReviewedFollowup(data, messages, mock), null);
+  assert.equal(mock.decisions.at(-1).reason, "review_rejected");
+  assert.ok(mock.requests.every(request => request.instructions.includes("noRecommendations=false")));
+  assert.ok(mock.requests[2].text.format.schema.required.includes("noRecommendations"));
+});
+
 test("followup stages share one 20 second deadline without bypassing review", async (t) => {
   const timeouts = [];
   t.mock.method(AbortSignal, "timeout", ms => { timeouts.push(ms); return new AbortController().signal; });
@@ -186,7 +194,9 @@ test("zero is valid and three is a ceiling, not a target", async () => {
   const third = provider([plan, draft, approved]);
   assert.ok(await chooseReviewedFollowup({ ...data, followups: prior }, messages, third));
   assert.equal(JSON.parse(third.requests[0].input[0].content).remaining, 1);
-  for (const state of [{ ...data, followups: [...prior, { topic: "tema 3" }] }, { ...data, urgent: true }]) {
+  const legacy = provider([plan, draft, approved]);
+  assert.ok(await chooseReviewedFollowup({ ...data, urgent: true }, messages, legacy));
+  for (const state of [{ ...data, followups: [...prior, { topic: "tema 3" }] }]) {
     const mock = provider([]);
     assert.equal(await chooseReviewedFollowup(state, messages, mock), null);
     assert.equal(mock.requests.length, 0);

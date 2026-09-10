@@ -9,6 +9,21 @@ const empty = () => ({ complaints: [], priorCare: null, goal: null, globalEviden
   lastAnswer: { status: "unrelated", value: null, evidence: null } });
 const response = data => ({ ok: true, json: async () => ({ status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify(data) }] }] }) });
 
+test("extraction is intake-only and discards legacy triage fields", async () => {
+  for (const field of ["urgent", "urgentReason"]) {
+    assert.equal(intakeSchema.properties[field], undefined);
+    assert.ok(!intakeSchema.required.includes(field));
+  }
+  const result = await analyzeConsultation([{ role: "user", text: "hola" }], {
+    settings, fetchImpl: async (_url, options) => {
+      assert.match(JSON.parse(options.body).instructions, /No clasifiques urgencia o gravedad/);
+      return response({ ...empty(), urgent: true, urgentReason: "legacy clinical assessment" });
+    },
+  });
+  assert.equal(result.urgent, undefined);
+  assert.equal(result.urgentReason, undefined);
+});
+
 test("global facts require literal patient evidence, never assistant suggestions", async () => {
   const result = await analyzeConsultation([{ role: "user", text: "Me molesta un tobillo" }, { role: "assistant", text: "¿Te operaron? ¿Querés correr?" }], {
     settings, fetchImpl: async () => response({ ...empty(), priorCare: "Cirugía", goal: "Correr", globalEvidence: { priorCare: "operaron", goal: "correr" } }),
@@ -92,7 +107,7 @@ test("narrative generation and review share one deadline and keep correction met
     const input = JSON.parse(payload.input[0].content);
     assert.deepEqual(input.data.invalidatedGlobalFields, ["priorCare"]);
     if (signals.length === 1) return response({ sentences: [{ text: "Aclara que no fue operado.", evidence: ["Nunca me operaron"] }] });
-    return response({ faithful: true, complete: true, uncertaintyPreserved: true, noDiagnosisAdded: true, noContradictions: true, respectful: true, confidence: "high" });
+    return response({ faithful: true, complete: true, uncertaintyPreserved: true, noDiagnosisAdded: true, noRecommendations: true, noContradictions: true, respectful: true, confidence: "high" });
   } });
   assert.equal(paragraph, "Aclara que no fue operado.");
   assert.deepEqual(timeouts, [20_000]);

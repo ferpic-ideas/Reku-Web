@@ -189,13 +189,13 @@ export const handleConsultationBot = async (request, response, url) => {
         const { data, next } = await advanceConsultation(session, messages, { signal: controller.signal, onFollowupDecision: event => diagnostics.push({ ...event, turn: session.version + 1 }) });
         controller.signal.throwIfAborted();
         const exhausted = session.version >= 24;
-        const reply = exhausted && !next.complete && !next.urgent
+        const reply = exhausted && !next.complete
           ? "Gracias por tu tiempo. Dejamos un informe parcial con lo que nos contaste y los datos pendientes para revisar con el profesional. Podés descargarlo acá abajo."
           : next.text;
         // Commit the one-use marker before exposing a completed interview.
         // A lost HTTP response cannot grant a new interview on another device.
         if (productionAccess) {
-          const completed = Boolean(next.urgent || next.complete || exhausted);
+          const completed = Boolean(next.complete || exhausted);
           // Use the grounded fallback here so report durability adds no extra
           // provider calls to the final message's deadline.
           const reportPdf = completed ? await renderConsultationReport({ ...session, data, updatedAt: Date.now() }) : undefined;
@@ -208,7 +208,7 @@ export const handleConsultationBot = async (request, response, url) => {
         session.lastQuestion = next;
         session.followupDiagnostics = [...(session.followupDiagnostics || []), ...diagnostics].slice(-5);
         for (const event of diagnostics) console.info("Consultation bot followup decision", { diagnosticId: session.diagnosticId, ...event });
-        session.status = next.urgent ? "urgent" : next.complete ? "complete" : exhausted ? "partial" : "collecting";
+        session.status = next.complete ? "complete" : exhausted ? "partial" : "collecting";
         session.version++;
         session.lastRequestId = body.requestId;
         session.updatedAt = Date.now();

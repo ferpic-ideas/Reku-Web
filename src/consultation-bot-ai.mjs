@@ -46,8 +46,6 @@ export const intakeSchema = {
       required: globalEvidenceKeys,
     },
     contextAnswered: { type: "boolean" },
-    urgent: { type: "boolean" },
-    urgentReason: string,
     corrections: {
       type: "array", maxItems: 20, items: {
         type: "object", additionalProperties: false,
@@ -66,7 +64,7 @@ export const intakeSchema = {
       }, required: ["status", "value", "evidence"],
     },
   },
-  required: ["complaints", "priorCare", "goal", "globalEvidence", "contextAnswered", "urgent", "urgentReason", "corrections", "lastAnswer"],
+  required: ["complaints", "priorCare", "goal", "globalEvidence", "contextAnswered", "corrections", "lastAnswer"],
 };
 
 const instructions = `Sos el extractor de una entrevista de admisión para telerehabilitación kinésica de Reku.
@@ -102,7 +100,8 @@ limitations: actividad/movimiento que cuesta o agrava el dolor; también sirve '
 priorCare: consultas, diagnóstico referido, cirugía reciente, estudios o tratamientos previos por esta molestia; sólo si lo dijo. goal: actividad que quiere recuperar. Cada valor no nulo requiere globalEvidence con una cita literal del paciente; no deduzcas antecedentes de preguntas ni objetivos de una actividad que hoy duele. Las negaciones explícitas deben conservar su sentido y jamás convertirse en antecedentes positivos.
 contextAnswered=true sólo si contestó la pregunta opcional sobre atención previa y objetivos (también si prefiere omitirla), o si ya contó AMBAS cosas espontáneamente.
 Si ante una pregunta el paciente explícitamente no sabe o no desea responder, registrá 'No informado: no recuerda' o 'No informado: prefiere no responder' en el campo correspondiente y no lo inventes. Para dolor dejá pain=null y painNote='No informado: prefiere no responder' (o no sabe cuantificar). No trates mensajes fuera de tema como negativas.
-urgent=true sólo ante síntomas expresamente relatados de posible urgencia actual: dolor de pecho con falta de aire, lesión con deformidad o imposibilidad de apoyar tras trauma, fiebre con articulación caliente/hinchada, pérdida nueva de fuerza/sensibilidad, pérdida nueva de control de esfínteres o anestesia perineal, o dolor actual insoportable 10/10. No diagnostiques la causa. Diferenciá negaciones y hechos pasados/resueltos. urgentReason cita brevemente lo relatado. Si no hay relato de alarma, urgent=false y urgentReason=null; esto NO significa que se hayan descartado urgencias.
+El asistente sólo organiza el relato para el profesional, que decide su evaluación y las acciones a seguir. No clasifiques urgencia o gravedad, no hagas triage, no sugieras atención presencial, derivaciones, tratamientos ni conductas. Tampoco asegures que puede esperar o que no necesita atención. Conservá los síntomas, intensidad y limitaciones tal como los contó, diferenciando negaciones y hechos pasados/resueltos, sin convertirlos en recomendaciones.
+No asignes categorías clínicas de riesgo, gravedad, prioridad ni aptitud para telerehabilitación. Un número de dolor es sólo lo informado por el paciente: no lo traduzcas a una categoría. Si el paciente usa una descripción como 'leve' o refiere un diagnóstico previo, conservá su atribución sin adoptarlo como evaluación propia.
 Escribí en español rioplatense conciso. No incluyas nombres, emails ni otros identificadores aunque aparezcan; es una prueba sin ficha de paciente.`;
 
 export const analyzeConsultation = async (messages, { fetchImpl = fetch, settings = botSettings, repairEvidence = false, previousData = null, lastQuestion = null, invalidEvidence = [], signal = AbortSignal.timeout(20_000) } = {}) => {
@@ -128,7 +127,10 @@ export const analyzeConsultation = async (messages, { fetchImpl = fetch, setting
   if (body.status !== "completed") throw new Error("BOT_INCOMPLETE_RESPONSE");
   const output = body.output?.flatMap((item) => item.content || []).filter((item) => item.type === "output_text").map((item) => item.text).join("");
   const data = JSON.parse(output || "null");
-  if (!data || !Array.isArray(data.complaints) || data.complaints.length > 5 || typeof data.urgent !== "boolean") throw new Error("BOT_INVALID_RESPONSE");
+  if (!data || !Array.isArray(data.complaints) || data.complaints.length > 5) throw new Error("BOT_INVALID_RESPONSE");
+  // Ignore triage fields from legacy/provider responses; this is intake only.
+  delete data.urgent;
+  delete data.urgentReason;
   const normalize = (text) => String(text || "").normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
   const patientMessages = messages.filter(message => message.role === "user").map(message => normalize(message.text));
   const grounded = (quote) => Boolean(normalize(quote)) && patientMessages.some(message => message.includes(normalize(quote)));
@@ -174,7 +176,6 @@ const hasValue = (value) => typeof value === "string" && Boolean(value.trim());
 const unknownPainAccepted = (value) => /^No informado:/i.test(value || "");
 
 export const nextConsultationStep = (data) => {
-  if (data.urgent) return { key: "urgent", urgent: true, complete: false, text: "Gracias por contarnos. Por lo que describís, necesitás una evaluación médica presencial urgente. Acercate a una guardia; si no podés trasladarte o hay una emergencia, llamá al servicio de emergencias local. No esperes al turno de telerehabilitación. Dejamos tu relato resumido para que puedas descargarlo." };
   if (!data.complaints.length) return { key: "reason", text: "Contame qué molestia o lesión te trae a la consulta y en qué parte del cuerpo la sentís." };
   for (const [index, item] of data.complaints.entries()) {
     const question = (key, text) => ({ key: `${item.id || index}.${key}`, field: key, complaintId: item.id,

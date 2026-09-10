@@ -20,7 +20,7 @@ const gapSchema = {
 const draftSchema = { type: "object", additionalProperties: false,
   properties: { question: { type: ["string", "null"] } }, required: ["question"],
 };
-export const FOLLOWUP_REVIEW_CHECKS = ["relevant", "useful", "notAlreadyAnswered", "clear", "respectful", "nonIntrusive", "nonDiscriminatory", "noDiagnosis", "safe", "grounded", "functionalImpactAppropriate", "matchesGap"];
+export const FOLLOWUP_REVIEW_CHECKS = ["relevant", "useful", "notAlreadyAnswered", "clear", "respectful", "nonIntrusive", "nonDiscriminatory", "noDiagnosis", "noRecommendations", "safe", "grounded", "functionalImpactAppropriate", "matchesGap"];
 const riskChecks = { patientWantsToStop: "notAlreadyAnswered", requiresPhysicalAction: "safe", inappropriateActivityQuestion: "functionalImpactAppropriate", sensitiveOrDisrespectful: "nonIntrusive", multipleTopics: "clear" };
 const reviewSchema = { type: "object", additionalProperties: false,
   properties: {
@@ -95,8 +95,8 @@ export async function chooseReviewedFollowup(data, messages, { fetchImpl = fetch
     // Never log candidate text, rationale, patient messages, sources or errors.
     try { onDecision({ stage, reason, ...(kind ? { kind } : {}), ...extra, elapsedMs: Date.now() - started }); } catch { /* diagnostics cannot interrupt care */ }
   };
-  if (!settings.apiKey || data.urgent || (data.followups || []).length >= MAX_CONSULTATION_FOLLOWUPS) {
-    record(!settings.apiKey ? "not_configured" : data.urgent ? "urgent" : "limit_reached");
+  if (!settings.apiKey || (data.followups || []).length >= MAX_CONSULTATION_FOLLOWUPS) {
+    record(!settings.apiKey ? "not_configured" : "limit_reached");
     return null;
   }
   // One shared repair budget for planning/drafting technical defects only.

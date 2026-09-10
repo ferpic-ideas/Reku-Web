@@ -69,11 +69,6 @@ export const renderConsultationReport = async (session, { narrative = fallbackCo
   row("Fecha", new Date(session.updatedAt).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", hour12: false }));
   row(session.appointmentId ? "Turno" : "Paciente", session.appointmentId ? `Referencia ${session.appointmentId}` : "Prueba sin datos de identificación ni turno asociado");
   if (session.brand.slug) row("Acuerdo", `${session.brand.name} (${session.brand.slug})`);
-  if (session.data?.urgent) {
-    heading("Atención presencial urgente sugerida");
-    row("Relato que motivó el aviso", session.data.urgentReason);
-    row("Orientación mostrada", "Evaluación médica presencial urgente. No esperar al turno de telerehabilitación; contactar emergencias locales si corresponde.");
-  }
   heading("El relato del paciente");
   doc.font("Helvetica").fontSize(9).fillColor(muted).text("Síntesis organizada a partir de sus mensajes; no es una cita textual.", 48, doc.y, { width });
   doc.moveDown(0.6).fontSize(11).fillColor(navy).text(narrative, 48, doc.y, { width, lineGap: 3 });
@@ -82,7 +77,7 @@ export const renderConsultationReport = async (session, { narrative = fallbackCo
     heading(complaints.length > 1 ? `Datos obtenidos - Motivo ${index + 1}` : "Datos obtenidos de la conversación");
     rows.forEach(([label, value]) => row(label, value));
   });
-  const notice = "Resumen asistido por IA a partir del relato del paciente. No constituye un diagnóstico, una indicación de tratamiento ni una evaluación de aptitud para telerehabilitación. Los datos no informados y las incertidumbres requieren revisión del profesional. No se realizó un descarte completo de signos de alarma.";
+  const notice = "Resumen asistido por IA a partir del relato del paciente. Sólo organiza la información aportada; no realiza diagnósticos, clasificaciones clínicas ni recomendaciones. La evaluación y las decisiones corresponden al profesional. Los datos no informados y las incertidumbres se conservan para su revisión.";
   doc.font("Helvetica").fontSize(9);
   if (doc.y + 12 + doc.heightOfString(notice, { width, lineGap: 3 }) > 750) doc.addPage();
   doc.moveDown(0.8).fillColor(muted).text(notice, 48, doc.y, { width, lineGap: 3 });

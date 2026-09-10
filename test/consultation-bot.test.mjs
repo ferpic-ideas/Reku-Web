@@ -6,10 +6,10 @@ import { serveStatic } from "../src/http.mjs";
 import { renderConsultationReport, formatConsultationReportValue } from "../src/consultation-bot-report.mjs";
 import { readFile } from "node:fs/promises";
 
-test("PDF header omits Estado while retaining urgent guidance", async () => {
+test("PDF omits status, triage and automatic clinical guidance", async () => {
   const source = await readFile(new URL('../src/consultation-bot-report.mjs', import.meta.url), 'utf8');
   assert.ok(!/row\("Estado"/.test(source));
-  assert.match(source, /Atención presencial urgente sugerida/);
+  assert.doesNotMatch(source, /Atención presencial urgente sugerida|Orientación mostrada|urgentReason|data\?\.urgent/);
 });
 
 test("PDF values capitalize only their initial character without changing numbers or remaining text", () => {
@@ -73,12 +73,15 @@ test("unclear areas and separate complaints preserve their missing detail", () =
   const data = complete(); data.complaints.push({ ...data.complaints[0], location: "brazo", locationClear: false });
   assert.equal(nextConsultationStep(data).key, "1.detail");
 });
-test("urgent symptoms interrupt the regular questionnaire", () => {
-  const data = complete(); data.urgent = true; data.complaints[0].onset = null;
+test("legacy triage flags and high pain never produce clinical advice or skip missing facts", () => {
+  const data = complete(); data.urgent = true; data.complaints[0].onset = null; data.complaints[0].pain = 10;
   const next = nextConsultationStep(data);
-  assert.equal(next.urgent, true);
-  assert.equal(next.complete, false);
-  assert.match(next.text, /presencial urgente/);
+  assert.equal(next.urgent, undefined);
+  assert.equal(next.field, "onset");
+  assert.doesNotMatch(next.text, /urgente|guardia|emergencia|esperar/i);
+  data.complaints[0].onset = "ayer";
+  assert.equal(nextConsultationStep(data).complete, true);
+  assert.equal(data.complaints[0].pain, 10);
 });
 test("extraction rejects fields without literal patient evidence and disables provider storage", async () => {
   const data = complete();
