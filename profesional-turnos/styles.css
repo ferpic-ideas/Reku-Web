@@ -42,9 +42,31 @@ a {
 
 .page-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
   margin-bottom: 22px;
+}
+
+.all-appointments-link {
+  margin-left: auto;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: #5132d7;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.all-appointments-link:hover {
+  background: #eeeaff;
+}
+
+.all-appointments-link:focus-visible {
+  outline: 2px solid #5132d7;
+  outline-offset: 3px;
 }
 
 .page-header img {
@@ -147,7 +169,15 @@ a {
   letter-spacing: -0.025em;
 }
 
-.featured-badge {
+.appointment-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.featured-badge,
+.elapsed-badge {
   border-radius: 999px;
   padding: 7px 10px;
   color: #5132d7;
@@ -155,6 +185,11 @@ a {
   font-size: 11px;
   font-weight: 850;
   white-space: nowrap;
+}
+
+.elapsed-badge {
+  color: #73521b;
+  background: #fff2d9;
 }
 
 .appointment-facts {

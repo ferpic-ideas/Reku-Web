@@ -36,7 +36,7 @@ const setup = async ({ direct = true, required = false, fail = false, emptyFirst
       return { ok: !fail, json: async () => payload };
     },
   };
-  vm.runInNewContext(source.replace('  loadInitial();', '  globalThis.page = { state, loadServices, renderIntakeForm, renderCalendar, renderHeader, submitIntake, bindEvents };'), context);
+  vm.runInNewContext(source.replace('  loadInitial();', '  globalThis.page = { state, loadServices, selectDate, renderIntakeForm, renderCalendar, renderHeader, renderSuccess, submitIntake, bindEvents };'), context);
   context.page.state.loading = false;
   context.page.state.step = 2;
   context.page.state.agreement = agreement;
@@ -44,13 +44,18 @@ const setup = async ({ direct = true, required = false, fail = false, emptyFirst
   return { ...context.page, app, requests };
 };
 
-test('direct treatment bypasses practice and professional selection and opens the nearest available day', async () => {
+test('direct treatment bypasses practice and professional selection without preselecting a day', async () => {
   const page = await setup();
   await page.loadServices();
   assert.equal(page.state.step, 4);
   assert.equal(page.state.service.id, 2);
   assert.equal(page.state.professional.id, 'first_available');
-  assert.match(page.state.selectedDate, /-15$/);
+  assert.equal(page.state.selectedDate, '');
+  assert.equal(page.state.selectedSlot, '');
+  assert.equal(page.state.slots.length, 0);
+  assert.ok(!page.requests.some(item => item.path.includes('/slots')));
+  assert.doesNotMatch(page.app.innerHTML, /class="date-button[^"]*active|id="booking-time-options"/);
+  assert.match(page.app.innerHTML, /data-action="go-payment" disabled/);
   assert.ok(page.requests.filter(item => /\/days|\/slots/.test(item.path)).every(item => item.path.includes('professional_id=first_available')));
   assert.ok(!page.requests.some(item => item.path.includes('/professionals')));
   assert.doesNotMatch(page.app.innerHTML, /data-step="3"|Seleccioná la práctica|data-action="select-professional"/);
@@ -62,7 +67,38 @@ test('direct treatment searches the next month when this month has no availabili
   const page = await setup({ emptyFirstMonth: true });
   await page.loadServices();
   assert.equal(page.requests.filter(item => item.path.includes('/days')).length, 2);
-  assert.match(page.state.selectedDate, /-15$/);
+  assert.equal(page.state.selectedDate, '');
+  assert.ok(!page.requests.some(item => item.path.includes('/slots')));
+  const lastRequestedMonth = new URL(page.requests.filter(item => item.path.includes('/days')).at(-1).path, 'https://example.test').searchParams.get('month');
+  assert.match(page.app.innerHTML, new RegExp(`data-date="${lastRequestedMonth}-15"`));
+});
+
+test('direct treatment loads time options only after the patient chooses a day', async () => {
+  const page = await setup();
+  page.state.selectedDate = '2026-01-01';
+  page.state.selectedSlot = '09:00';
+  await page.loadServices();
+  assert.equal(page.state.selectedDate, '', 'entering the calendar clears any previous selection');
+  assert.equal(page.state.selectedSlot, '');
+  const date = page.state.availableDays[0].date;
+  await page.selectDate(date);
+  assert.equal(page.state.selectedDate, date);
+  assert.equal(page.requests.filter(item => item.path.includes('/slots')).length, 1);
+  assert.equal(page.state.slots.length, 2);
+  assert.match(page.app.innerHTML, /id="booking-time-options"/);
+  assert.match(page.app.innerHTML, /data-action="go-payment" disabled/);
+});
+
+test('booking confirmation offers only Google Calendar regardless of patient email', async () => {
+  const page = await setup();
+  for (const email of ['paciente@gmail.com', 'paciente@example.test']) {
+    page.state.patient = { email };
+    page.state.appointment = { id: 42, payment_status: 'nomina', prefers_google_calendar: false };
+    const html = page.renderSuccess();
+    assert.match(html, /Agregar a Google Calendar/);
+    assert.match(html, /href="\/api\/booking\/appointments\/42\/google-calendar"/);
+    assert.doesNotMatch(html, /Usar otro calendario|calendar\.ics|Agregar a mi calendario/);
+  }
 });
 
 test('normal agreements keep practice selection and optional order wording', async () => {
@@ -124,14 +160,29 @@ test('medical order picker uses Spanish copy and replaces the hint immediately w
   const input = { value: '', addEventListener: (event, callback) => { handlers[event] = callback; } };
   const status = { textContent: '' };
   const clear = { hidden: true, addEventListener: (event, callback) => { handlers.clear = callback; } };
+  let errorRemoved = false;
+  const orderError = { remove: () => { errorRemoved = true; } };
+  page.state.intakeErrors = { medical_order: 'Subí la orden médica para continuar.', nombre: 'Revisá tu nombre.' };
+  page.state.intakeValues.email = 'paciente@example.test';
+  const previousHtml = page.app.innerHTML;
   page.app.querySelector = selector => ({
     'input[name="medical_order"]': input,
     '#medical-order-file-name': status,
     '[data-action="clear-medical-order"]': clear,
+    '.medical-order-field .field-error': orderError,
   })[selector] || null;
   page.bindEvents();
+  handlers.change({ currentTarget: { files: [] } });
+  assert.equal(errorRemoved, false, 'cancelling the picker does not clear the required order error');
+  assert.ok(page.state.intakeErrors.medical_order);
   const file = new File(['%PDF-1.4 test'], 'orden <personal>.pdf', { type: 'application/pdf' });
   handlers.change({ currentTarget: { files: [file] } });
+  assert.equal(errorRemoved, true, 'selecting a file immediately removes the visible order alert');
+  assert.equal(page.state.intakeErrors.medical_order, undefined);
+  assert.equal(page.state.intakeErrors.nombre, 'Revisá tu nombre.');
+  assert.equal(page.state.intakeValues.email, 'paciente@example.test');
+  assert.equal(page.app.innerHTML, previousHtml, 'selection does not rerender or reset the form');
+  assert.doesNotMatch(page.renderIntakeForm(), /Subí la orden médica para continuar/);
   assert.equal(page.state.intakeMedicalOrder, file);
   assert.equal(status.textContent, 'orden <personal>.pdf');
   assert.equal(clear.hidden, false);

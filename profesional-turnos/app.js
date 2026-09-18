@@ -76,11 +76,12 @@
     const now = Date.now();
     const nextTransition = state.appointments
       .flatMap((appointment) => {
-        if (!appointment.google_meet_url) return [];
         const startsAt = appointmentTime(appointment, 'start_time');
         const endsAt = appointmentTime(appointment, 'end_time');
-        if (startsAt === null || endsAt === null) return [];
-        return [startsAt - meetEarlyMinutes * 60 * 1000, endsAt + 1000];
+        return [
+          ...(appointment.google_meet_url && startsAt !== null ? [startsAt - meetEarlyMinutes * 60 * 1000] : []),
+          ...(endsAt !== null ? [endsAt + 1] : []),
+        ];
       })
       .filter((timestamp) => timestamp > now)
       .sort((a, b) => a - b)[0];
@@ -90,6 +91,7 @@
 
   const groupAppointments = () =>
     [...state.appointments]
+      .filter(appointment => !requestedAppointmentId || Number(appointment.id) === requestedAppointmentId)
       .sort((a, b) => `${a.date} ${a.start_time}`.localeCompare(`${b.date} ${b.start_time}`) || Number(a.id) - Number(b.id))
       .reduce((groups, appointment) => {
         if (!groups.has(appointment.date)) groups.set(appointment.date, []);
@@ -142,14 +144,22 @@
           <span>${requestedAppointmentId ? 'Sala profesional' : 'Próximos turnos'}</span>
           <h1>${escapeHtml(state.professional?.name || 'Profesional')}</h1>
         </div>
+        ${requestedAppointmentId ? '<a class="all-appointments-link" href="/profesional-turnos/">Ver todos los turnos</a>' : ''}
       </header>
     `;
   }
 
   function renderAppointment(appointment) {
     const documents = appointment.documents || [];
+    const hasMedicalOrder = documents.some(document => document.purpose === 'medical_order');
+    const hasStudies = documents.some(document => document.purpose !== 'medical_order');
+    const documentsTitle = hasMedicalOrder
+      ? (hasStudies ? 'Estudios y orden médica del paciente' : 'Orden médica del paciente')
+      : (hasStudies ? 'Estudios del paciente' : 'Documentación del paciente');
     const consultation = isConsultationService(appointment.service_name);
     const featured = Number(appointment.id) === Number(requestedAppointmentId);
+    const endsAt = appointmentTime(appointment, 'end_time');
+    const elapsed = endsAt !== null && Date.now() > endsAt;
     return `
       <article class="appointment-row ${featured ? 'appointment-featured' : ''}">
         <div class="appointment-heading">
@@ -157,7 +167,10 @@
             <time>${escapeHtml(appointment.start_time)} - ${escapeHtml(appointment.end_time)}</time>
             <strong>${escapeHtml(appointment.patient_name || 'Paciente')}</strong>
           </div>
-          ${featured ? '<span class="featured-badge">Turno seleccionado</span>' : ''}
+          ${featured || elapsed ? `<div class="appointment-badges">
+            ${elapsed ? '<span class="elapsed-badge">Horario finalizado</span>' : ''}
+            ${featured ? '<span class="featured-badge">Turno seleccionado</span>' : ''}
+          </div>` : ''}
         </div>
         <dl class="appointment-facts">
           <div><dt>Práctica</dt><dd>${escapeHtml(appointment.service_name || 'Sin información')}</dd></div>
@@ -166,17 +179,18 @@
           <div><dt>Teléfono</dt><dd>${appointment.patient_phone ? `<a href="tel:${escapeHtml(appointment.patient_phone)}">${escapeHtml(appointment.patient_phone)}</a>` : '—'}</dd></div>
         </dl>
         <div class="room-actions">
-          ${meetAvailable(appointment) ? `<a class="meet-button" href="${escapeHtml(appointment.google_meet_url)}" target="_blank" rel="noopener noreferrer">Entrar a Google Meet</a>` : '<span class="action-unavailable">Meet disponible 20 minutos antes</span>'}
+          ${elapsed ? '' : meetAvailable(appointment) ? `<a class="meet-button" href="${escapeHtml(appointment.google_meet_url)}" target="_blank" rel="noopener noreferrer">Entrar a Google Meet</a>` : '<span class="action-unavailable">Meet disponible 20 minutos antes</span>'}
           ${appointment.consultation_report_url ? `<a class="triage-button" href="${escapeHtml(appointment.consultation_report_url)}" target="_blank" rel="noopener noreferrer">Ver informe PDF</a>` : `<span class="action-unavailable">${appointment.consultation_status === 'started' ? 'Cuestionario en curso' : 'Cuestionario pendiente'}</span>`}
         </div>
         <section class="appointment-documents">
           <div>
-            <strong>Estudios del paciente</strong>
+            <strong>${documentsTitle}</strong>
             <span>${documents.length ? `${documents.length} archivo${documents.length === 1 ? '' : 's'} o enlace${documents.length === 1 ? '' : 's'}` : 'Sin documentación enviada'}</span>
           </div>
           ${documents.length
             ? `<ul>${documents.map((document) => `<li><a href="${escapeHtml(document.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(document.name)}</a><small>${document.kind === 'link' ? 'Enlace externo' : 'Archivo adjunto'}</small></li>`).join('')}</ul>`
             : ''}
+          ${!hasMedicalOrder ? '<span>El paciente aún no envió la orden médica.</span>' : ''}
         </section>
         ${consultation && appointment.booking_url
           ? `<section class="treatment-note">
@@ -231,7 +245,7 @@
   function renderAppointments() {
     const groups = groupAppointments();
     if (!groups.size) {
-      return '<section class="empty-state">No hay turnos próximos confirmados.</section>';
+      return `<section class="empty-state">${requestedAppointmentId ? 'El turno seleccionado no está disponible.' : 'No hay turnos próximos confirmados.'}</section>`;
     }
 
     return Array.from(groups.entries())

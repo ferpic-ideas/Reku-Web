@@ -107,7 +107,7 @@ test("professional link shows agreement and Meet only inside the access window",
   }
   const window = {
     location: {
-      search: "?appointment=1",
+      search: "",
       hash: "#token=private-token",
     },
     history: { replaceState() {} },
@@ -153,11 +153,99 @@ test("professional link shows agreement and Meet only inside the access window",
   assert.match(html, /target="_blank"/);
   assert.match(html, /Si el paciente quiere comenzar el tratamiento/);
   assert.match(html, /data-action="copy-booking-url"/);
-  assert.match(html, /appointment-featured/);
+  assert.doesNotMatch(html, /appointment-featured|Ver todos los turnos/);
   assert.ok(html.indexOf('Paciente YPF') < html.indexOf('Paciente futuro'));
   assert.ok(html.indexOf('Paciente futuro') < html.indexOf('Paciente con cuestionario en curso'));
   assert.ok(html.indexOf('Paciente con cuestionario en curso') < html.indexOf('Paciente del día siguiente'));
   assert.ok(timers.some(({ delay }) => delay === 40 * 60 * 1000));
+});
+
+test('a professional appointment link shows only the requested appointment and links to the full list', async () => {
+  const source = await readFile(new URL('../profesional-turnos/app.js', import.meta.url), 'utf8');
+  const appointments = [
+    { id: 1, date: '2026-09-18', start_time: '10:00', end_time: '10:30', patient_name: 'Paciente uno' },
+    { id: 2, date: '2026-09-19', start_time: '12:00', end_time: '12:30', patient_name: 'Paciente dos' },
+  ];
+  for (const selection of [1, 2, 999]) {
+    const app = { innerHTML: '' };
+    const context = {
+      URLSearchParams,
+      document: { getElementById: () => app },
+      window: { location: { search: `?appointment=${selection}`, hash: '' }, setTimeout: () => 1, clearTimeout: () => {} },
+    };
+    vm.runInNewContext(source.replace('  loadAppointments();', '  globalThis.page = { state, render };'), context);
+    context.page.state.loading = false;
+    context.page.state.appointments = appointments;
+    context.page.render();
+    assert.match(app.innerHTML, /<header[\s\S]*href="\/profesional-turnos\/">Ver todos los turnos<\/a>[\s\S]*<\/header>/);
+    assert.doesNotMatch(app.innerHTML, /token=/);
+    assert.equal((app.innerHTML.match(/<article /g) || []).length, selection === 999 ? 0 : 1);
+    for (const appointment of appointments) {
+      assert.equal(app.innerHTML.includes(appointment.patient_name), appointment.id === selection);
+    }
+    if (selection === 999) assert.match(app.innerHTML, /El turno seleccionado no está disponible/);
+  }
+});
+
+test('professional room labels documentation by purpose and explains when the medical order is missing', async () => {
+  const source = await readFile(new URL('../profesional-turnos/app.js', import.meta.url), 'utf8');
+  const context = {
+    document: { getElementById: () => ({}) },
+    window: { location: { search: '?appointment=42', hash: '' } },
+    URLSearchParams,
+  };
+  vm.runInNewContext(source.replace('  loadAppointments();', '  globalThis.renderAppointment = renderAppointment;'), context);
+  const order = { purpose: 'medical_order', kind: 'file', name: 'Orden médica.pdf', url: '/order' };
+  const study = { purpose: 'study', kind: 'link', name: 'Estudio', url: 'https://example.test/study' };
+  for (const [documents, title, missingOrder] of [
+    [[order, study], 'Estudios y orden médica del paciente', false],
+    [[order], 'Orden médica del paciente', false],
+    [[study], 'Estudios del paciente', true],
+    [[], 'Documentación del paciente', true],
+    [[{ kind: 'file', name: 'Orden médica.pdf', url: '/legacy-study' }], 'Estudios del paciente', true],
+  ]) {
+    const html = context.renderAppointment({ id: 42, documents });
+    assert.ok(html.includes(`<strong>${title}</strong>`));
+    assert.equal(html.includes('El paciente aún no envió la orden médica.'), missingOrder);
+    assert.match(html, /Turno seleccionado/);
+    for (const item of documents) assert.ok(html.includes(`href="${item.url}"`));
+  }
+  assert.doesNotMatch(context.renderAppointment({ id: 43 }), /Turno seleccionado/);
+});
+
+test('past appointment badges follow the end time and update without a Meet link', async () => {
+  const source = await readFile(new URL('../profesional-turnos/app.js', import.meta.url), 'utf8');
+  let now = Date.parse('2026-09-18T15:00:00.000Z'); // 12:00 in Argentina
+  class ClockDate extends Date { static now() { return now; } }
+  const timers = [];
+  const app = { innerHTML: '' };
+  const context = {
+    Date: ClockDate, URLSearchParams,
+    document: { getElementById: () => app },
+    window: {
+      location: { search: '?appointment=1', hash: '' },
+      setTimeout: (callback, delay) => { timers.push({ callback, delay }); return timers.length; },
+      clearTimeout: () => {},
+    },
+  };
+  vm.runInNewContext(source.replace('  loadAppointments();', '  globalThis.page = { state, render, renderAppointment };'), context);
+  const appointment = { id: 1, date: '2026-09-18', start_time: '11:30', end_time: '12:00', consultation_report_url: '/report' };
+  const { page } = context;
+  assert.doesNotMatch(page.renderAppointment(appointment), /Horario finalizado/);
+  page.state.loading = false;
+  page.state.appointments = [appointment];
+  page.render();
+  assert.equal(timers[0].delay, 1);
+  now += 1;
+  timers[0].callback();
+  assert.match(app.innerHTML, /elapsed-badge">Horario finalizado/);
+  assert.match(app.innerHTML, /Turno seleccionado/);
+  assert.match(app.innerHTML, /Ver informe PDF/);
+  assert.doesNotMatch(app.innerHTML, /Meet disponible 20 minutos antes|Entrar a Google Meet/);
+  assert.doesNotMatch(page.renderAppointment({ ...appointment, end_time: '12:30' }), /Horario finalizado/);
+  assert.doesNotMatch(page.renderAppointment({ ...appointment, date: '2026-09-19' }), /Horario finalizado/);
+  assert.doesNotMatch(page.renderAppointment({ ...appointment, end_time: '' }), /Horario finalizado/);
+  assert.match(page.renderAppointment({ ...appointment, date: '2026-09-17', google_meet_url: 'https://meet.google.com/example' }), /Horario finalizado/);
 });
 
 test('upcoming professional appointments are selected chronologically before the 500 row limit', async () => {

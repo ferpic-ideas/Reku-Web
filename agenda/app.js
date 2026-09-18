@@ -449,13 +449,10 @@
     </a>
   `;
 
-  const calendarActions = ({ google = false, googleHref, calendarHref }) =>
-    google
-      ? `<div class="calendar-actions">
+  const calendarActions = ({ googleHref }) =>
+    `<div class="calendar-actions">
           ${calendarButton(googleHref, 'Agregar a Google Calendar')}
-          <a class="calendar-alternative" href="${escapeHtml(calendarHref)}" target="_blank" rel="noopener noreferrer">Usar otro calendario</a>
-        </div>`
-      : calendarButton(calendarHref);
+        </div>`;
 
   async function loadPaymentReturn() {
     if (!returnAppointmentId) return false;
@@ -692,7 +689,7 @@
     state.paymentNotice = '';
     state.retryPaymentUrl = '';
     state.step = 4;
-    await loadDays({ selectNearest: Boolean(state.agreement?.direct_treatment) });
+    await loadDays({ findNearestMonth: Boolean(state.agreement?.direct_treatment) });
   }
 
   async function changeMonth(offset) {
@@ -705,14 +702,14 @@
     await loadDays();
   }
 
-  async function loadDays({ selectNearest = false } = {}) {
+  async function loadDays({ findNearestMonth = false } = {}) {
     if (!state.service || !state.professional) return;
     state.loading = true;
     render();
     try {
-      // Search ahead only on entry, keeping manual month navigation available.
+      // Open the nearest available month on entry; the patient must choose the day.
       const initialMonth = new Date(state.month);
-      for (let offset = 0; offset < (selectNearest ? 3 : 1); offset += 1) {
+      for (let offset = 0; offset < (findNearestMonth ? 3 : 1); offset += 1) {
         state.month = new Date(initialMonth.getFullYear(), initialMonth.getMonth() + offset, 1);
         const payload = await api(
           `/api/booking/days?service_id=${state.service.id}&professional_id=${state.professional.id}&month=${monthKey(state.month)}`,
@@ -720,11 +717,7 @@
         state.availableDays = payload.days || [];
         if (state.availableDays.length) break;
       }
-      if (selectNearest && !state.availableDays.length) state.month = initialMonth;
-      if (selectNearest) {
-        const firstDay = [...state.availableDays].sort((a, b) => a.date.localeCompare(b.date))[0];
-        if (firstDay) await selectDate(firstDay.date);
-      }
+      if (findNearestMonth && !state.availableDays.length) state.month = initialMonth;
     } catch (error) {
       state.error = error.message;
     } finally {
@@ -1538,11 +1531,7 @@
           ${
             isPaid && state.appointment?.id
               ? calendarActions({
-                  google:
-                    state.appointment.prefers_google_calendar === true ||
-                    /@(gmail|googlemail)\.com$/i.test(String(state.patient?.email || '').trim()),
                   googleHref: `/api/booking/appointments/${state.appointment.id}/google-calendar`,
-                  calendarHref: `/api/booking/appointments/${state.appointment.id}/calendar.ics`,
                 })
               : ''
           }
@@ -2000,6 +1989,8 @@
       const file = event.currentTarget.files?.[0];
       if (!file) return;
       state.intakeMedicalOrder = file;
+      delete state.intakeErrors.medical_order;
+      app.querySelector('.medical-order-field .field-error')?.remove();
       const fileName = app.querySelector('#medical-order-file-name');
       if (fileName) fileName.textContent = file.name;
       const clearButton = app.querySelector('[data-action="clear-medical-order"]');
