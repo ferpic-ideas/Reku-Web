@@ -1,6 +1,6 @@
 # Reserva por acuerdo y orden médica
 
-Estado: implementado y probado localmente; pendiente de publicación.
+Estado: publicado en producción el 2026-09-18 (código `ef084ea`). Migraciones 024, 025 y 026 verificadas; 412 pruebas unitarias y 26 de integración aprobadas. Se preservaron las credenciales, los datos y el modo existente del bot.
 
 ## Configuración
 
@@ -26,7 +26,7 @@ Esta configuración se aplica a la agenda pública y a la API de partners v1.2. 
 - La idempotencia incluye la huella del archivo; reintentar no duplica orden ni reserva. Para conocer el estado actual después de un replay, hacer GET del turno.
 - Las respuestas incluyen `consultation_status` (`pending`, `started`, `completed`) y `medical_order.required/received`. No exponen el PDF clínico ni la URL interna de ReHub; los mails mantienen los enlaces al bot y sala del acuerdo.
 - PATCH no permite reemplazar email/identificador del paciente: cancelar y crear otro turno evita transferir enlaces privados, documentación o informes. Se mantiene el tipo económico original del turno aunque el acuerdo cambie después.
-- Aplicar migraciones 024, 025 y 026 junto con el código. Implementación local, no publicada todavía.
+- Requiere migraciones 024, 025 y 026 junto con el código; aplicadas en producción el 2026-09-18.
 
 ## Orden médica
 
@@ -39,7 +39,7 @@ Esta configuración se aplica a la agenda pública y a la API de partners v1.2. 
 - Una orden de alta puede respaldar varios turnos; al eliminar una referencia opcional no se borra el archivo si otro turno o el alta todavía lo utiliza.
 - La carga no equivale a una validación clínica automática: el profesional abre el documento y evalúa su contenido.
 
-## Publicación pendiente
+## Operación y migraciones
 
 Aplicar la migración `024_agreement_booking_and_medical_orders.sql` junto con el código. No habilitar el acceso directo sin elegir el tratamiento correcto y tener profesionales asociados al acuerdo y al servicio. Los acuerdos existentes conservan el flujo anterior y la orden opcional.
 

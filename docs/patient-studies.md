@@ -1,6 +1,6 @@
 # Estudios enviados por el paciente
 
-Estado al 2026-09-18: implementado y probado **sólo localmente**, pendiente de autorización para publicar.
+Estado al 2026-09-18: publicado en producción con autorización del usuario (código `ef084ea`). Verificado junto con la suite completa: 412 pruebas unitarias y 26 de integración aprobadas.
 
 La gestión del turno y la sala de espera abiertas desde el mail muestran «Estudios enviados» por fuera del formulario colapsado. Los archivos muestran su nombre y los enlaces su URL; ambos tienen acción para abrir y un tachito con confirmación antes de eliminar. «Enviar más estudios» conserva lo ya enviado. Después de una subida exitosa se actualiza la lista y se colapsa el formulario; los errores conservan el borrador. No se modifican los PDFs del bot.
 
