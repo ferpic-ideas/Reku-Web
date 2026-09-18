@@ -122,7 +122,7 @@
 
   const moduleDataRequirements = Object.freeze({
     dashboard: ['dashboard', 'appointment_preview', 'professionals'],
-    agreements: ['agreements'],
+    agreements: ['agreements', 'services'],
     nomina: ['agreements', 'nomina'],
     services: ['services'],
     professionals: ['agreements', 'services', 'professionals'],
@@ -1197,7 +1197,13 @@
               ${appointment.google_sync_status ? detailRow('Google Calendar', appointment.google_sync_status) : ''}
               ${appointment.google_meet_url ? detailCopyRow('Google Meet', appointment.google_meet_url) : ''}
               ${appointment.google_sync_error ? detailRow('Error de Google', appointment.google_sync_error) : ''}
-              ${detailRow('Cuestionario previo', appointment.triage_status === 'assigned' ? 'Enlace generado' : appointment.triage_status === 'failed' ? 'Alerta: no se pudo obtener de ReHub' : 'Pendiente')}
+              ${detailRow('Cuestionario previo', appointment.consultation_status === 'completed' ? 'Completado' : appointment.consultation_status === 'started' ? 'Iniciado' : 'Pendiente')}
+              <div class="detail-row"><span>Informe del bot Reku</span><strong>${appointment.consultation_report_url
+                ? `<a class="secondary-button" href="${escapeHtml(appointment.consultation_report_url)}" target="_blank" rel="noopener noreferrer">Ver informe PDF</a>`
+                : appointment.consultation_status === 'started' ? 'Cuestionario en curso. El PDF estará disponible al completarlo.' : 'Pendiente de completar por el paciente.'}</strong></div>
+              <div class="detail-row"><span>Triage ReHub (sólo admin)</span><strong>${appointment.rehub_triage_url
+                ? `<a href="${escapeHtml(appointment.rehub_triage_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(appointment.rehub_triage_url)}</a>`
+                : 'Sin URL asignada.'}</strong></div>
               ${detailRow('Alta paciente', appointment.patient_intake_id ? `#${appointment.patient_intake_id}` : 'Sin alta asociada')}
             </div>
             ${renderAppointmentDocuments(appointment.documents)}
@@ -2611,22 +2617,18 @@
           <input name="name" value="${escapeHtml(item.name)}" required />
         </label>
         <label>
-          Slug URL
-          <input name="slug" value="${escapeHtml(item.slug)}" placeholder="se genera desde el nombre" />
-        </label>
-        <label>
-          Prefijo de subdominio
+          Slug (subdominio)
           <input
-            name="subdomain_prefix"
-            value="${escapeHtml(item.subdomain_prefix || '')}"
+            name="slug"
+            value="${escapeHtml(item.slug || '')}"
             placeholder="ypf"
             maxlength="63"
             pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
             autocapitalize="none"
             spellcheck="false"
-            required
           />
-          <span class="field-help">La agenda quedará en https://prefijo.reku.io/turnos/</span>
+          <span class="field-help">Se usa también como subdominio: ypf → ypf.reku.io. Si lo dejás vacío se genera desde el nombre. Cambiarlo modifica la dirección del acuerdo.</span>
+          ${item.subdomain_prefix && item.subdomain_prefix !== item.slug ? `<span class="field-help">El subdominio anterior es ${escapeHtml(item.subdomain_prefix)}.reku.io. Al guardar se unificará con el slug.</span>` : ''}
         </label>
         <label>
           Tipo
@@ -2635,9 +2637,33 @@
             <option value="Nomina" ${item.type === 'Nomina' ? 'selected' : ''}>Nómina</option>
           </select>
         </label>
+        <label data-nomina-identifier ${item.type !== 'Nomina' ? 'hidden' : ''}>
+          Tipo de identificador
+          <input name="identifier_label" value="${escapeHtml(item.identifier_label || '')}" placeholder="DNI, número de cliente, legajo" maxlength="80" ${item.type !== 'Nomina' ? 'disabled' : ''} />
+          <span class="field-help">Este nombre se mostrará al paciente al pedirle el identificador de la nómina.</span>
+        </label>
         <label class="check-row">
           <input type="checkbox" name="cobranded" ${item.cobranded ? 'checked' : ''} />
           Cobranded
+        </label>
+        <label>
+          Inicio de la reserva
+          <select name="direct_treatment" id="agreement-booking-mode">
+            <option value="false" ${!item.direct_treatment ? 'selected' : ''}>Primero consulta con el profesional</option>
+            <option value="true" ${item.direct_treatment ? 'selected' : ''}>Directo a tratamiento</option>
+          </select>
+        </label>
+        <label data-treatment-service ${!item.direct_treatment ? 'hidden' : ''}>
+          Servicio de tratamiento
+          <select name="treatment_service_id" ${item.direct_treatment ? 'required' : 'disabled'}>
+            <option value="">Seleccioná el tratamiento</option>
+            ${state.services.filter(service => service.active || service.id === item.treatment_service_id).map(service => `<option value="${service.id}" ${service.id === item.treatment_service_id ? 'selected' : ''}>${escapeHtml(service.name)}${service.active ? '' : ' (inactivo)'}</option>`).join('')}
+          </select>
+          <span class="field-help">Se omiten la selección de práctica y profesional. Se ofrece la primera disponibilidad del acuerdo.</span>
+        </label>
+        <label class="check-row">
+          <input type="checkbox" name="medical_order_required" ${item.medical_order_required ? 'checked' : ''} />
+          Orden médica obligatoria para reservar
         </label>
         <div class="span-two grid-two payment-fields" data-payment-fields ${item.type === 'Nomina' ? 'hidden' : ''}>
           <label>
@@ -2721,8 +2747,7 @@
             <thead>
               <tr>
                 <th>Nombre</th>
-                <th>Slug</th>
-                <th>Subdominio</th>
+                <th>Slug / subdominio</th>
                 <th>Tipo</th>
                 <th>Cobranded</th>
                 <th>Archivos</th>
@@ -2732,7 +2757,7 @@
               </tr>
             </thead>
             <tbody>
-              ${agreements.length ? agreements.map(renderAgreementRow).join('') : '<tr><td colspan="9">No hay acuerdos para esos filtros.</td></tr>'}
+              ${agreements.length ? agreements.map(renderAgreementRow).join('') : '<tr><td colspan="8">No hay acuerdos para esos filtros.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -2744,11 +2769,10 @@
     return `
       <tr>
         <td><strong>${escapeHtml(agreement.name)}</strong></td>
-        <td>${escapeHtml(agreement.slug)}</td>
         <td>
           ${agreement.subdomain_prefix
             ? `<a href="${escapeHtml(agreementPublicUrl(agreement))}" target="_blank" rel="noreferrer">${escapeHtml(agreement.subdomain_prefix)}.reku.io</a>`
-            : 'Sin prefijo'}
+            : escapeHtml(agreement.slug)}
         </td>
         <td><span class="pill">${escapeHtml(agreement.type)}</span></td>
         <td>${agreement.cobranded ? 'Sí' : 'No'}</td>
@@ -3468,6 +3492,10 @@
     if (agreementTypeSelect) {
       const togglePaymentFields = () => {
         const isNomina = agreementTypeSelect.value === 'Nomina';
+        document.querySelectorAll('[data-nomina-identifier]').forEach(wrapper => {
+          wrapper.hidden = !isNomina;
+          wrapper.querySelector('input').disabled = !isNomina;
+        });
         document.querySelectorAll('[data-payment-fields]').forEach((wrapper) => {
           wrapper.hidden = isNomina;
           if (isNomina) {
@@ -3481,11 +3509,21 @@
       togglePaymentFields();
     }
 
-    const agreementSubdomainInput = document.querySelector(
-      '#agreement-form input[name="subdomain_prefix"]',
+    const agreementSlugInput = document.querySelector(
+      '#agreement-form input[name="slug"]',
     );
-    agreementSubdomainInput?.addEventListener('input', () => {
-      agreementSubdomainInput.value = agreementSubdomainInput.value.toLowerCase();
+    agreementSlugInput?.addEventListener('input', () => {
+      agreementSlugInput.value = agreementSlugInput.value.toLowerCase();
+    });
+
+    const bookingMode = document.getElementById('agreement-booking-mode');
+    bookingMode?.addEventListener('change', () => {
+      const field = document.querySelector('[data-treatment-service]');
+      const select = field.querySelector('select');
+      const direct = bookingMode.value === 'true';
+      field.hidden = !direct;
+      select.disabled = !direct;
+      select.required = direct;
     });
 
     const agreementTextFilter = document.getElementById('agreement-text-filter');

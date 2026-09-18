@@ -16,6 +16,7 @@ import {
 import { createBookingAccessLink } from "./booking-links.mjs";
 import { hashToken } from "./security.mjs";
 import { agreementBookingUrl } from "./agreement-domains.mjs";
+import { validateClinicalDocument, saveIntakeMedicalOrder, removeClinicalDocuments } from './appointment-documents.mjs';
 
 const namePattern = /^[\p{L}]+(?:[ '-][\p{L}]+)*$/u;
 const phonePattern = /^[+()\d\s.-]+$/;
@@ -94,10 +95,21 @@ export const validatePatientIntakeSubmission = async (submission, agreement) => 
     telefono: validatePhone(submission.values.telefono),
     email: validateEmail(submission.values.email),
   };
+  if (agreement?.medical_order_required && !submission.medicalOrder) {
+    errors.medical_order = 'Para poder sacar un turno necesitamos que subas la orden médica.';
+  }
+  if (submission.medicalOrder) {
+    if (submission.medicalOrder.buffer?.length > 10 * 1024 * 1024) {
+      errors.medical_order = 'La orden médica no puede superar los 10 MB.';
+    } else {
+      try { validateClinicalDocument(submission.medicalOrder); }
+      catch { errors.medical_order = 'Subí la orden en PDF o imagen JPG, PNG o WebP.'; }
+    }
+  }
 
   if (agreement?.type === "Nomina") {
     if (!submission.values.identificador) {
-      errors.identificador = "Ingresá tu identificador para validar la nómina.";
+      errors.identificador = `Ingresá tu ${agreement.identifier_label || 'identificador'} para validar la nómina.`;
     } else {
       const nominaEntry = await findNominaEntry(
         agreement.id,
@@ -138,8 +150,9 @@ const updatePatientBookingEmailResult = async (id, { messageId = null, error = n
 
 export const insertPatientIntake = async (submission, agreement, sourcePath) => {
   if (!pool) return { id: null, created: false };
-
-  return tx(async (client) => {
+  let savedOrder;
+  try {
+    return await tx(async (client) => {
     const result = await client.query(
       `
         INSERT INTO patient_intakes
@@ -172,8 +185,20 @@ export const insertPatientIntake = async (submission, agreement, sourcePath) => 
         sourcePath,
       ],
     );
-    return { id: Number(result.rows[0].id), created: true };
-  });
+    const id = Number(result.rows[0].id);
+    if (submission.medicalOrder) {
+      savedOrder = await saveIntakeMedicalOrder(submission.medicalOrder, id);
+      await client.query(`INSERT INTO patient_intake_medical_orders
+        (patient_intake_id, original_name, storage_path, mime_type, size_bytes)
+        VALUES ($1, $2, $3, $4, $5)`,
+      [id, savedOrder.originalName, savedOrder.storagePath, savedOrder.mimeType, savedOrder.sizeBytes]);
+    }
+    return { id, created: true };
+    });
+  } catch (error) {
+    if (savedOrder) await removeClinicalDocuments([savedOrder.storagePath]);
+    throw error;
+  }
 };
 
 export const patientIntakeVerificationUrl = ({
@@ -223,6 +248,85 @@ export const createPatientBookingLink = async ({
     ttlHours: 48,
     client,
   });
+};
+
+const createVerifiedPatientBookingAccessWithClient = async ({
+  client,
+  recordId,
+  submission,
+  agreement,
+}) => {
+  const canonicalPatient = await client.query(
+    `
+      INSERT INTO patients
+        (first_name, last_name, full_name, email, email_normalized, phone)
+      VALUES ($1, $2, $3, $4, lower(trim($4)), $5)
+      ON CONFLICT (email_normalized)
+      DO UPDATE SET
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
+        full_name = EXCLUDED.full_name,
+        email = EXCLUDED.email,
+        phone = EXCLUDED.phone,
+        active = TRUE,
+        updated_at = NOW()
+      RETURNING id
+    `,
+    [
+      submission.values.nombre,
+      submission.values.apellido,
+      patientFullName(submission),
+      submission.values.email,
+      submission.values.telefono,
+    ],
+  );
+  const patientId = Number(canonicalPatient.rows[0].id);
+  await client.query(
+    "UPDATE patient_intakes SET patient_id = $1 WHERE id = $2",
+    [patientId, recordId],
+  );
+  const bookingLink = await createPatientBookingLink({
+    recordId,
+    submission,
+    agreement,
+    client,
+  });
+  return { patientId, bookingLink };
+};
+
+export const createVerifiedPatientBookingAccess = async ({
+  recordId,
+  submission,
+  agreement,
+}) => {
+  if (!pool || !recordId) return null;
+  return tx((client) =>
+    createVerifiedPatientBookingAccessWithClient({
+      client,
+      recordId,
+      submission,
+      agreement,
+    }),
+  );
+};
+
+export const hasPriorAppointmentForEmail = async (
+  email,
+  { queryImpl = query } = {},
+) => {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!normalizedEmail) return false;
+  const result = await queryImpl(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM appointments
+        WHERE lower(trim(patient_email)) = $1
+      ) AS has_prior_appointment
+    `,
+    [normalizedEmail],
+  );
+  return Boolean(result.rows[0]?.has_prior_appointment);
 };
 
 export const sendPatientIntakeNotifications = async ({
@@ -329,6 +433,10 @@ export const redeemPatientIntakeVerification = async (token) => {
           a.type AS current_agreement_type,
           a.subdomain_prefix AS current_agreement_subdomain_prefix,
           a.cobranded,
+          a.direct_treatment,
+          a.treatment_service_id,
+          a.medical_order_required,
+          a.identifier_label,
           a.logo_path,
           a.pdf_path
         FROM patient_intake_verifications v
@@ -367,45 +475,20 @@ export const redeemPatientIntakeVerification = async (token) => {
       type: row.current_agreement_type || row.agreement_type_snapshot || "",
       subdomain_prefix: row.current_agreement_subdomain_prefix || "",
       cobranded: Boolean(row.cobranded),
+      direct_treatment: Boolean(row.direct_treatment),
+      treatment_service_id: row.treatment_service_id ? Number(row.treatment_service_id) : null,
+      medical_order_required: Boolean(row.medical_order_required),
+      identifier_label: row.identifier_label || '',
       logo_path: row.logo_path || "",
       pdf_path: row.pdf_path || "",
       logo_url: row.logo_path ? `/uploads/${row.logo_path}` : "",
       pdf_url: row.pdf_path ? `/uploads/${row.pdf_path}` : "",
     };
-    const canonicalPatient = await client.query(
-      `
-        INSERT INTO patients
-          (first_name, last_name, full_name, email, email_normalized, phone)
-        VALUES ($1, $2, $3, $4, lower(trim($4)), $5)
-        ON CONFLICT (email_normalized)
-        DO UPDATE SET
-          first_name = EXCLUDED.first_name,
-          last_name = EXCLUDED.last_name,
-          full_name = EXCLUDED.full_name,
-          email = EXCLUDED.email,
-          phone = EXCLUDED.phone,
-          active = TRUE,
-          updated_at = NOW()
-        RETURNING id
-      `,
-      [
-        submission.values.nombre,
-        submission.values.apellido,
-        patientFullName(submission),
-        submission.values.email,
-        submission.values.telefono,
-      ],
-    );
-    const patientId = Number(canonicalPatient.rows[0].id);
-    await client.query(
-      "UPDATE patient_intakes SET patient_id = $1 WHERE id = $2",
-      [patientId, row.id],
-    );
-    const bookingLink = await createPatientBookingLink({
+    const verifiedAccess = await createVerifiedPatientBookingAccessWithClient({
+      client,
       recordId: Number(row.id),
       submission,
       agreement,
-      client,
     });
     await client.query(
       "UPDATE patient_intake_verifications SET used_at = NOW() WHERE id = $1",
@@ -413,8 +496,8 @@ export const redeemPatientIntakeVerification = async (token) => {
     );
     return {
       patientIntakeId: Number(row.id),
-      patientId,
-      bookingLink,
+      patientId: verifiedAccess.patientId,
+      bookingLink: verifiedAccess.bookingLink,
       patient: {
         name: patientFullName(submission),
         email: submission.values.email,

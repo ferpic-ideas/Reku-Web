@@ -810,7 +810,7 @@
           const value = field.value.trim();
 
           if (agreement?.type === 'Nomina' && !value) {
-            return 'Ingresá tu identificador para validar la nómina.';
+            return `Ingresá tu ${agreement.identifier_label || 'identificador'} para validar la nómina.`;
           }
 
           return '';
@@ -928,6 +928,7 @@
             }
 
             if (agreement.type === 'Nomina' && identifierField && fields.identificador) {
+              identifierField.querySelector('label').textContent = agreement.identifier_label || 'Identificador';
               identifierField.hidden = false;
               fields.identificador.required = true;
               contactNote.textContent = 'Todos los campos son obligatorios, incluido el identificador.';

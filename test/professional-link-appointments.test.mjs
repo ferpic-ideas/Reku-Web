@@ -59,7 +59,8 @@ test("professional link shows agreement and Meet only inside the access window",
             service_name: "Evaluación",
             agreement_name: "YPF",
             google_meet_url: "https://meet.google.com/available-room",
-            triage_url: "https://patient-dev2.rehub.cloud/opentriage/completed-form",
+            consultation_report_url: "/api/professional/appointments/1/consultation-report",
+            consultation_status: 'completed',
             booking_url: "https://ypf.reku.io/turnos/",
             documents: [
               {
@@ -80,7 +81,16 @@ test("professional link shows agreement and Meet only inside the access window",
             agreement_name: "",
             google_meet_url: "https://meet.google.com/too-early-room",
           },
-        ],
+          {
+            id: 3, date: '2026-08-26', start_time: '16:00', end_time: '16:30',
+            patient_name: 'Paciente con cuestionario en curso', consultation_status: 'started',
+            triage_url: 'https://patient.rehub.cloud/opentriage/legacy-must-not-render',
+          },
+          {
+            id: 4, date: '2026-08-27', start_time: '09:00', end_time: '09:30',
+            patient_name: 'Paciente del día siguiente',
+          },
+        ].reverse(),
       });
     }
     throw new Error(`Unexpected request: ${path}`);
@@ -129,13 +139,30 @@ test("professional link shows agreement and Meet only inside the access window",
   assert.match(html, /https:\/\/meet\.google\.com\/available-room/);
   assert.doesNotMatch(html, /https:\/\/meet\.google\.com\/too-early-room/);
   assert.match(html, /Entrar a Google Meet/);
-  assert.match(html, /Ver Formulario Triage/);
+  assert.match(html, /Ver informe PDF/);
+  const appointmentCards = html.match(/<article class="appointment-row[\s\S]*?<\/article>/g);
+  assert.doesNotMatch(appointmentCards[0], /triage-note|El paciente completó el cuestionario/);
+  assert.match(appointmentCards[0], /Ver informe PDF/);
+  assert.match(appointmentCards[1], /triage-note[\s\S]*El paciente todavía no completó/);
+  assert.match(appointmentCards[2], /triage-note[\s\S]*El paciente inició el cuestionario/);
+  assert.doesNotMatch(html, /Formulario Triage|ReHub|rehub\.cloud/);
+  assert.match(html, /Cuestionario pendiente/);
+  assert.match(html, /Cuestionario en curso/);
+  assert.match(html, /El paciente inició el cuestionario y todavía no lo completó/);
   assert.match(html, /Resonancia\.pdf/);
   assert.match(html, /target="_blank"/);
   assert.match(html, /Si el paciente quiere comenzar el tratamiento/);
   assert.match(html, /data-action="copy-booking-url"/);
   assert.match(html, /appointment-featured/);
+  assert.ok(html.indexOf('Paciente YPF') < html.indexOf('Paciente futuro'));
+  assert.ok(html.indexOf('Paciente futuro') < html.indexOf('Paciente con cuestionario en curso'));
+  assert.ok(html.indexOf('Paciente con cuestionario en curso') < html.indexOf('Paciente del día siguiente'));
   assert.ok(timers.some(({ delay }) => delay === 40 * 60 * 1000));
+});
+
+test('upcoming professional appointments are selected chronologically before the 500 row limit', async () => {
+  const source = await readFile(new URL('../src/professional-api.mjs', import.meta.url), 'utf8');
+  assert.match(source, /ORDER BY a\.appointment_date \$\{upcomingOnly \? 'ASC' : 'DESC'\},\s*a\.start_time \$\{upcomingOnly \? 'ASC' : 'DESC'\}, a\.id \$\{upcomingOnly \? 'ASC' : 'DESC'\}\s*LIMIT 500/);
 });
 
 test("professional preparation rooms expose only scoped appointment resources in new tabs", async () => {
@@ -148,14 +175,15 @@ test("professional preparation rooms expose only scoped appointment resources in
   ]);
 
   for (const source of [portal, quickAccess]) {
-    assert.match(source, /Ver Formulario Triage/);
+    assert.match(source, /Ver informe PDF/);
+    assert.doesNotMatch(source, /Formulario Triage|integración con ReHub/);
     assert.match(source, /Entrar a Google Meet/);
     assert.match(source, /target="_blank" rel="noopener noreferrer"/);
     assert.match(source, /data-action="copy-booking-url"/);
     assert.match(source, /consulta\|evaluacion\|valoracion/);
   }
   assert.match(portal, /Ficha del paciente \+ Meet/);
-  assert.match(api, /triage_url:\s*row\.triage_url \|\| ""/);
+  assert.match(api, /triage_url:\s*row\.bot_report_available \? professionalReportUrl\(row\.id\)/);
   assert.match(api, /google_connection\.google_email AS professional_google_email/);
   assert.match(api, /url\.searchParams\.set\("authuser", account\)/);
   assert.match(api, /booking_url:\s*agreementBookingUrl/);

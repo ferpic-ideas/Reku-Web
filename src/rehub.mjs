@@ -6,9 +6,11 @@ import {
 } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { config } from "./config.mjs";
+import { resolveReHubSettings } from "./rehub-settings.mjs";
 
 const TRIAGE_ACTION = "/patient/triage/assign";
 let publicKeyPromise = null;
+let publicKeyConfiguration = null;
 
 const reHubError = (message, statusCode = 502) => {
   const error = new Error(message);
@@ -16,21 +18,23 @@ const reHubError = (message, statusCode = 502) => {
   return error;
 };
 
-export const isReHubConfigured = () =>
+export const isReHubConfigured = (settings = resolveReHubSettings()) =>
   Boolean(
-    config.rehubClientId &&
-      (config.rehubPublicKeyBase64 || config.rehubPublicKeyPath),
+    settings.baseUrl && settings.clientId &&
+      (settings.publicKeyBase64 || settings.publicKeyPath),
   );
 
-const loadConfiguredPublicKey = async () => {
-  if (!isReHubConfigured()) {
+const loadConfiguredPublicKey = async (settings) => {
+  if (!isReHubConfigured(settings)) {
     throw reHubError("REHUB_NOT_CONFIGURED", 503);
   }
-  if (!publicKeyPromise) {
+  const configuration = JSON.stringify([settings.mode, settings.publicKeyBase64, settings.publicKeyPath]);
+  if (!publicKeyPromise || publicKeyConfiguration !== configuration) {
+    publicKeyConfiguration = configuration;
     publicKeyPromise = (async () => {
-      const pem = config.rehubPublicKeyBase64
-        ? Buffer.from(config.rehubPublicKeyBase64, "base64")
-        : await readFile(config.rehubPublicKeyPath);
+      const pem = settings.publicKeyBase64
+        ? Buffer.from(settings.publicKeyBase64, "base64")
+        : await readFile(settings.publicKeyPath);
       return createPublicKey(pem);
     })().catch((error) => {
       publicKeyPromise = null;
@@ -99,14 +103,15 @@ export const requestPatientTriage = async ({
   familyName,
   patientExternalId,
   center,
+  settings = resolveReHubSettings(),
   lang = config.rehubTriageLang,
-  baseUrl = config.rehubBaseUrl,
-  clientId = config.rehubClientId,
+  baseUrl = settings.baseUrl,
+  clientId = settings.clientId,
   publicKey = null,
   fetchImpl = globalThis.fetch,
   timeoutMs = config.rehubTimeoutMs,
 } = {}) => {
-  if (!baseUrl || !clientId || (!publicKey && !isReHubConfigured())) {
+  if (!baseUrl || !clientId || (!publicKey && !isReHubConfigured(settings))) {
     throw reHubError("REHUB_NOT_CONFIGURED", 503);
   }
   if (!patientExternalId) {
@@ -125,7 +130,7 @@ export const requestPatientTriage = async ({
       lang: String(lang || "").trim(),
     }).filter(([, value]) => value),
   );
-  const key = publicKey || (await loadConfiguredPublicKey());
+  const key = publicKey || (await loadConfiguredPublicKey(settings));
   let encryptedHex;
   try {
     ({ encryptedHex } = buildEncryptedReHubBody({ data, publicKey: key }));
@@ -145,6 +150,7 @@ export const requestPatientTriage = async ({
   try {
     response = await fetchImpl(endpoint, {
       method: "POST",
+      redirect: "error", // Never forward the client credential to a redirect target.
       headers: {
         "Content-Type": "application/json",
         "client-id": clientId,

@@ -1,7 +1,10 @@
 import { one, query, recordAudit, tx } from "./db.mjs";
+import { consultationStatusSql } from './consultation-status.mjs';
 import { config } from "./config.mjs";
 import { agreementBookingUrl } from "./agreement-domains.mjs";
-import { getClientIp, readBody, sendJson, sendRedirect } from "./http.mjs";
+import { getClientIp, readBody, sendJson, sendRedirect, withSecurityHeaders } from "./http.mjs";
+import { professionalReportUrl } from './consultation-links.mjs';
+import { readProfessionalBotReport } from './consultation-bot-access.mjs';
 import {
   clearSessionCookie,
   createSessionToken,
@@ -701,12 +704,18 @@ const listPatients = async (url, response, account) => {
         patient.full_name,
         patient.email,
         patient.phone,
+        (SELECT jsonb_agg(jsonb_build_object('appointment_id', report_appointment.id, 'date', report_appointment.appointment_date)
+            ORDER BY report_appointment.appointment_date DESC, report_appointment.id DESC)
+         FROM appointments report_appointment JOIN consultation_bot_usage report_usage ON report_usage.appointment_id = report_appointment.id
+         WHERE report_appointment.patient_id = patient.id AND report_appointment.professional_id = $3
+           AND report_usage.completed_at IS NOT NULL AND report_usage.report_encrypted IS NOT NULL) AS consultation_reports,
         next_appointment.id AS next_appointment_id,
         next_appointment.appointment_date AS next_appointment_date,
         next_appointment.start_time AS next_start_time,
         next_appointment.end_time AS next_end_time,
         next_appointment.service_name AS next_service_name,
-        next_appointment.triage_url AS next_triage_url,
+        next_appointment.bot_report_available AS next_bot_report_available,
+        next_appointment.consultation_status AS next_consultation_status,
         next_appointment.triage_assignment_error AS next_triage_error,
         next_appointment.agreement_slug AS next_agreement_slug,
         next_appointment.agreement_subdomain_prefix AS next_agreement_subdomain_prefix,
@@ -726,7 +735,9 @@ const listPatients = async (url, response, account) => {
           appointment.appointment_date,
           appointment.start_time,
           appointment.end_time,
-          appointment.triage_url,
+          ${consultationStatusSql('appointment')} AS consultation_status,
+          EXISTS (SELECT 1 FROM consultation_bot_usage usage WHERE usage.appointment_id = appointment.id
+            AND usage.completed_at IS NOT NULL AND usage.report_encrypted IS NOT NULL) AS bot_report_available,
           appointment.triage_assignment_error,
           appointment.triage_reminder_sent_at,
           appointment.triage_reminder_count,
@@ -738,6 +749,7 @@ const listPatients = async (url, response, account) => {
                 jsonb_build_object(
                   'id', document.id,
                   'kind', document.kind,
+                  'purpose', document.purpose,
                   'original_name', document.original_name,
                   'mime_type', document.mime_type,
                   'size_bytes', document.size_bytes,
@@ -834,6 +846,8 @@ const listPatients = async (url, response, account) => {
       name: row.full_name || "",
       email: row.email || "",
       phone: row.phone || "",
+      consultation_reports: (row.consultation_reports || []).map(report => ({ ...report, url: professionalReportUrl(report.appointment_id) })),
+      consultation_status: row.next_consultation_status || 'not_applicable',
       next_appointment: row.next_appointment_date
         ? {
             id: Number(row.next_appointment_id),
@@ -841,7 +855,8 @@ const listPatients = async (url, response, account) => {
             start_time: String(row.next_start_time || "").slice(0, 5),
             end_time: String(row.next_end_time || "").slice(0, 5),
             service_name: row.next_service_name || "",
-            triage_url: row.next_triage_url || "",
+            triage_url: row.next_bot_report_available ? professionalReportUrl(row.next_appointment_id) : '',
+            consultation_report_url: row.next_bot_report_available ? professionalReportUrl(row.next_appointment_id) : '',
             booking_url: agreementBookingUrl(
               {
                 slug: row.next_agreement_slug || "",
@@ -855,11 +870,9 @@ const listPatients = async (url, response, account) => {
           }
         : null,
       practice: row.next_service_name || row.latest_service_name || "",
-      triage_status: row.next_triage_url
+      triage_status: row.next_bot_report_available
         ? "assigned"
-        : row.next_triage_error
-          ? "failed"
-          : row.next_appointment_date
+        : row.next_appointment_date
             ? "pending"
             : "not_applicable",
       source: {
@@ -923,12 +936,12 @@ const mapAppointment = (row) => ({
   google_calendar_event_url: row.google_calendar_event_url || "",
   google_sync_status: row.google_sync_status || "not_connected",
   google_sync_error: row.google_sync_error || "",
-  triage_status: row.triage_url
+  triage_status: row.bot_report_available
     ? "assigned"
-    : row.triage_assignment_error
-      ? "failed"
-      : "pending",
-  triage_url: row.triage_url || "",
+    : "pending",
+  triage_url: row.bot_report_available ? professionalReportUrl(row.id) : '',
+  consultation_report_url: row.bot_report_available ? professionalReportUrl(row.id) : '',
+  consultation_status: row.consultation_status || 'pending',
   triage_reminder_sent_at: row.triage_reminder_sent_at || null,
   triage_reminder_count: Number(row.triage_reminder_count || 0),
   documents: (row.documents || []).map(mapAppointmentDocument),
@@ -967,7 +980,9 @@ const listProfessionalAppointments = async (
         a.google_calendar_event_url,
         a.google_sync_status,
         a.google_sync_error,
-        a.triage_url,
+        EXISTS (SELECT 1 FROM consultation_bot_usage usage WHERE usage.appointment_id = a.id
+          AND usage.completed_at IS NOT NULL AND usage.report_encrypted IS NOT NULL) AS bot_report_available,
+        ${consultationStatusSql('a')} AS consultation_status,
         a.triage_assignment_error,
         a.triage_reminder_sent_at,
         a.triage_reminder_count,
@@ -977,6 +992,7 @@ const listProfessionalAppointments = async (
               jsonb_build_object(
                 'id', document.id,
                 'kind', document.kind,
+                'purpose', document.purpose,
                 'original_name', document.original_name,
                 'mime_type', document.mime_type,
                 'size_bytes', document.size_bytes,
@@ -1002,7 +1018,8 @@ const listProfessionalAppointments = async (
       WHERE a.professional_id = $1
         AND ($2::boolean = FALSE OR a.appointment_date >= CURRENT_DATE)
         AND a.status IN ('confirmed', 'pending_payment', 'cancelled')
-      ORDER BY a.appointment_date DESC, a.start_time DESC
+      ORDER BY a.appointment_date ${upcomingOnly ? 'ASC' : 'DESC'},
+        a.start_time ${upcomingOnly ? 'ASC' : 'DESC'}, a.id ${upcomingOnly ? 'ASC' : 'DESC'}
       LIMIT 500
     `,
     [professionalId, upcomingOnly],
@@ -1244,6 +1261,32 @@ export const handleProfessionalApi = async (request, response, url) => {
     }
 
     let account = await loadProfessionalAccount(request);
+    const appointmentDocumentMatch = pathname.match(/^\/api\/professional\/appointment-documents\/(\d+)$/);
+    if (appointmentDocumentMatch && ['GET', 'HEAD'].includes(request.method)) {
+      let documentAccount = account;
+      if (account) requireProfessionalApiPermission(account.user, request.method, pathname);
+      else {
+        const session = await requireProfessionalSession(request);
+        documentAccount = { user: { id: null, professional_id: session.professional_id } };
+      }
+      await streamProfessionalAppointmentDocument(request, response, Number(appointmentDocumentMatch[1]), documentAccount);
+      return true;
+    }
+    const consultationReportMatch = pathname.match(/^\/api\/professional\/appointments\/(\d+)\/consultation-report$/);
+    if (consultationReportMatch && ['GET', 'HEAD'].includes(request.method)) {
+      let professionalId;
+      if (account) {
+        requireProfessionalApiPermission(account.user, request.method, pathname);
+        professionalId = account.user.professional_id;
+      } else professionalId = (await requireProfessionalSession(request)).professional_id;
+      const appointmentId = Number(consultationReportMatch[1]);
+      const pdf = await readProfessionalBotReport(appointmentId, professionalId);
+      await recordAudit('professional.consultation_report.viewed', { actorUserId: account?.user?.id || null,
+        detail: { professional_id: Number(professionalId), appointment_id: appointmentId } });
+      response.writeHead(200, withSecurityHeaders({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="reku-motivo-de-consulta.pdf"', 'Cache-Control': 'private, no-store' }, { privateRoute: true }));
+      response.end(request.method === 'HEAD' ? undefined : pdf);
+      return true;
+    }
     if (
       pathname === "/api/professional/appointments" &&
       request.method === "GET" &&
@@ -1445,21 +1488,6 @@ export const handleProfessionalApi = async (request, response, url) => {
     }
     if (pathname === "/api/professional/appointments" && request.method === "GET") {
       await listProfessionalAppointments(response, account.user.professional_id);
-      return true;
-    }
-    const appointmentDocumentMatch = pathname.match(
-      /^\/api\/professional\/appointment-documents\/(\d+)$/,
-    );
-    if (
-      appointmentDocumentMatch &&
-      (request.method === "GET" || request.method === "HEAD")
-    ) {
-      await streamProfessionalAppointmentDocument(
-        request,
-        response,
-        Number(appointmentDocumentMatch[1]),
-        account,
-      );
       return true;
     }
     const appointmentCancelMatch = pathname.match(

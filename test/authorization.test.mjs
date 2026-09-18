@@ -11,6 +11,15 @@ import {
 } from "../src/authorization.mjs";
 import { readFile } from "node:fs/promises";
 
+test('admin PDF requires appointment-read permission for GET and HEAD', () => {
+  for (const method of ['GET', 'HEAD']) {
+    const path = '/api/admin/appointments/42/consultation-report';
+    assert.equal(requiredPermissionForRequest(method, path), 'appointments.read');
+    assert.doesNotThrow(() => requireAdminApiPermission({ role: 'admin' }, method, path));
+    assert.throws(() => requireAdminApiPermission({ role: 'professional' }, method, path), /PERMISSION_DENIED/);
+  }
+});
+
 test("admin retains all declared permissions", () => {
   const admin = { role: "admin" };
   assert.deepEqual(permissionsForRole("admin"), ["*"]);

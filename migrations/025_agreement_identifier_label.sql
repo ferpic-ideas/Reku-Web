@@ -1,0 +1,2 @@
+ALTER TABLE agreements
+  ADD COLUMN IF NOT EXISTS identifier_label VARCHAR(80) NOT NULL DEFAULT '';

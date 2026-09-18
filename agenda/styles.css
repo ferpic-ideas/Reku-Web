@@ -634,6 +634,44 @@ button {
   margin-top: 24px;
 }
 
+.management-sent-documents {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid #cfe7ed;
+  border-radius: 20px;
+  background: #f5fbfc;
+}
+.management-sent-documents h3 { margin: 0 0 16px; }
+.management-sent-documents ul { list-style: none; margin: 0; padding: 0; }
+.management-sent-documents li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid #dce9ed;
+}
+.sent-document-info { flex: 1; min-width: 0; }
+.sent-document-info a, .document-delete-name { overflow-wrap: anywhere; }
+.sent-document-info > a { font-weight: 700; color: #287d8b; }
+.sent-document-info small { display: block; margin-top: 6px; color: var(--muted); }
+.document-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 10px;
+  flex-shrink: 0;
+  background: white;
+  border: 1px solid #ead1d4;
+  border-radius: 12px;
+  color: var(--danger);
+  cursor: pointer;
+}
+.document-delete-button svg { width: 20px; height: 20px; }
+.document-delete-button:not(:disabled):hover { background: #fff1ef; }
+.document-delete-button:disabled { opacity: .5; cursor: wait; }
+
 .documents-toggle-button {
   width: 100%;
   border: 1px solid #d1d5db;
@@ -754,6 +792,26 @@ button {
 .document-status.ok {
   color: #11633a;
   background: #e8f8ef;
+}
+
+.documents-confirmation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.documents-confirmation .text-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .document-status.error {

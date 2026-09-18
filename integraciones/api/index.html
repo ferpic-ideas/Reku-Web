@@ -25,7 +25,7 @@
       <div class="hero-copy">
         <span class="eyebrow"><span></span> Integraciones para acuerdos</span>
         <h1>Reservá turnos en Reku<br /><em>desde tu sistema.</em></h1>
-        <p>Una API simple y segura para consultar disponibilidad, confirmar turnos ya pagados, reprogramarlos y cancelarlos.</p>
+        <p>Una API para acuerdos de Pago y Nómina: consultá disponibilidad, confirmá turnos, adjuntá la orden médica y gestioná cambios desde tu sistema.</p>
         <div class="hero-badges" aria-label="Características principales">
           <span>Server-to-server</span>
           <span>REST + JSON</span>
@@ -66,6 +66,8 @@
             <div><span class="section-kicker">Empezá acá</span><h2>Inicio rápido</h2></div>
           </div>
           <p class="section-intro">La API es server-to-server. El token debe permanecer en tu backend y nunca incluirse en JavaScript público, una app móvil ni una URL.</p>
+          <p>Primero consultá <code>GET /agreement</code>: devuelve <code>type</code> (Pago o Nomina), <code>slug</code> (también subdominio), <code>direct_treatment</code>, <code>treatment_service_id</code>, <code>medical_order_required</code> e <code>identifier_label</code>. Ambos tipos permiten gestionar credenciales desde Admin → Acuerdos → API.</p>
+          <p>Los ejemplos de abajo muestran Pago sin orden obligatoria. Para Nómina y carga de órdenes, consultá las variantes del flujo más abajo.</p>
           <div class="callout base-url">
             <span>Base URL</span>
             <code>https://www.reku.io/api/partners/v1</code>
@@ -148,15 +150,41 @@
             <div><span class="section-kicker">Implementación</span><h2>Flujo recomendado</h2></div>
           </div>
           <ol class="flow-list">
-            <li><span>1</span><div><strong>Obtené las prácticas</strong><p>Consultá <code>GET /services</code>.</p></div></li>
+            <li><span>1</span><div><strong>Leé los requisitos del acuerdo</strong><p>Consultá <code>GET /agreement</code> y <code>GET /services</code>.</p></div></li>
             <li><span>2</span><div><strong>Elegí el horario</strong><p>Consultá profesionales o directamente la disponibilidad.</p></div></li>
             <li><span>3</span><div><strong>Protegé el horario</strong><p>Ejecutá <code>POST /holds</code>. Reku lo retira de disponibilidad durante 10 minutos y devuelve un <code>hold_id</code>.</p></div></li>
-            <li><span>4</span><div><strong>Procesá el pago</strong><p>El cobro se realiza íntegramente en tu sistema mientras la pre-reserva está activa.</p></div></li>
-            <li><span>5</span><div><strong>Confirmá la reserva</strong><p>Después del pago, ejecutá <code>POST /appointments</code> con el <code>hold_id</code>. Un <code>201</code> significa turno confirmado y pago externo declarado.</p></div></li>
+            <li><span>4</span><div><strong>Completá los datos</strong><p>En Pago, cobrá en tu sistema. En Nómina, pedí el identificador indicado por el acuerdo. Adjuntá la orden si corresponde.</p></div></li>
+            <li><span>5</span><div><strong>Confirmá la reserva</strong><p>Ejecutá <code>POST /appointments</code> con el <code>hold_id</code>. En Pago, un <code>201</code> significa turno confirmado y pago externo declarado. En Nómina significa turno confirmado con cobertura de nómina, sin cobro.</p></div></li>
             <li><span>6</span><div><strong>Guardá los identificadores</strong><p>Persistí el <code>data.id</code> de Reku junto con tu <code>external_id</code>.</p></div></li>
             <li><span>7</span><div><strong>Gestioná cambios</strong><p>Reprogramá con <code>PATCH /appointments/{id}</code> o cancelá con <code>POST /appointments/{id}/cancel</code>.</p></div></li>
           </ol>
-          <div class="warning"><strong>Vencimiento automático:</strong><span>al cumplirse 10 minutos el horario vuelve a ofrecerse sin intervención. Si el pago termina después, <code>POST /appointments</code> todavía confirma normalmente mientras nadie más lo haya tomado; sólo devuelve <code>409 slot_unavailable</code> si otro usuario lo reservó.</span></div>
+          <div class="warning"><strong>Vencimiento automático:</strong><span>al cumplirse 10 minutos el horario vuelve a ofrecerse sin intervención. La confirmación posterior vuelve a comprobar disponibilidad y requisitos actuales del acuerdo.</span></div>
+          <h3>Tratamiento directo</h3>
+          <p>Si <code>direct_treatment=true</code>, salteá la selección de práctica y profesional. <code>/services</code> sólo devuelve el tratamiento configurado; en disponibilidad y holds podés omitir <code>service_id</code>. Otro servicio se rechaza. Se ignora <code>professional_id</code> y se asigna automáticamente un profesional habilitado. Consultá disponibilidad y ofrecé primero el horario más cercano; la API no elige la fecha por el paciente.</p>
+          <h3>Acuerdos de Nómina</h3>
+          <p>Usá <code>identifier_label</code> como etiqueta (por ejemplo, DNI o legajo; si está vacío, Identificador). Enviá <code>patient.identifier</code> junto con nombre, apellido, email y teléfono. Se valida contra la nómina de ese acuerdo, sin distinguir mayúsculas; un identificador de otro acuerdo no sirve.</p>
+          <pre><code>{
+  "external_id": "NOM-90821",
+  "hold_id": "hold_REEMPLAZAR",
+  "patient": {
+    "first_name": "Ana", "last_name": "Pérez",
+    "email": "ana@example.com", "phone": "+5491160000000",
+    "identifier": "LEGAJO-123"
+  }
+}</code></pre>
+          <p>La respuesta indica <code>payment.status=nomina</code>, <code>payment.provider=nomina</code>, monto cero y <code>settlement.billable=false</code>. No se declara pago externo; <code>payment_reference</code> se ignora. La cancelación no genera devolución. Las liquidaciones siguen siendo exclusivas de Pago.</p>
+          <h3>Orden médica obligatoria u opcional</h3>
+          <p>Para enviar la orden, usá <code>multipart/form-data</code>: el campo <code>payload</code> contiene el JSON anterior y <code>medical_order</code> contiene un archivo PDF, JPG, PNG o WebP de hasta 10 MB. Se comprueba tipo y firma del archivo. JSON sin archivo sigue disponible si el acuerdo no exige orden.</p>
+          <pre><code>curl https://www.reku.io/api/partners/v1/appointments \
+  -H "Authorization: Bearer rku_ag_REEMPLAZAR" \
+  -H "Idempotency-Key: reserva-NOM-90821" \
+  -F 'payload=&lt;reserva.json' \
+  -F 'medical_order=@orden.pdf;type=application/pdf'</code></pre>
+          <p>Reintentá con el mismo JSON y archivo usando la misma clave. La huella del archivo forma parte de la idempotencia: cambiarlo con esa clave devuelve conflicto. La orden queda privada y disponible para el admin y el profesional asignado. <code>medical_order.received</code> significa recibida, no validada clínicamente.</p>
+          <h3>Cuestionario y cambios del turno</h3>
+          <p>Los turnos devuelven <code>consultation_status</code>: <code>pending</code>, <code>started</code> o <code>completed</code>. Consultá <code>GET /appointments/{id}</code> para obtener el estado actualizado; si está completo, no muestres la invitación a responder. Un replay conserva la respuesta original.</p>
+          <p>Los mails del paciente mantienen los enlaces al bot Reku y a la sala bajo el subdominio del acuerdo. La llamada a ReHub continúa por detrás; su URL interna no se expone a partners. El PDF clínico tampoco se expone por esta API.</p>
+          <p>PATCH permite corregir datos y reprogramar, pero no reemplazar email ni identificador del paciente: cancelá y creá otro turno para evitar transferir documentación o enlaces privados. Si enviás <code>patient</code>, enviá todos sus campos. Se conserva el tipo económico y la condición de orden del turno original. En tratamiento directo se conserva el profesional salvo un cambio explícito a otro habilitado. PATCH no admite archivos.</p>
         </section>
 
         <section id="endpoints">
@@ -170,10 +198,10 @@
           <div class="endpoint"><div><span class="method get">GET</span><code>/professionals?service_id={id}</code></div><p>Profesionales habilitados para la práctica y el acuerdo.</p></div>
           <div class="endpoint"><div><span class="method get">GET</span><code>/availability?service_id={id}&amp;date=YYYY-MM-DD</code></div><p>Slots de un día. También admite <code>from</code>/<code>to</code> —máximo 31 días— y <code>professional_id</code> opcional.</p></div>
           <div class="endpoint"><div><span class="method post">POST</span><code>/holds</code></div><p>Pre-reserva un horario durante 10 minutos. <code>professional_id</code> es opcional; si se omite, Reku asigna el primer profesional disponible.</p></div>
-          <div class="endpoint"><div><span class="method post">POST</span><code>/appointments</code></div><p>Confirma una reserva ya pagada usando <code>hold_id</code>. Un hold vencido sigue siendo utilizable mientras el horario permanezca libre.</p></div>
+          <div class="endpoint"><div><span class="method post">POST</span><code>/appointments</code></div><p>Confirma Pago o Nómina usando <code>hold_id</code>, datos del paciente y orden si corresponde. Acepta JSON o multipart con archivo.</p></div>
           <div class="endpoint"><div><span class="method get">GET</span><code>/appointments</code></div><p>Lista paginada. Filtros: <code>from</code>, <code>to</code>, <code>status</code>, <code>external_id</code>, <code>page</code> y <code>limit</code>.</p></div>
           <div class="endpoint"><div><span class="method get">GET</span><code>/appointments/{id}</code></div><p>Detalle de un turno propio del acuerdo.</p></div>
-          <div class="endpoint"><div><span class="method patch">PATCH</span><code>/appointments/{id}</code></div><p>Modifica paciente, práctica, profesional, fecha u horario. Requiere un nuevo <code>Idempotency-Key</code>.</p></div>
+          <div class="endpoint"><div><span class="method patch">PATCH</span><code>/appointments/{id}</code></div><p>Corrige datos o reprograma, sin reemplazar la identidad del paciente. Requiere un nuevo <code>Idempotency-Key</code>.</p></div>
           <div class="endpoint"><div><span class="method post">POST</span><code>/appointments/{id}/cancel</code></div><p>Cancela un turno futuro. Body: <code>{ "reason": "…" }</code>. El acuerdo gestiona cualquier devolución en su sistema.</p></div>
           <a class="openapi-cta" href="./openapi.json" target="_blank" rel="noopener"><span><strong>Contrato OpenAPI completo</strong><small>Esquemas, parámetros y respuestas listos para importar.</small></span><span aria-hidden="true">→</span></a>
         </section>
@@ -200,6 +228,9 @@
                 <tr><td><span class="status-code client">404</span></td><td>Recurso inexistente o ajeno al acuerdo.</td><td>Revisar el ID.</td></tr>
                 <tr><td><span class="status-code conflict">409</span></td><td>Horario ocupado tras vencer el hold, hold ya consumido o conflicto de idempotencia.</td><td>Consultar disponibilidad o revisar la operación original.</td></tr>
                 <tr><td><span class="status-code client">422</span></td><td>Datos válidos como JSON pero incorrectos.</td><td>Corregir campos.</td></tr>
+                <tr><td><span class="status-code client">422</span></td><td><code>identifier_required</code>, <code>identifier_not_eligible</code>, <code>medical_order_required</code> o <code>service_not_available</code>.</td><td>Revisar identificador, orden y configuración del acuerdo.</td></tr>
+                <tr><td><span class="status-code client">413 / 415</span></td><td>Archivo demasiado grande o tipo/firma inválidos.</td><td>Enviar un documento válido de hasta 10 MB.</td></tr>
+                <tr><td><span class="status-code conflict">409</span></td><td><code>patient_identity_not_editable</code>.</td><td>Para otro paciente, cancelar y crear un turno nuevo.</td></tr>
                 <tr><td><span class="status-code rate">429</span></td><td>Límite temporal superado.</td><td>Esperar <code>Retry-After</code>.</td></tr>
                 <tr><td><span class="status-code server">5xx</span></td><td>Error transitorio de Reku.</td><td>Reintentar con la misma clave y backoff.</td></tr>
               </tbody>
@@ -212,7 +243,7 @@
 
     <footer>
       <img src="../../images/logo-reku.svg" alt="Reku" />
-      <p>API de acuerdos v1.1 · <a href="mailto:hola@reku.io">hola@reku.io</a></p>
+      <p>API de acuerdos v1.2 · <a href="mailto:hola@reku.io">hola@reku.io</a></p>
     </footer>
   </body>
 </html>

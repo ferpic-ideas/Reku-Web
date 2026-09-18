@@ -1,5 +1,6 @@
 import { createProfessionalAccessLink } from "./professional-links.mjs";
 import { query, recordAudit } from "./db.mjs";
+import { consultationStatusSql, readAppointmentConsultationStatus } from './consultation-status.mjs';
 import { sendEmail } from "./email.mjs";
 import { escapeHtml } from "./http.mjs";
 import { syncAppointmentToGoogleCalendar } from "./google-calendar.mjs";
@@ -8,12 +9,9 @@ import { ensureAppointmentTriage } from "./appointment-triage.mjs";
 import { isReHubConfigured } from "./rehub.mjs";
 import {
   createPatientAppointmentAccessLink,
-  revokeOtherPatientAppointmentAccessLinks,
 } from "./patient-appointment-links.mjs";
 import {
   googleCalendarTemplateUrl,
-  isGoogleCalendarEmail,
-  patientCalendarActionUrl,
 } from "./appointment-calendar.mjs";
 
 const formatDate = (value) => {
@@ -56,22 +54,10 @@ const professionalNotificationLead = (appointment) => {
 const patientMeetWindowText = () =>
   `Por seguridad, el acceso a la videollamada se habilita ${config.patientMeetEarlyMinutes} minutos antes del turno y permanece disponible hasta ${config.patientMeetLateMinutes} minutos después de su finalización.`;
 
-const rotateDeliveredPatientAccessLink = async (appointmentId, linkId) => {
-  try {
-    await revokeOtherPatientAppointmentAccessLinks({
-      appointmentId,
-      keepLinkId: linkId,
-    });
-  } catch (error) {
-    await recordAudit("appointment.patient_access_link_rotation_failed", {
-      detail: {
-        appointment_id: Number(appointmentId),
-        access_link_id: Number(linkId),
-        error: String(error?.message || "LINK_ROTATION_FAILED").slice(0, 160),
-      },
-    }).catch(() => {});
-  }
-};
+// Sending a confirmation or reminder must not revoke prior patient links.
+// Earlier emails and Calendar invitations remain valid until their own expiry;
+// each destination still checks appointment status, report completion and the
+// Meet time window. Explicit security revocation remains separate from delivery.
 
 const patientMeetTextLines = (appointment, manageUrl) =>
   appointment.google_meet_url && manageUrl
@@ -90,30 +76,27 @@ const patientMeetHtml = (appointment, manageUrl) =>
 
 const patientCalendarTextLines = (appointment, manageUrl) => {
   if (!manageUrl) return [];
-  if (!isGoogleCalendarEmail(appointment.patient_email)) {
-    return [`Agregar a mi calendario: ${patientCalendarActionUrl(manageUrl)}`];
-  }
   return [
     `Agregar a Google Calendar: ${googleCalendarTemplateUrl({
       appointment,
       manageUrl,
       timeZone: config.googleCalendarTimeZone,
     })}`,
-    `Usar otro calendario: ${patientCalendarActionUrl(manageUrl)}`,
   ];
 };
 
-const patientCalendarHtml = (appointment, manageUrl) => {
+const patientActionsHtml = (appointment, manageUrl) => {
   if (!manageUrl) return "";
-  if (!isGoogleCalendarEmail(appointment.patient_email)) {
-    return `<p style="margin-top:18px"><a href="${escapeHtml(patientCalendarActionUrl(manageUrl))}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a mi calendario</a></p>`;
-  }
   const googleUrl = googleCalendarTemplateUrl({
     appointment,
     manageUrl,
     timeZone: config.googleCalendarTimeZone,
   });
-  return `<p style="margin-top:18px"><a href="${escapeHtml(googleUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a Google Calendar</a><br><a href="${escapeHtml(patientCalendarActionUrl(manageUrl))}" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin-top:9px;color:#64738a;text-decoration:underline;text-underline-offset:3px;font-size:13px">Usar otro calendario</a></p>`;
+  // A presentation table keeps both actions in one row in email clients.
+  return `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin-top:24px;max-width:100%"><tr>
+    <td style="vertical-align:middle;padding-right:10px"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Gestionar mi turno</a></td>
+    <td style="vertical-align:middle"><a href="${escapeHtml(googleUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700"><span aria-hidden="true" style="margin-right:8px">&#128197;</span>Agregar a Google Calendar</a></td>
+  </tr></table>`;
 };
 
 export const appointmentText = ({ appointment, link }) =>
@@ -213,16 +196,16 @@ export const patientConfirmationText = ({
     ...(manageUrl
       ? [
           "",
-          "Gestionar o mover mi turno:",
+          "Gestionar mi turno:",
           manageUrl,
         ]
       : []),
     ...patientCalendarTextLines(appointment, manageUrl),
-    ...(appointment.triage_url
+    ...(appointment.bot_url
       ? [
           "",
           "Antes de la consulta, completá este breve cuestionario para que el equipo pueda preparar mejor tu atención:",
-          appointment.triage_url,
+          appointment.bot_url,
         ]
       : []),
     ...patientMeetTextLines(appointment, meetUrl),
@@ -250,15 +233,14 @@ export const patientConfirmationHtml = ({
       <tr><td><strong>Servicio</strong></td><td>${escapeHtml(appointment.service_name)}</td></tr>
       <tr><td><strong>Profesional</strong></td><td>${escapeHtml(appointment.professional_name)}</td></tr>
     </table>
-    ${manageUrl ? `<p style="margin-top:20px"><a href="${escapeHtml(manageUrl)}" style="color:#18213f;text-decoration:underline;text-underline-offset:3px;font-weight:700">Gestionar o mover mi turno</a></p>` : ""}
-    ${patientCalendarHtml(appointment, manageUrl)}
+    ${patientActionsHtml(appointment, manageUrl)}
     ${
-      appointment.triage_url
+      appointment.bot_url
         ? `
           <div style="margin-top:24px;padding:18px;border-radius:12px;background:#f4f1ff">
             <h2 style="font-size:18px;margin:0 0 8px">Cuestionario previo</h2>
             <p style="margin:0 0 14px">Completalo antes de la consulta para que el equipo pueda preparar mejor tu atención.</p>
-            <a href="${escapeHtml(appointment.triage_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">Completar cuestionario</a>
+            <a href="${escapeHtml(appointment.bot_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">Completar cuestionario</a>
           </div>
         `
         : ""
@@ -319,11 +301,11 @@ export const patientFollowupText = ({
     `Horario: ${appointment.start_time} a ${appointment.end_time}`,
     `Servicio: ${appointment.service_name}`,
     `Profesional: ${appointment.professional_name}`,
-    ...(appointment.triage_url
+    ...(appointment.bot_url
       ? [
           "",
           "Si todavía no completaste el cuestionario previo, es importante que lo hagas antes de la consulta con tu fisio:",
-          appointment.triage_url,
+          appointment.bot_url,
         ]
       : []),
     ...patientMeetTextLines(appointment, meetUrl),
@@ -352,19 +334,18 @@ export const patientFollowupHtml = ({
       <tr><td><strong>Profesional</strong></td><td>${escapeHtml(appointment.professional_name)}</td></tr>
     </table>
     ${
-      appointment.triage_url
+      appointment.bot_url
         ? `
           <div style="margin-top:24px;padding:18px;border-radius:12px;background:#f4f1ff">
             <h2 style="font-size:18px;margin:0 0 8px">Cuestionario previo</h2>
             <p style="margin:0 0 14px">Si todavía no lo completaste, es importante que lo hagas antes de la consulta con tu fisio.</p>
-            <a href="${escapeHtml(appointment.triage_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">Completar cuestionario</a>
+            <a href="${escapeHtml(appointment.bot_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">Completar cuestionario</a>
           </div>
         `
         : ""
     }
     ${patientMeetHtml(appointment, meetUrl)}
-    ${manageUrl ? `<p style="margin-top:24px"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#18213f;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none;font-weight:700">Gestionar mi turno</a></p>` : ""}
-    ${patientCalendarHtml(appointment, manageUrl)}
+    ${patientActionsHtml(appointment, manageUrl)}
   </div>
 `;
 
@@ -381,7 +362,7 @@ export const patientTriageReminderText = ({ appointment }) =>
     `Servicio: ${appointment.service_name}`,
     `Profesional: ${appointment.professional_name}`,
     "",
-    appointment.triage_url,
+    appointment.bot_url,
   ].join("\n");
 
 export const patientTriageReminderHtml = ({ appointment }) => `
@@ -396,7 +377,7 @@ export const patientTriageReminderHtml = ({ appointment }) => `
       <tr><td><strong>Profesional</strong></td><td>${escapeHtml(appointment.professional_name)}</td></tr>
     </table>
     <p style="margin-top:24px">
-      <a href="${escapeHtml(appointment.triage_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">Completar cuestionario</a>
+      <a href="${escapeHtml(appointment.bot_url)}" style="display:inline-block;background:#6c4bf4;color:#fff;padding:12px 16px;border-radius:8px;text-decoration:none">Completar cuestionario</a>
     </p>
     <p style="color:#64738a;font-size:13px">Si ya lo completaste, podés ignorar este mensaje.</p>
   </div>
@@ -651,6 +632,7 @@ export const notifyPatientForAppointment = async (
   try {
     const manageLink =
       accessLink || (await createPatientAppointmentAccessLink({ appointmentId }));
+    appointment.bot_url = await readAppointmentConsultationStatus(appointment.id) === 'completed' ? '' : manageLink.bot_url;
     const subject = patientConfirmationSubject(appointment);
     const result = await sendEmail({
       formName: "turno-paciente",
@@ -678,7 +660,6 @@ export const notifyPatientForAppointment = async (
       `,
       [appointment.id, result?.id || ""],
     );
-    await rotateDeliveredPatientAccessLink(appointment.id, manageLink.id);
     await recordAudit("appointment.patient_notified", {
       detail: {
         appointment_id: Number(appointment.id),
@@ -721,7 +702,6 @@ export const notifyPatientForPendingPayment = async (appointmentId) => {
       `,
       [appointment.id, result?.id || ""],
     );
-    await rotateDeliveredPatientAccessLink(appointment.id, manageLink.id);
     await recordAudit("appointment.pending_payment_patient_notified", {
       detail: { appointment_id: Number(appointment.id), message_id: result?.id || "" },
     });
@@ -790,6 +770,7 @@ export const notifyPatientAppointmentFollowup = async (appointmentId) => {
     const manageLink = await createPatientAppointmentAccessLink({
       appointmentId: appointment.id,
     });
+    appointment.bot_url = await readAppointmentConsultationStatus(appointment.id) === 'completed' ? '' : manageLink.bot_url;
     const result = await sendEmail({
       formName: "recordatorio-turno-paciente",
       to: appointment.patient_email,
@@ -815,7 +796,6 @@ export const notifyPatientAppointmentFollowup = async (appointmentId) => {
       `,
       [appointment.id, result?.id || ""],
     );
-    await rotateDeliveredPatientAccessLink(appointment.id, manageLink.id);
     await recordAudit("appointment.patient_followup_notified", {
       detail: {
         appointment_id: Number(appointment.id),
@@ -952,7 +932,7 @@ const claimManualTriageReminder = async (appointmentId, professionalId) => {
         AND appointment.service_id = service.id
         AND appointment.status = 'confirmed'
         AND NULLIF(appointment.patient_email, '') IS NOT NULL
-        AND NULLIF(appointment.triage_url, '') IS NOT NULL
+        AND ${consultationStatusSql('appointment')} <> 'completed'
         AND ((appointment.appointment_date + appointment.start_time) AT TIME ZONE $3) > NOW()
         AND (
           appointment.triage_reminder_last_attempted_at IS NULL
@@ -980,6 +960,7 @@ const claimManualTriageReminder = async (appointmentId, professionalId) => {
         status,
         patient_email,
         triage_url,
+        ${consultationStatusSql('appointments')} AS consultation_status,
         triage_reminder_last_attempted_at,
         ((appointment_date + start_time) AT TIME ZONE $3) > NOW() AS is_future
       FROM appointments
@@ -991,8 +972,8 @@ const claimManualTriageReminder = async (appointmentId, professionalId) => {
   if (!row) throw triageReminderError("TRIAGE_REMINDER_NOT_FOUND", 404);
   if (
     row.status !== "confirmed" ||
+    row.consultation_status === 'completed' ||
     !row.patient_email ||
-    !row.triage_url ||
     !row.is_future
   ) {
     throw triageReminderError("TRIAGE_REMINDER_NOT_AVAILABLE", 409);
@@ -1007,6 +988,9 @@ export const notifyPatientTriageReminder = async (
 ) => {
   const appointment = await claimManualTriageReminder(appointmentId, professionalId);
   try {
+    const botLink = await createPatientAppointmentAccessLink({ appointmentId });
+    if (await readAppointmentConsultationStatus(appointmentId) === 'completed') return { ok: true, skipped: true };
+    appointment.bot_url = botLink.bot_url;
     const result = await sendEmail({
       formName: "recordatorio-triaje-paciente",
       to: appointment.patient_email,

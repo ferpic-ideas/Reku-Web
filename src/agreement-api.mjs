@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { one, query, recordAudit, tx } from "./db.mjs";
 import { getClientIp, readBody, sendJson } from "./http.mjs";
 import { hashToken } from "./security.mjs";
@@ -19,6 +19,9 @@ import {
 } from "./google-calendar.mjs";
 import { config } from "./config.mjs";
 import { consumeRateLimit } from "./rate-limit.mjs";
+import { parseMultipartForm } from "./uploads.mjs";
+import { validateClinicalDocument, saveClinicalDocument, removeClinicalDocuments } from "./appointment-documents.mjs";
+import { consultationStatusSql } from "./consultation-status.mjs";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -107,6 +110,10 @@ const normalizePatient = (value, fallback = {}) => {
   const lastName = String(patient.last_name || "").trim().slice(0, 100);
   const email = String(patient.email || "").trim().toLowerCase().slice(0, 254);
   const phone = String(patient.phone || "").trim().slice(0, 50);
+  const identifier = String(patient.identifier || "").trim();
+  if (identifier.length > 200 || /[\x00-\x1f\x7f]/.test(identifier)) {
+    throw apiError("validation_error", "patient.identifier no es válido (máximo 200 caracteres).");
+  }
   if (!firstName || !lastName || !emailPattern.test(email) || !phone) {
     throw apiError(
       "validation_error",
@@ -119,6 +126,7 @@ const normalizePatient = (value, fallback = {}) => {
     name: `${firstName} ${lastName}`.trim(),
     email,
     phone,
+    identifier,
   };
 };
 
@@ -135,6 +143,60 @@ const normalizeExternalId = (value) => {
 
 const normalizePaymentReference = (value, fallback) =>
   String(value || fallback || "").trim().slice(0, 200);
+
+const resolveServiceId = (credential, value) => {
+  const id = parsePositiveInteger(value || (credential.direct_treatment ? credential.treatment_service_id : null), "service_id");
+  if (credential.direct_treatment && id !== Number(credential.treatment_service_id)) {
+    throw apiError("service_not_available", "Este acuerdo requiere la práctica de tratamiento configurada.");
+  }
+  return id;
+};
+
+const validateNominaPatient = async (client, credential, patient) => {
+  if (credential.agreement_type !== "Nomina") return;
+  if (!patient.identifier) throw apiError("identifier_required", `Enviá patient.identifier (${credential.identifier_label || "Identificador"}).`);
+  const result = await client.query(`SELECT 1 FROM nomina_entries
+    WHERE agreement_id = $1 AND identificador_normalized = lower($2) LIMIT 1`,
+  [credential.agreement_id, patient.identifier]);
+  if (!result.rows[0]) throw apiError("identifier_not_eligible", "El identificador no está habilitado en la nómina de este acuerdo.");
+};
+
+const readAppointmentPayload = async (request) => {
+  let payload, medicalOrder = null;
+  if (String(request.headers["content-type"] || "").toLowerCase().startsWith("multipart/form-data")) {
+    let form;
+    try {
+      form = await parseMultipartForm(request, { maxBytes: 10 * 1024 * 1024, maxFiles: 1 });
+    } catch (error) {
+      throw apiError("invalid_upload", "Enviá una sola orden de hasta 10 MB.", error.statusCode || 400);
+    }
+    try {
+      if (Buffer.byteLength(form.fields.payload || "") > 100_000) throw new Error("large");
+      payload = JSON.parse(form.fields.payload);
+    } catch {
+      throw apiError("invalid_json", "El campo payload debe contener un objeto JSON válido.", 400);
+    }
+    if (Object.keys(form.files).some(key => key !== "medical_order")) {
+      throw apiError("invalid_upload", "El archivo debe enviarse en medical_order.");
+    }
+    medicalOrder = form.files.medical_order || null;
+    if (medicalOrder) {
+      try { validateClinicalDocument(medicalOrder); }
+      catch { throw apiError("invalid_medical_order", "La orden debe ser un PDF, JPG, PNG o WebP válido.", 415); }
+    }
+  } else payload = await readPartnerJson(request);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw apiError("invalid_json", "El cuerpo JSON no es válido.", 400);
+  }
+  if ("_medical_order" in payload || "medical_order" in payload) {
+    throw apiError("invalid_medical_order", "La orden se envía como archivo multipart, no como dato JSON.");
+  }
+  if (medicalOrder) payload._medical_order = {
+    sha256: createHash("sha256").update(medicalOrder.buffer).digest("hex"),
+    name: medicalOrder.filename, mime: medicalOrder.mimeType, size: medicalOrder.buffer.length,
+  };
+  return { payload, medicalOrder };
+};
 
 const stableValue = (value) => {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -238,14 +300,16 @@ const requireCredential = async (request) => {
         agreement.name AS agreement_name,
         agreement.slug AS agreement_slug,
         agreement.type AS agreement_type,
-        agreement.cobranded AS agreement_cobranded
+        agreement.cobranded AS agreement_cobranded,
+        agreement.direct_treatment, agreement.treatment_service_id,
+        agreement.medical_order_required, agreement.identifier_label
       FROM agreement_api_credentials credential
       INNER JOIN agreements agreement ON agreement.id = credential.agreement_id
       WHERE credential.token_hash = $1
         AND credential.active = TRUE
         AND credential.revoked_at IS NULL
         AND agreement.deleted_at IS NULL
-        AND agreement.type = 'Pago'
+        AND agreement.type IN ('Pago', 'Nomina')
     `,
     [hashToken(token)],
   );
@@ -409,11 +473,11 @@ const runIdempotent = async ({ request, credential, payload, execute }) => {
   });
 };
 
-const mapService = (row) => ({
+const mapService = (row, credential) => ({
   id: Number(row.id),
   name: row.name,
   duration_minutes: Number(row.duration_minutes),
-  settlement_amount: Number(row.cost_amount || 0),
+  settlement_amount: credential?.agreement_type === "Nomina" ? 0 : Number(row.cost_amount || 0),
   currency: "ARS",
 });
 
@@ -452,9 +516,12 @@ const mapPartnerAppointment = (row) => ({
   id: row.agreement_api_public_id,
   external_id: row.agreement_api_external_id,
   status: row.status,
+  agreement_type: row.agreement_type_snapshot,
+  consultation_status: row.consultation_status || "pending",
+  medical_order: { required: Boolean(row.medical_order_required), received: Boolean(row.medical_order_received) },
   payment: {
     status: row.payment_status === "agreement_api_paid" ? "paid" : row.payment_status,
-    provider: "agreement",
+    provider: row.agreement_type_snapshot === "Nomina" ? "nomina" : "agreement",
     reference: row.payment_reference || "",
   },
   patient: {
@@ -463,6 +530,7 @@ const mapPartnerAppointment = (row) => ({
       row.patient_last_name || String(row.patient_name || "").split(" ").slice(1).join(" "),
     email: row.patient_email || "",
     phone: row.patient_phone || "",
+    identifier: row.patient_identifier || "",
   },
   service: {
     id: Number(row.service_id),
@@ -482,7 +550,7 @@ const mapPartnerAppointment = (row) => ({
   settlement: {
     amount: Number(row.amount || 0),
     currency: "ARS",
-    billable: row.status === "confirmed",
+    billable: row.status === "confirmed" && row.agreement_type_snapshot === "Pago",
   },
   cancellation: row.status === "cancelled"
     ? {
@@ -496,6 +564,8 @@ const mapPartnerAppointment = (row) => ({
 
 const appointmentSelect = `
   appointment.*,
+  ${consultationStatusSql("appointment")} AS consultation_status,
+  EXISTS (SELECT 1 FROM appointment_documents document WHERE document.appointment_id = appointment.id AND document.purpose = 'medical_order') AS medical_order_received,
   to_char(appointment.appointment_date, 'YYYY-MM-DD') AS appointment_date,
   to_char(appointment.start_time, 'HH24:MI') AS start_time,
   to_char(appointment.end_time, 'HH24:MI') AS end_time,
@@ -540,15 +610,16 @@ const listAgreementServices = async (credential, response, requestId) => {
        AND professional.active = TRUE
        AND professional.deleted_at IS NULL
       WHERE service.active = TRUE AND service.deleted_at IS NULL
+        AND ($2::bigint IS NULL OR service.id = $2)
       ORDER BY service.name, service.id
     `,
-    [credential.agreement_id],
+    [credential.agreement_id, credential.direct_treatment ? credential.treatment_service_id : null],
   );
-  sendPartnerJson(response, 200, { data: result.rows.map(mapService) }, requestId);
+  sendPartnerJson(response, 200, { data: result.rows.map(row => mapService(row, credential)) }, requestId);
 };
 
 const listAgreementProfessionals = async (credential, url, response, requestId) => {
-  const serviceId = parsePositiveInteger(url.searchParams.get("service_id"), "service_id");
+  const serviceId = resolveServiceId(credential, url.searchParams.get("service_id"));
   const professionals = await loadEligibleProfessionals(serviceId, credential.agreement_id);
   sendPartnerJson(
     response,
@@ -573,12 +644,12 @@ const datesBetween = (from, to) => {
 };
 
 const listAvailability = async (credential, url, response, requestId) => {
-  const serviceId = parsePositiveInteger(url.searchParams.get("service_id"), "service_id");
+  const serviceId = resolveServiceId(credential, url.searchParams.get("service_id"));
   const singleDate = url.searchParams.get("date");
   const from = validateDate(singleDate || url.searchParams.get("from"), "date/from");
   const to = validateDate(singleDate || url.searchParams.get("to") || from, "date/to");
   if (to < from) throw apiError("validation_error", "to no puede ser anterior a from.");
-  const requestedProfessional = url.searchParams.get("professional_id");
+  const requestedProfessional = credential.direct_treatment ? null : url.searchParams.get("professional_id");
   const professionalId = requestedProfessional
     ? parsePositiveInteger(requestedProfessional, "professional_id")
     : null;
@@ -632,7 +703,7 @@ const listAvailability = async (credential, url, response, requestId) => {
     200,
     {
       data: {
-        service: mapService(service),
+        service: mapService(service, credential),
         timezone: config.googleCalendarTimeZone,
         days,
       },
@@ -741,8 +812,8 @@ const createHold = async (request, credential, payload, response, requestId) => 
     });
     return;
   }
-  const serviceId = parsePositiveInteger(payload.service_id, "service_id");
-  const professionalId = payload.professional_id
+  const serviceId = resolveServiceId(credential, payload.service_id);
+  const professionalId = !credential.direct_treatment && payload.professional_id
     ? parsePositiveInteger(payload.professional_id, "professional_id")
     : null;
   const date = validateDate(payload.date);
@@ -838,7 +909,7 @@ const createHold = async (request, credential, payload, response, requestId) => 
   );
 };
 
-const createAppointment = async (request, credential, payload, response, requestId) => {
+const createAppointment = async (request, credential, payload, response, requestId, medicalOrder = null) => {
   const replay = await lookupIdempotentResult({ request, credential, payload });
   if (replay) {
     sendPartnerJson(response, replay.statusCode, replay.body, requestId, {
@@ -855,189 +926,219 @@ const createAppointment = async (request, credential, payload, response, request
     );
   }
   const patient = normalizePatient(payload.patient);
-  const paymentReference = normalizePaymentReference(payload.payment_reference, externalId);
+  const isNomina = credential.agreement_type === "Nomina";
+  const paymentReference = isNomina ? "" : normalizePaymentReference(payload.payment_reference, externalId);
+  if (credential.medical_order_required && !medicalOrder) {
+    throw apiError("medical_order_required", "Para reservar este turno es obligatorio adjuntar la orden médica.");
+  }
 
-  const result = await runIdempotent({
-    request,
-    credential,
-    payload,
-    execute: async (client) => {
-      const duplicate = await client.query(
-        `
-          SELECT agreement_api_public_id
-          FROM appointments
-          WHERE agreement_id = $1 AND agreement_api_external_id = $2
-        `,
-        [credential.agreement_id, externalId],
-      );
-      if (duplicate.rows[0]) {
-        throw apiError(
-          "external_id_conflict",
-          "Ya existe un turno con ese external_id.",
-          409,
-          { appointment_id: duplicate.rows[0].agreement_api_public_id },
+  const savedPaths = [];
+  let result;
+  try {
+    result = await runIdempotent({
+      request,
+      credential,
+      payload,
+      execute: async (client) => {
+        await validateNominaPatient(client, credential, patient);
+        const duplicate = await client.query(
+          `
+            SELECT agreement_api_public_id
+            FROM appointments
+            WHERE agreement_id = $1 AND agreement_api_external_id = $2
+          `,
+          [credential.agreement_id, externalId],
         );
-      }
+        if (duplicate.rows[0]) {
+          throw apiError(
+            "external_id_conflict",
+            "Ya existe un turno con ese external_id.",
+            409,
+            { appointment_id: duplicate.rows[0].agreement_api_public_id },
+          );
+        }
 
-      const holdResult = await client.query(
-        `
-          SELECT hold.*,
-                 to_char(hold.hold_date, 'YYYY-MM-DD') AS hold_date,
-                 to_char(hold.start_time, 'HH24:MI') AS start_time,
-                 to_char(hold.end_time, 'HH24:MI') AS end_time,
-                 hold.expires_at > NOW() AS active,
-                 service.name AS service_name,
-                 service.duration_minutes,
-                 service.cost_amount,
-                 professional.name AS professional_name,
-                 professional.specialty AS professional_specialty
-          FROM agreement_api_holds hold
-          INNER JOIN services service ON service.id = hold.service_id
-          INNER JOIN professionals professional ON professional.id = hold.professional_id
-          WHERE hold.public_id = $1
-            AND hold.agreement_id = $2
-            AND hold.credential_id = $3
-          FOR UPDATE OF hold
-        `,
-        [holdId, credential.agreement_id, credential.id],
-      );
-      const hold = holdResult.rows[0];
-      if (!hold) {
-        throw apiError("hold_not_found", "Pre-reserva no encontrada.", 404);
-      }
-      if (hold.consumed_at) {
-        throw apiError(
-          "hold_already_consumed",
-          "La pre-reserva ya fue utilizada.",
-          409,
-          hold.appointment_id ? { appointment_id: Number(hold.appointment_id) } : undefined,
+        const holdResult = await client.query(
+          `
+            SELECT hold.*,
+                   to_char(hold.hold_date, 'YYYY-MM-DD') AS hold_date,
+                   to_char(hold.start_time, 'HH24:MI') AS start_time,
+                   to_char(hold.end_time, 'HH24:MI') AS end_time,
+                   hold.expires_at > NOW() AS active,
+                   service.name AS service_name,
+                   service.duration_minutes,
+                   service.cost_amount,
+                   professional.name AS professional_name,
+                   professional.specialty AS professional_specialty
+            FROM agreement_api_holds hold
+            INNER JOIN services service ON service.id = hold.service_id
+            INNER JOIN professionals professional ON professional.id = hold.professional_id
+            WHERE hold.public_id = $1
+              AND hold.agreement_id = $2
+              AND hold.credential_id = $3
+            FOR UPDATE OF hold
+          `,
+          [holdId, credential.agreement_id, credential.id],
         );
-      }
+        const hold = holdResult.rows[0];
+        if (!hold) {
+          throw apiError("hold_not_found", "Pre-reserva no encontrada.", 404);
+        }
+        if (hold.consumed_at) {
+          throw apiError(
+            "hold_already_consumed",
+            "La pre-reserva ya fue utilizada.",
+            409,
+            hold.appointment_id ? { appointment_id: Number(hold.appointment_id) } : undefined,
+          );
+        }
 
-      const serviceId = Number(hold.service_id);
-      const date = hold.hold_date;
-      const startTime = hold.start_time;
-      const endTime = hold.end_time;
-      const service = {
-        id: serviceId,
-        name: hold.service_name,
-        duration_minutes: Number(hold.duration_minutes),
-        cost_amount: Number(hold.cost_amount || 0),
-      };
-      const selectedProfessional = await selectAvailableCandidate({
-        client,
-        candidates: [
-          {
-            id: Number(hold.professional_id),
-            name: hold.professional_name,
-            specialty: hold.professional_specialty || "",
-          },
-        ],
-        date,
-        startTime,
-        endTime,
-        ignoreHoldId: Number(hold.id),
-      });
-      if (!selectedProfessional) {
-        throw apiError(
-          "slot_unavailable",
-          "Ese horario ya no está disponible.",
-          409,
-          { hold_id: holdId, hold_expired: !Boolean(hold.active) },
-        );
-      }
-
-      const canonicalPatient = await client.query(
-        `
-          INSERT INTO patients
-            (first_name, last_name, full_name, email, email_normalized, phone)
-          VALUES ($1, $2, $3, $4, lower(trim($4)), $5)
-          ON CONFLICT (email_normalized) DO UPDATE SET
-            first_name = EXCLUDED.first_name,
-            last_name = EXCLUDED.last_name,
-            full_name = EXCLUDED.full_name,
-            email = EXCLUDED.email,
-            phone = EXCLUDED.phone,
-            active = TRUE,
-            updated_at = NOW()
-          RETURNING id
-        `,
-        [patient.first_name, patient.last_name, patient.name, patient.email, patient.phone],
-      );
-      const publicId = `apt_${randomUUID().replaceAll("-", "")}`;
-      const inserted = await client.query(
-        `
-          INSERT INTO appointments (
-            patient_id, service_id, professional_id, appointment_date, start_time, end_time,
-            patient_name, patient_email, patient_phone,
-            agreement_id, agreement_name_snapshot, agreement_slug_snapshot,
-            agreement_type_snapshot, agreement_cobranded_snapshot,
-            amount, payment_status, payment_reference, payment_provider, payment_detail,
-            status, booking_channel, agreement_api_credential_id,
-            agreement_api_external_id, agreement_api_public_id, agreement_api_created_at
-          )
-          VALUES (
-            $1, $2, $3, $4::date, $5::time, $6::time,
-            $7, $8, $9,
-            $10, $11, $12, 'Pago', $13,
-            $14, 'agreement_api_paid', $15, 'agreement_api', $16::jsonb,
-            'confirmed', 'agreement_api', $17, $18, $19, NOW()
-          )
-          RETURNING *
-        `,
-        [
-          canonicalPatient.rows[0].id,
-          serviceId,
-          Number(selectedProfessional.id),
+        const serviceId = resolveServiceId(credential, hold.service_id);
+        if (!(await loadService(serviceId)) || !(await professionalSupportsService(Number(hold.professional_id), serviceId, credential.agreement_id))) {
+          throw apiError("selection_not_available", "La práctica o el profesional ya no está disponible para este acuerdo.");
+        }
+        const date = hold.hold_date;
+        const startTime = hold.start_time;
+        const endTime = hold.end_time;
+        const service = {
+          id: serviceId,
+          name: hold.service_name,
+          duration_minutes: Number(hold.duration_minutes),
+          cost_amount: Number(hold.cost_amount || 0),
+        };
+        const selectedProfessional = await selectAvailableCandidate({
+          client,
+          candidates: [
+            {
+              id: Number(hold.professional_id),
+              name: hold.professional_name,
+              specialty: hold.professional_specialty || "",
+            },
+          ],
           date,
           startTime,
           endTime,
-          patient.name,
-          patient.email,
-          patient.phone,
-          credential.agreement_id,
-          credential.agreement_name,
-          credential.agreement_slug,
-          Boolean(credential.agreement_cobranded),
-          Number(service.cost_amount || 0),
-          paymentReference,
-          JSON.stringify({
-            confirmed_by: "agreement_api",
-            external_id: externalId,
-            hold_id: holdId,
-            hold_expired_at_confirmation: !Boolean(hold.active),
-          }),
-          credential.id,
-          externalId,
-          publicId,
-        ],
-      );
-      const appointment = {
-        ...inserted.rows[0],
-        appointment_date: date,
-        start_time: startTime,
-        end_time: endTime,
-        service_name: service.name,
-        duration_minutes: service.duration_minutes,
-        professional_name: selectedProfessional.name,
-        patient_first_name: patient.first_name,
-        patient_last_name: patient.last_name,
-      };
-      await client.query(
-        `
-          UPDATE agreement_api_holds
-          SET consumed_at = NOW(), appointment_id = $2
-          WHERE id = $1
-        `,
-        [hold.id, appointment.id],
-      );
-      return {
-        statusCode: 201,
-        body: { data: mapPartnerAppointment(appointment) },
-        appointmentId: Number(appointment.id),
-      };
-    },
-  });
+          ignoreHoldId: Number(hold.id),
+        });
+        if (!selectedProfessional) {
+          throw apiError(
+            "slot_unavailable",
+            "Ese horario ya no está disponible.",
+            409,
+            { hold_id: holdId, hold_expired: !Boolean(hold.active) },
+          );
+        }
+
+        const canonicalPatient = await client.query(
+          `
+            INSERT INTO patients
+              (first_name, last_name, full_name, email, email_normalized, phone)
+            VALUES ($1, $2, $3, $4, lower(trim($4)), $5)
+            ON CONFLICT (email_normalized) DO UPDATE SET
+              first_name = EXCLUDED.first_name,
+              last_name = EXCLUDED.last_name,
+              full_name = EXCLUDED.full_name,
+              email = EXCLUDED.email,
+              phone = EXCLUDED.phone,
+              active = TRUE,
+              updated_at = NOW()
+            RETURNING id
+          `,
+          [patient.first_name, patient.last_name, patient.name, patient.email, patient.phone],
+        );
+        const publicId = `apt_${randomUUID().replaceAll("-", "")}`;
+        const inserted = await client.query(
+          `
+            INSERT INTO appointments (
+              patient_id, service_id, professional_id, appointment_date, start_time, end_time,
+              patient_name, patient_email, patient_phone,
+              agreement_id, agreement_name_snapshot, agreement_slug_snapshot,
+              agreement_type_snapshot, agreement_cobranded_snapshot,
+              amount, payment_status, payment_reference, payment_provider, payment_detail,
+              status, booking_channel, agreement_api_credential_id,
+              agreement_api_external_id, agreement_api_public_id, agreement_api_created_at,
+              patient_identifier, medical_order_required
+            )
+            VALUES (
+              $1, $2, $3, $4::date, $5::time, $6::time,
+              $7, $8, $9,
+              $10, $11, $12, $20, $13,
+              $14, $21, $15, $22, $16::jsonb,
+              'confirmed', 'agreement_api', $17, $18, $19, NOW(), $23, $24
+            )
+            RETURNING *
+          `,
+          [
+            canonicalPatient.rows[0].id,
+            serviceId,
+            Number(selectedProfessional.id),
+            date,
+            startTime,
+            endTime,
+            patient.name,
+            patient.email,
+            patient.phone,
+            credential.agreement_id,
+            credential.agreement_name,
+            credential.agreement_slug,
+            Boolean(credential.agreement_cobranded),
+            isNomina ? 0 : Number(service.cost_amount || 0),
+            paymentReference,
+            JSON.stringify({
+              confirmed_by: "agreement_api",
+              external_id: externalId,
+              hold_id: holdId,
+              hold_expired_at_confirmation: !Boolean(hold.active),
+            }),
+            credential.id,
+            externalId,
+            publicId,
+            credential.agreement_type,
+            isNomina ? "nomina" : "agreement_api_paid",
+            isNomina ? "nomina" : "agreement_api",
+            patient.identifier,
+            Boolean(credential.medical_order_required),
+          ],
+        );
+        if (medicalOrder) {
+          const saved = await saveClinicalDocument(medicalOrder, inserted.rows[0].id);
+          savedPaths.push(saved.storagePath);
+          await client.query(`INSERT INTO appointment_documents
+            (appointment_id, kind, purpose, original_name, storage_path, mime_type, size_bytes, uploaded_by)
+            VALUES ($1, 'file', 'medical_order', $2, $3, $4, $5, 'patient')`,
+          [inserted.rows[0].id, saved.originalName, saved.storagePath, saved.mimeType, saved.sizeBytes]);
+        }
+        const appointment = {
+          ...inserted.rows[0],
+          medical_order_received: Boolean(medicalOrder),
+          appointment_date: date,
+          start_time: startTime,
+          end_time: endTime,
+          service_name: service.name,
+          duration_minutes: service.duration_minutes,
+          professional_name: selectedProfessional.name,
+          patient_first_name: patient.first_name,
+          patient_last_name: patient.last_name,
+        };
+        await client.query(
+          `
+            UPDATE agreement_api_holds
+            SET consumed_at = NOW(), appointment_id = $2
+            WHERE id = $1
+          `,
+          [hold.id, appointment.id],
+        );
+        return {
+          statusCode: 201,
+          body: { data: mapPartnerAppointment(appointment) },
+          appointmentId: Number(appointment.id),
+        };
+      },
+    });
+  } catch (error) {
+    await removeClinicalDocuments(savedPaths);
+    throw error;
+  }
 
   if (!result.replay) {
     await safelyAfterCommit("appointment.created", async () => {
@@ -1141,9 +1242,7 @@ const updateAppointment = async (
     throw apiError("appointment_not_editable", "El turno ya comenzó y no puede modificarse.", 409);
   }
 
-  const serviceId = payload.service_id
-    ? parsePositiveInteger(payload.service_id, "service_id")
-    : Number(initial.service_id);
+  const serviceId = resolveServiceId(credential, payload.service_id || initial.service_id);
   const professionalId = payload.professional_id
     ? parsePositiveInteger(payload.professional_id, "professional_id")
     : Number(initial.professional_id);
@@ -1157,6 +1256,7 @@ const updateAppointment = async (
           initial.patient_last_name || String(initial.patient_name || "").split(" ").slice(1).join(" "),
         email: initial.patient_email,
         phone: initial.patient_phone,
+        identifier: initial.patient_identifier,
       });
   const service = await loadService(serviceId);
   if (!service || !(await professionalSupportsService(professionalId, serviceId, credential.agreement_id))) {
@@ -1204,6 +1304,11 @@ const updateAppointment = async (
       if (current.status !== "confirmed") {
         throw apiError("appointment_not_editable", "El turno ya no puede modificarse.", 409);
       }
+      // A booked patient's identity must not be transferred along with private links or clinical data.
+      if (patient.email !== current.patient_email || patient.identifier !== (current.patient_identifier || "")) {
+        throw apiError("patient_identity_not_editable", "No se puede reemplazar al paciente de un turno. Cancelá y creá uno nuevo.", 409);
+      }
+      if (payload.patient) await validateNominaPatient(client, { ...credential, agreement_type: current.agreement_type_snapshot }, patient);
       const conflict = await client.query(
         `
           SELECT 1
@@ -1313,8 +1418,8 @@ const updateAppointment = async (
           date,
           startTime,
           endTime,
-          Number(service.cost_amount || 0),
-          normalizePaymentReference(payload.payment_reference, current.payment_reference),
+          current.agreement_type_snapshot === "Nomina" ? 0 : Number(service.cost_amount || 0),
+          current.agreement_type_snapshot === "Nomina" ? "" : normalizePaymentReference(payload.payment_reference, current.payment_reference),
           scheduleChanged,
           professionalChanged,
         ],
@@ -1324,6 +1429,7 @@ const updateAppointment = async (
         [professionalId],
       );
       const appointment = {
+        ...current,
         ...updated.rows[0],
         appointment_date: date,
         start_time: startTime,
@@ -1427,7 +1533,7 @@ const cancelAppointment = async (
           SET status = 'cancelled',
               cancelled_at = NOW(),
               cancellation_reason = $2,
-              refund_status = 'external_management',
+              refund_status = CASE WHEN agreement_type_snapshot = 'Nomina' THEN 'not_required' ELSE 'external_management' END,
               updated_at = NOW()
           WHERE id = $1
           RETURNING *
@@ -1505,10 +1611,10 @@ export const createAgreementApiCredential = async ({ agreementId, name, userId }
     [agreementId],
   );
   if (!agreement) throw apiError("agreement_not_found", "Acuerdo no encontrado.", 404);
-  if (agreement.type !== "Pago") {
+  if (!["Pago", "Nomina"].includes(agreement.type)) {
     throw apiError(
       "agreement_api_not_available",
-      "La API sólo está habilitada para acuerdos que no son de nómina.",
+      "La API está habilitada para acuerdos de Pago y Nómina.",
       422,
     );
   }
@@ -1592,6 +1698,12 @@ export const handleAgreementApi = async (request, response, url) => {
           data: {
             id: credential.agreement_id,
             name: credential.agreement_name,
+            slug: credential.agreement_slug,
+            type: credential.agreement_type,
+            direct_treatment: credential.direct_treatment,
+            treatment_service_id: credential.treatment_service_id ? Number(credential.treatment_service_id) : null,
+            medical_order_required: credential.medical_order_required,
+            identifier_label: credential.identifier_label || "",
             timezone: config.googleCalendarTimeZone,
             capabilities: ["availability", "hold", "create", "list", "reschedule", "cancel"],
           },
@@ -1622,8 +1734,8 @@ export const handleAgreementApi = async (request, response, url) => {
       return true;
     }
     if (url.pathname === "/api/partners/v1/appointments" && request.method === "POST") {
-      const payload = await readPartnerJson(request);
-      await createAppointment(request, credential, payload, response, requestId);
+      const { payload, medicalOrder } = await readAppointmentPayload(request);
+      await createAppointment(request, credential, payload, response, requestId, medicalOrder);
       return true;
     }
     const appointmentMatch = url.pathname.match(

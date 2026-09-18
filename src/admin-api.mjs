@@ -1,3 +1,6 @@
+import { consultationStatusSql } from './consultation-status.mjs';
+import { adminReportUrl, adminReHubTriageUrl } from './consultation-links.mjs';
+import { readAdminBotReport } from './consultation-bot-access.mjs';
 import {
   getAgreementById,
   getAgreementBySlug,
@@ -669,6 +672,10 @@ const mapAgreement = (row) => ({
   slug: row.slug,
   subdomain_prefix: row.subdomain_prefix || "",
   cobranded: Boolean(row.cobranded),
+  direct_treatment: Boolean(row.direct_treatment),
+  treatment_service_id: row.treatment_service_id ? Number(row.treatment_service_id) : null,
+  medical_order_required: Boolean(row.medical_order_required),
+  identifier_label: row.identifier_label || '',
   type: row.type,
   logo_path: row.logo_path || "",
   logo_url: row.logo_path ? `/uploads/${row.logo_path}` : "",
@@ -680,7 +687,7 @@ const mapAgreement = (row) => ({
   intake_count: Number(row.intake_count || 0),
   professional_count: Number(row.professional_count || 0),
   active_api_credentials: Number(row.active_api_credentials || 0),
-  api_available: row.type === "Pago",
+  api_available: ["Pago", "Nomina"].includes(row.type),
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -689,10 +696,24 @@ const agreementPayloadFromMultipart = async (request) => {
   const { fields, files } = await parseMultipartForm(request);
   const name = String(fields.name || "").trim();
   const slug = slugify(fields.slug || name);
-  const subdomainPrefix = validateAgreementSubdomainPrefix(
-    fields.subdomain_prefix,
-  );
+  // One editable value: the slug is also the DNS prefix. Keep the legacy
+  // response/storage field for existing URL consumers, never trust a second input.
+  const subdomainPrefix = validateAgreementSubdomainPrefix(slug);
   const type = fields.type === "Nomina" ? "Nomina" : "Pago";
+  const identifierLabel = type === 'Nomina' ? String(fields.identifier_label || '').trim() : '';
+  if (identifierLabel.length > 80 || /[\u0000-\u001f\u007f]/.test(identifierLabel)) {
+    throw Object.assign(new Error('AGREEMENT_IDENTIFIER_LABEL_INVALID'), { statusCode: 422 });
+  }
+  const directTreatment = fields.direct_treatment === "true" || fields.direct_treatment === "on";
+  const treatmentServiceId = directTreatment ? Number(fields.treatment_service_id) : null;
+  if (directTreatment) {
+    const service = Number.isSafeInteger(treatmentServiceId) && treatmentServiceId > 0
+      ? await one("SELECT id FROM services WHERE id = $1 AND active = TRUE AND deleted_at IS NULL", [treatmentServiceId])
+      : null;
+    if (!service) {
+      throw Object.assign(new Error('AGREEMENT_TREATMENT_SERVICE_REQUIRED'), { statusCode: 422 });
+    }
+  }
 
   if (!name) {
     const error = new Error("NAME_REQUIRED");
@@ -712,7 +733,11 @@ const agreementPayloadFromMultipart = async (request) => {
       slug,
       subdomain_prefix: subdomainPrefix,
       cobranded: fields.cobranded === "true" || fields.cobranded === "on",
+      direct_treatment: directTreatment,
+      treatment_service_id: treatmentServiceId,
+      medical_order_required: fields.medical_order_required === "true" || fields.medical_order_required === "on",
       type,
+      identifier_label: identifierLabel,
       payment_evaluation_url:
         type === "Nomina" ? "" : optionalUrl(fields.payment_evaluation_url),
       payment_treatment_url:
@@ -746,9 +771,13 @@ const createAgreement = async (request, response, user) => {
           cobranded,
           type,
           payment_evaluation_url,
-          payment_treatment_url
+          payment_treatment_url,
+          direct_treatment,
+          treatment_service_id,
+          medical_order_required,
+          identifier_label
         )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `,
     [
@@ -761,6 +790,10 @@ const createAgreement = async (request, response, user) => {
       payload.fields.type,
       payload.fields.payment_evaluation_url || null,
       payload.fields.payment_treatment_url || null,
+      payload.fields.direct_treatment,
+      payload.fields.treatment_service_id,
+      payload.fields.medical_order_required,
+      payload.fields.identifier_label,
     ],
   );
   await recordAudit("agreement.created", {
@@ -805,6 +838,10 @@ const updateAgreement = async (request, response, user, id) => {
           type = $7,
           payment_evaluation_url = $8,
           payment_treatment_url = $9,
+          direct_treatment = $11,
+          treatment_service_id = $12,
+          medical_order_required = $13,
+          identifier_label = $14,
           updated_at = NOW()
       WHERE id = $10
         AND deleted_at IS NULL
@@ -821,6 +858,10 @@ const updateAgreement = async (request, response, user, id) => {
       payload.fields.payment_evaluation_url || null,
       payload.fields.payment_treatment_url || null,
       id,
+      payload.fields.direct_treatment,
+      payload.fields.treatment_service_id,
+      payload.fields.medical_order_required,
+      payload.fields.identifier_label,
     ],
   );
   await recordAudit("agreement.updated", {
@@ -886,7 +927,7 @@ const listAdminAgreementApiCredentials = async (response, agreementId) => {
       id: Number(agreement.id),
       name: agreement.name,
       type: agreement.type,
-      api_available: agreement.type === "Pago",
+      api_available: ["Pago", "Nomina"].includes(agreement.type),
     },
     credentials,
   });
@@ -2436,6 +2477,9 @@ const mapAppointment = (row) => ({
     : row.triage_assignment_error
       ? "failed"
       : "pending",
+  consultation_status: row.consultation_status || 'pending',
+  consultation_report_url: row.consultation_status === 'completed' ? adminReportUrl(row.id) : '',
+  rehub_triage_url: adminReHubTriageUrl(row.triage_url),
   is_future: Boolean(row.is_future),
   reservation_active: Boolean(row.reservation_active),
   reschedule_count: Number(row.reschedule_count || 0),
@@ -2448,9 +2492,10 @@ const listAppointments = async (url, response) => {
   const result = await query(`
     SELECT
       a.*,
+      ${consultationStatusSql('a')} AS consultation_status,
       s.name AS service_name,
       p.name AS professional_name,
-      pi.identificador,
+      COALESCE(NULLIF(a.patient_identifier, ''), pi.identificador) AS identificador,
       pi.email AS intake_email,
       pi.telefono AS intake_phone,
       COALESCE(NULLIF(a.agreement_name_snapshot, ''), pi.agreement_name_snapshot, ag.name, '') AS agreement_name,
@@ -2462,6 +2507,7 @@ const listAppointments = async (url, response) => {
             jsonb_build_object(
               'id', document.id,
               'kind', document.kind,
+              'purpose', document.purpose,
               'original_name', document.original_name,
               'mime_type', document.mime_type,
               'size_bytes', document.size_bytes,
@@ -2837,7 +2883,7 @@ const cancelAdminAppointment = async (request, response, user, appointmentId) =>
       current.payment_provider === "mercadopago";
     const refundStatus = paidWithMercadoPago
       ? "pending"
-      : current.booking_channel === "agreement_api"
+      : current.booking_channel === "agreement_api" && current.agreement_type_snapshot === "Pago"
         ? "external_management"
         : "not_required";
     const updated = await client.query(
@@ -3055,6 +3101,7 @@ export const handlePublicAgreementApi = async (request, response, url) => {
       type: agreement.type,
       logo_url: agreement.cobranded ? agreement.logo_url : "",
       pdf_url: agreement.pdf_url,
+      identifier_label: agreement.identifier_label || '',
     },
   });
   return true;
@@ -3295,6 +3342,18 @@ export const handleAdminApi = async (request, response, url) => {
       await streamAgreementSettlementPdf(response, Number(settlementPdfMatch[1]));
       return true;
     }
+    const consultationReportMatch = pathname.match(/^\/api\/admin\/appointments\/(\d+)\/consultation-report$/);
+    if (consultationReportMatch && ['GET', 'HEAD'].includes(request.method)) {
+      const appointmentId = Number(consultationReportMatch[1]);
+      const pdf = await readAdminBotReport(appointmentId);
+      await recordAudit('admin.consultation_report.viewed', { actorUserId: user.id,
+        detail: { appointment_id: appointmentId } });
+      response.writeHead(200, withSecurityHeaders({ 'Content-Type': 'application/pdf',
+        'Content-Disposition': 'inline; filename="reku-motivo-de-consulta.pdf"',
+        'Cache-Control': 'private, no-store' }, { privateRoute: true }));
+      response.end(request.method === 'HEAD' ? undefined : pdf);
+      return true;
+    }
     const appointmentDocumentMatch = pathname.match(
       /^\/api\/admin\/appointment-documents\/(\d+)$/,
     );
@@ -3483,7 +3542,7 @@ export const handleAdminApi = async (request, response, url) => {
       sendJson(response, 409, {
         error:
           error.constraint === "agreements_subdomain_prefix_active_key"
-            ? "Ese prefijo de subdominio ya está asignado a otro acuerdo."
+            ? "Ese slug ya está asignado al subdominio de otro acuerdo."
             : "Ya existe un registro con esos datos.",
       });
       return true;
@@ -3640,18 +3699,26 @@ export const handleAdminApi = async (request, response, url) => {
       return true;
     }
     if (error.message === "AGREEMENT_SUBDOMAIN_REQUIRED") {
-      sendJson(response, 422, { error: "Ingresá el prefijo del subdominio." });
+      sendJson(response, 422, { error: "Ingresá el slug del acuerdo." });
       return true;
     }
     if (error.message === "AGREEMENT_SUBDOMAIN_INVALID") {
       sendJson(response, 422, {
         error:
-          "El prefijo sólo puede usar letras minúsculas, números y guiones, sin comenzar ni terminar con guion.",
+          "El slug debe tener hasta 63 caracteres: letras minúsculas, números y guiones, sin comenzar ni terminar con guion.",
       });
       return true;
     }
     if (error.message === "AGREEMENT_SUBDOMAIN_RESERVED") {
-      sendJson(response, 422, { error: "Ese prefijo está reservado. Elegí otro." });
+      sendJson(response, 422, { error: "Ese slug está reservado. Elegí otro." });
+      return true;
+    }
+    if (error.message === 'AGREEMENT_IDENTIFIER_LABEL_INVALID') {
+      sendJson(response, 422, { error: 'El tipo de identificador debe tener hasta 80 caracteres y no incluir saltos de línea.' });
+      return true;
+    }
+    if (error.message === 'AGREEMENT_TREATMENT_SERVICE_REQUIRED') {
+      sendJson(response, 422, { error: 'Seleccioná un servicio de tratamiento activo para el acceso directo.' });
       return true;
     }
     if (error.message === "COBRANDED_LOGO_REQUIRED") {

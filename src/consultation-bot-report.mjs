@@ -68,6 +68,11 @@ export const renderConsultationReport = async (session, { narrative = fallbackCo
   doc.moveDown(1.1);
   row("Fecha", new Date(session.updatedAt).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", hour12: false }));
   row(session.appointmentId ? "Turno" : "Paciente", session.appointmentId ? `Referencia ${session.appointmentId}` : "Prueba sin datos de identificación ni turno asociado");
+  if (session.appointmentId && session.patient) {
+    row('Paciente', session.patient.name);
+    if (session.patient.email) row('Email', session.patient.email);
+    if (session.patient.phone) row('Teléfono', session.patient.phone);
+  }
   if (session.brand.slug) row("Acuerdo", `${session.brand.name} (${session.brand.slug})`);
   heading("El relato del paciente");
   doc.font("Helvetica").fontSize(9).fillColor(muted).text("Síntesis organizada a partir de sus mensajes; no es una cita textual.", 48, doc.y, { width });

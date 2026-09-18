@@ -1,4 +1,5 @@
 import { one, query, recordAudit, tx } from "./db.mjs";
+import { consultationStatusSql, readAppointmentConsultationStatus } from './consultation-status.mjs';
 import {
   getClientIp,
   parseCookies,
@@ -31,11 +32,18 @@ import {
 import {
   buildPatientIntakeSubmission,
   createPatientBookingLink,
+  createVerifiedPatientBookingAccess,
+  hasPriorAppointmentForEmail,
   loadPatientIntakeAgreement,
   redeemPatientIntakeVerification,
   savePatientIntakeAndNotify,
   validatePatientIntakeSubmission,
 } from "./patient-intakes.mjs";
+import {
+  patientEmailVerificationCookie,
+  readPatientEmailVerificationFromRequest,
+  shouldReusePatientEmailVerification,
+} from "./patient-email-verification.mjs";
 import {
   bookingAccessCookie,
   createBookingAccessLink,
@@ -50,12 +58,15 @@ import {
   getPatientMeetWaitingRoomStatus,
   patientMeetTimeAccess,
 } from "./patient-meet-waiting.mjs";
-import { ensureAppointmentTriage } from "./appointment-triage.mjs";
 import { parseMultipartForm } from "./uploads.mjs";
 import {
   mapAppointmentDocument,
   normalizeDocumentLinks,
   removeClinicalDocuments,
+  mapPatientAppointmentDocument,
+  listPatientAppointmentDocuments,
+  streamPatientAppointmentDocument,
+  deletePatientAppointmentDocument,
   saveClinicalDocument,
 } from "./appointment-documents.mjs";
 import {
@@ -296,6 +307,10 @@ const requireAccessLink = async (token) => {
         a.type AS current_agreement_type,
         a.subdomain_prefix AS current_agreement_subdomain_prefix,
         a.cobranded AS current_agreement_cobranded,
+        a.direct_treatment,
+        a.treatment_service_id,
+        a.medical_order_required,
+        a.identifier_label,
         a.logo_path AS current_agreement_logo_path,
         a.pdf_path AS current_agreement_pdf_path
       FROM booking_access_links l
@@ -337,6 +352,10 @@ const requireAccessLink = async (token) => {
         "",
       subdomain_prefix: link.current_agreement_subdomain_prefix || "",
       cobranded: Boolean(link.current_agreement_cobranded),
+      direct_treatment: Boolean(link.direct_treatment),
+      treatment_service_id: link.treatment_service_id ? Number(link.treatment_service_id) : null,
+      medical_order_required: Boolean(link.medical_order_required),
+      identifier_label: link.identifier_label || '',
       logo_url:
         link.current_agreement_cobranded && link.current_agreement_logo_path
           ? `/uploads/${link.current_agreement_logo_path}`
@@ -386,6 +405,10 @@ const mapAgreement = (agreement) => ({
   slug: agreement.slug,
   subdomain_prefix: agreement.subdomain_prefix || "",
   cobranded: agreement.cobranded,
+  direct_treatment: Boolean(agreement.direct_treatment),
+  treatment_service_id: agreement.treatment_service_id ? Number(agreement.treatment_service_id) : null,
+  medical_order_required: Boolean(agreement.medical_order_required),
+  identifier_label: agreement.identifier_label || '',
   type: agreement.type,
   logo_url: agreement.cobranded ? agreement.logo_url : "",
   pdf_url: agreement.pdf_url,
@@ -411,7 +434,9 @@ const listServices = async (response, link) => {
     patient: link.patient,
     agreement: link.agreement,
     payment_required: link.agreement?.type !== "Nomina",
-    services: result.rows.map((row) => mapServiceForLink(row, link)),
+    services: result.rows
+      .filter(row => !link.agreement?.direct_treatment || Number(row.id) === link.agreement.treatment_service_id)
+      .map((row) => mapServiceForLink(row, link)),
   });
 };
 
@@ -428,11 +453,12 @@ const getAgreementForIntake = async (request, url, response) => {
   sendJson(response, 200, { agreement: mapAgreement(agreement) });
 };
 
-const createIntakeAccess = async (request, payload, response, url) => {
+const createIntakeAccess = async (request, payload, response, url, medicalOrder = null) => {
   const submission = buildPatientIntakeSubmission({
     agreementSlug: payload.agreement_slug || payload.form || "",
     values: payload,
   });
+  submission.medicalOrder = medicalOrder;
   const requestPrefix = agreementPrefixForRequest(request);
   const hostAgreement = requestPrefix
     ? await resolveAgreementForRequest(request, url)
@@ -462,15 +488,29 @@ const createIntakeAccess = async (request, payload, response, url) => {
     return;
   }
 
+  const rememberedEmail = readPatientEmailVerificationFromRequest(request);
+  const rememberedEmailMatches =
+    rememberedEmail && rememberedEmail === submission.values.email;
+  const hasPriorAppointment = rememberedEmailMatches
+    ? await hasPriorAppointmentForEmail(submission.values.email)
+    : false;
+  const reuseEmailVerification = shouldReusePatientEmailVerification({
+    submittedEmail: submission.values.email,
+    rememberedEmail,
+    hasPriorAppointment,
+  });
+  const requireEmailVerification =
+    config.bookingEmailVerificationEnabled && !reuseEmailVerification;
+
   const sourcePath = `/turnos/?form=${encodeURIComponent(agreement.slug)}`;
   const result = await savePatientIntakeAndNotify({
     submission,
     agreement,
     sourcePath,
-    requireEmailVerification: config.bookingEmailVerificationEnabled,
+    requireEmailVerification,
   });
 
-  if (config.bookingEmailVerificationEnabled) {
+  if (requireEmailVerification) {
     await recordAudit("patient_intake.created_pending_verification", {
       detail: {
         patient_intake_id: result.recordId,
@@ -488,19 +528,40 @@ const createIntakeAccess = async (request, payload, response, url) => {
     return;
   }
 
-  const bookingLink = await createPatientBookingLink({
-    recordId: result.recordId,
-    submission,
-    agreement,
-  });
-  await recordAudit("patient_intake.created_with_direct_booking_access", {
-    detail: {
-      patient_intake_id: result.recordId,
-      email: submission.values.email,
-      agreement_slug: agreement.slug,
-      source: "/turnos/",
+  const verifiedAccess = reuseEmailVerification
+    ? await createVerifiedPatientBookingAccess({
+        recordId: result.recordId,
+        submission,
+        agreement,
+      })
+    : null;
+  const bookingLink =
+    verifiedAccess?.bookingLink ||
+    (await createPatientBookingLink({
+      recordId: result.recordId,
+      submission,
+      agreement,
+    }));
+  await recordAudit(
+    reuseEmailVerification
+      ? "patient_intake.created_with_remembered_email_verification"
+      : "patient_intake.created_with_direct_booking_access",
+    {
+      detail: {
+        patient_intake_id: result.recordId,
+        email: submission.values.email,
+        agreement_slug: agreement.slug,
+        source: "/turnos/",
+      },
     },
-  });
+  );
+
+  const responseCookies = [
+    bookingAccessCookie(bookingLink.token, bookingLink.expires_at),
+  ];
+  if (reuseEmailVerification) {
+    responseCookies.push(patientEmailVerificationCookie(submission.values.email));
+  }
 
   sendJson(
     response,
@@ -519,7 +580,7 @@ const createIntakeAccess = async (request, payload, response, url) => {
       agreement: mapAgreement(agreement),
     },
     {
-      "Set-Cookie": bookingAccessCookie(bookingLink.token, bookingLink.expires_at),
+      "Set-Cookie": responseCookies,
     },
   );
 };
@@ -541,10 +602,13 @@ const verifyIntakeAccess = async (payload, response) => {
     agreement: mapAgreement(result.agreement),
     booking_url: result.bookingLink.url,
   }, {
-    "Set-Cookie": bookingAccessCookie(
-      result.bookingLink.token,
-      result.bookingLink.expires_at,
-    ),
+    "Set-Cookie": [
+      bookingAccessCookie(
+        result.bookingLink.token,
+        result.bookingLink.expires_at,
+      ),
+      patientEmailVerificationCookie(result.patient.email),
+    ],
   });
 };
 
@@ -950,10 +1014,14 @@ const createAppointment = async (payload, response, url, link) => {
   const serviceId = Number(payload.service_id);
   const agreementId = link.agreement?.id || null;
   const automaticProfessional =
-    payload.first_available === true ||
+    link.agreement?.direct_treatment || payload.first_available === true ||
     String(payload.professional_id || "") === firstAvailableProfessionalId;
   const date = String(payload.date || "");
   const startTime = String(payload.start_time || "");
+  if (link.agreement?.direct_treatment && serviceId !== link.agreement.treatment_service_id) {
+    sendJson(response, 422, { error: 'Este acuerdo permite reservar directamente el tratamiento configurado.' });
+    return;
+  }
   const [startHours, startMinutes] = startTime.split(":").map(Number);
   if (
     !timePattern.test(startTime) ||
@@ -1008,6 +1076,12 @@ const createAppointment = async (payload, response, url, link) => {
 
   const reserveWithProfessional = (candidate) =>
     tx(async (client) => {
+      const order = link.patient_intake_id
+        ? (await client.query('SELECT * FROM patient_intake_medical_orders WHERE patient_intake_id = $1 FOR SHARE', [link.patient_intake_id])).rows[0]
+        : null;
+      if (link.agreement?.medical_order_required && !order) {
+        throw Object.assign(new Error('MEDICAL_ORDER_REQUIRED'), { statusCode: 422 });
+      }
       const professionalId = Number(candidate.id);
       await client.query(
         `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
@@ -1143,6 +1217,14 @@ const createAppointment = async (payload, response, url, link) => {
       await client.query("UPDATE booking_access_links SET used_at = NOW() WHERE id = $1", [
         link.id,
       ]);
+      await client.query('UPDATE appointments SET medical_order_required = $2 WHERE id = $1',
+        [result.rows[0].id, Boolean(link.agreement?.medical_order_required)]);
+      if (order) {
+        await client.query(`INSERT INTO appointment_documents
+          (appointment_id, kind, purpose, original_name, storage_path, mime_type, size_bytes, uploaded_by)
+          VALUES ($1, 'file', 'medical_order', $2, $3, $4, $5, 'patient')`,
+        [result.rows[0].id, order.original_name, order.storage_path, order.mime_type, order.size_bytes]);
+      }
       return {
         ...result.rows[0],
         id: Number(result.rows[0].id),
@@ -1345,8 +1427,9 @@ export const patientMeetAccess = (
   options = {},
 ) => patientMeetTimeAccess(appointment, options);
 
-const mapManagedAppointment = (row) => ({
+const mapManagedAppointment = async (row) => ({
   id: Number(row.id),
+  documents: await listPatientAppointmentDocuments(row.id),
   patient_name: row.patient_name || "",
   date: row.appointment_date,
   start_time: String(row.start_time || "").slice(0, 5),
@@ -1354,7 +1437,8 @@ const mapManagedAppointment = (row) => ({
   status: row.status || "",
   payment_status: row.payment_status || "",
   payment_url: row.payment_init_point || "",
-  triage_url: row.triage_url || "",
+  consultation_status: row.consultation_status,
+  triage_url: row.status === 'confirmed' && row.consultation_status !== 'completed' ? '/api/booking/manage/consultation' : '',
   agreement: row.agreement_id
     ? {
         id: Number(row.agreement_id),
@@ -1396,7 +1480,7 @@ const loadManagedAppointment = async (appointmentId) =>
         appointment.status,
         appointment.payment_status,
         appointment.payment_init_point,
-        appointment.triage_url,
+        ${consultationStatusSql('appointment')} AS consultation_status,
         appointment.google_meet_url,
         appointment.patient_meet_started_at,
         appointment.reschedule_count,
@@ -1441,14 +1525,14 @@ const exchangePatientManagementSession = async (request, response) => {
   sendJson(
     response,
     200,
-    { ok: true, appointment: mapManagedAppointment(appointment) },
+    { ok: true, appointment: await mapManagedAppointment(appointment) },
     { "Set-Cookie": patientAppointmentSessionCookie(exchanged.token) },
   );
 };
 
 const getPatientManagedAppointment = async (request, response) => {
   const { appointment } = await requireManagedAppointment(request);
-  sendJson(response, 200, { appointment: mapManagedAppointment(appointment) });
+  sendJson(response, 200, { appointment: await mapManagedAppointment(appointment) });
 };
 
 const sendAppointmentCalendar = async (
@@ -1620,7 +1704,7 @@ const getPatientManagedMeetStatus = async (request, response) => {
   const { appointment } = await requireManagedAppointment(request);
   const waitingRoom = await getPatientMeetWaitingRoomStatus({ appointment });
   sendJson(response, 200, {
-    appointment: mapManagedAppointment(appointment),
+    appointment: await mapManagedAppointment(appointment),
     waiting_room: waitingRoom,
   });
 };
@@ -1636,7 +1720,7 @@ const enterPatientManagedMeet = async (
   if (!access.can_enter) {
     sendJson(response, 409, {
       error: patientMeetUnavailableMessage(appointment, access),
-      appointment: mapManagedAppointment(appointment),
+      appointment: await mapManagedAppointment(appointment),
       waiting_room: access,
     });
     return;
@@ -1875,7 +1959,7 @@ const reschedulePatientAppointment = async (request, response) => {
     message: patientEmailSent
       ? "El turno fue reprogramado. Te enviamos la actualización por mail."
       : "El turno fue reprogramado. La actualización por mail quedó pendiente de envío.",
-    appointment: mapManagedAppointment(refreshed),
+    appointment: await mapManagedAppointment(refreshed),
   });
 };
 
@@ -1936,7 +2020,7 @@ const cancelPatientUnpaidAppointment = async (request, response) => {
   sendJson(response, 200, {
     ok: true,
     message: "La reserva pendiente de pago fue cancelada.",
-    appointment: mapManagedAppointment(refreshed),
+    appointment: await mapManagedAppointment(refreshed),
   });
 };
 
@@ -1946,17 +2030,24 @@ const assignAppointmentTriage = async (payload, response, link) => {
     sendJson(response, 422, { error: "Turno inválido." });
     return;
   }
-  const triage = await ensureAppointmentTriage(appointmentId, {
-    bookingAccessLinkId: link.id,
-  });
-  sendJson(response, 200, { ok: true, url: triage.url });
+  // Authorize the appointment independently of ReHub availability. ReHub's
+  // assignment still runs in the confirmation/background notification flow.
+  const appointment = await one("SELECT id FROM appointments WHERE id = $1 AND booking_access_link_id = $2 AND status = 'confirmed'", [appointmentId, link.id]);
+  if (!appointment) { sendJson(response, 409, { error: 'Turno no disponible.' }); return; }
+  const consultationStatus = await readAppointmentConsultationStatus(appointmentId);
+  if (consultationStatus === 'completed') {
+    sendJson(response, 200, { ok: true, url: '', consultation_status: consultationStatus });
+    return;
+  }
+  const access = await createPatientAppointmentAccessLink({ appointmentId });
+  sendJson(response, 200, { ok: true, url: access.bot_url, consultation_status: consultationStatus });
 };
 
 const saveAppointmentDocuments = async (
   request,
   response,
   appointmentId,
-  { source = "/turnos/" } = {},
+  { source = "/turnos/", mapDocument = mapAppointmentDocument } = {},
 ) => {
   const { fields, files } = await parseMultipartForm(request, {
     maxFiles: 5,
@@ -2040,7 +2131,7 @@ const saveAppointmentDocuments = async (
     });
     sendJson(response, 201, {
       ok: true,
-      documents: created.map(mapAppointmentDocument),
+      documents: created.map(mapDocument),
       message: "La documentación se compartió con tu profesional.",
     });
   } catch (error) {
@@ -2083,6 +2174,7 @@ const uploadManagedAppointmentDocuments = async (request, response) => {
   }
   await saveAppointmentDocuments(request, response, appointment.id, {
     source: "/turnos/?manage=1",
+    mapDocument: mapPatientAppointmentDocument,
   });
 };
 
@@ -2406,6 +2498,18 @@ export const handleBookingApi = async (request, response, url) => {
       await getPatientManagedAppointment(request, response);
       return true;
     }
+    if (pathname === '/api/booking/manage/consultation' && request.method === 'GET') {
+      const { appointment } = await requireManagedAppointment(request);
+      if (appointment.status !== 'confirmed') {
+        sendJson(response, 409, { error: 'El cuestionario se habilita cuando el turno queda confirmado.' });
+      } else if (appointment.consultation_status === 'completed') {
+        sendJson(response, 200, { message: '¡Gracias! Ya completaste el cuestionario para este turno.' });
+      } else {
+        const link = await createPatientAppointmentAccessLink({ appointmentId: appointment.id });
+        sendRedirect(response, link.bot_url);
+      }
+      return true;
+    }
     if (pathname === "/api/booking/manage/meet" && request.method === "GET") {
       await enterPatientManagedMeet(request, response);
       return true;
@@ -2456,6 +2560,24 @@ export const handleBookingApi = async (request, response, url) => {
       return true;
     }
 
+    const managedDocumentMatch = pathname.match(/^\/api\/booking\/manage\/documents\/(\d+)$/);
+    if (managedDocumentMatch && ['GET', 'HEAD', 'DELETE'].includes(request.method)) {
+      if (request.method === 'DELETE') enforcePatientAppointmentOrigin(request);
+      const { appointment } = await requireManagedAppointment(request);
+      const documentId = Number(managedDocumentMatch[1]);
+      if (!Number.isSafeInteger(documentId) || documentId < 1) {
+        sendJson(response, 404, { error: 'Estudio no encontrado.' });
+      } else if (request.method === 'DELETE') {
+        const removed = await deletePatientAppointmentDocument(documentId, appointment.id);
+        sendJson(response, removed ? 200 : 404, removed
+          ? { ok: true, message: 'El estudio se eliminó de este turno.' }
+          : { error: 'Estudio no encontrado o no disponible para eliminar.' });
+      } else {
+        await streamPatientAppointmentDocument(request, response, documentId, appointment.id);
+      }
+      return true;
+    }
+
     const appointmentDocumentsMatch = pathname.match(
       /^\/api\/booking\/appointments\/(\d+)\/documents$/,
     );
@@ -2500,6 +2622,14 @@ export const handleBookingApi = async (request, response, url) => {
         link,
         Number(appointmentDocumentsMatch[1]),
       );
+      return true;
+    }
+
+    if (pathname === '/api/booking/intake' && request.method === 'POST' &&
+        String(request.headers['content-type'] || '').startsWith('multipart/form-data')) {
+      enforcePatientAppointmentOrigin(request);
+      const { fields, files } = await parseMultipartForm(request, { maxBytes: 10 * 1024 * 1024, maxFiles: 1 });
+      await createIntakeAccess(request, fields, response, url, files.medical_order || null);
       return true;
     }
 
@@ -2567,6 +2697,10 @@ export const handleBookingApi = async (request, response, url) => {
       sendJson(response, 401, {
         error: "El enlace de verificación expiró o ya fue utilizado.",
       });
+      return true;
+    }
+    if (error.message === 'MEDICAL_ORDER_REQUIRED') {
+      sendJson(response, 422, { error: 'Para poder sacar un turno necesitamos que subas la orden médica desde Tus datos.' });
       return true;
     }
     if (error.message === "BOOKING_SELECTION_INVALID") {

@@ -5,6 +5,8 @@ import { parseCookies } from './http.mjs';
 import { hashToken } from './security.mjs';
 import { agreementPrefixForRequest } from './agreement-resolution.mjs';
 import { decryptBotReport, encryptBotReport } from './consultation-bot-report-storage.mjs';
+import { consultationBotMode } from './consultation-mode.mjs';
+export { consultationBotMode } from './consultation-mode.mjs';
 
 export const botAccessCookieName = 'reku_bot_appointment';
 export const botAccessMessages = {
@@ -14,15 +16,11 @@ export const botAccessMessages = {
   limit: 'Por ahora alcanzaste el límite de uso para este turno. Si necesitás ayuda, contactá al equipo de Reku.',
 };
 const fail = (code, statusCode = 403) => Object.assign(new Error(`BOT_ACCESS_${code.toUpperCase()}`), { statusCode, publicMessage: botAccessMessages[code] });
-export const consultationBotMode = (env = process.env) => {
-  const mode = env.CONSULTATION_BOT_MODE ?? (env.APP_ENV === 'production' ? 'production' : 'test');
-  if (!['test', 'production'].includes(mode)) throw Object.assign(new Error('BOT_ACCESS_MODE_INVALID'), { statusCode: 503 });
-  return mode;
-};
 export const botAppointmentCookie = token => `${botAccessCookieName}=${encodeURIComponent(token)}; Path=/api/bot/; HttpOnly; SameSite=Strict; Max-Age=7200${isProduction ? '; Secure' : ''}`;
+export const hasBotAppointmentAccess = request => consultationBotMode() === 'production' || Object.hasOwn(parseCookies(request), botAccessCookieName);
 
 export const validateBotAppointment = (row, prefix, { allowCompleted = false } = {}) => {
-  if (!row || row.status !== 'confirmed' || !row.current_appointment || row.agreement_prefix !== prefix) throw fail('required');
+  if (!row || row.status !== 'confirmed' || (!row.current_appointment && !(allowCompleted && row.completed_at)) || row.agreement_prefix !== prefix) throw fail('required');
   if (row.completed_at && !allowCompleted) throw fail('completed', 409);
   return row;
 };
@@ -32,6 +30,7 @@ export const requireBotAppointment = async (request, { token = parseCookies(requ
   const result = await execute(`
     SELECT link.id AS access_link_id, appointment.id AS appointment_id,
       appointment.status, usage.completed_at, (usage.report_encrypted IS NOT NULL) AS report_available,
+      appointment.patient_id, appointment.patient_name, appointment.patient_email, appointment.patient_phone,
       ((appointment.appointment_date + appointment.end_time) AT TIME ZONE $2) > NOW() AS current_appointment,
       CASE WHEN appointment.agreement_id IS NULL THEN ''
         ELSE COALESCE(NULLIF(agreement.subdomain_prefix, ''), agreement.slug) END AS agreement_prefix
@@ -42,6 +41,23 @@ export const requireBotAppointment = async (request, { token = parseCookies(requ
     WHERE link.token_hash = $1 AND link.expires_at > NOW() AND link.revoked_at IS NULL
   `, [hashToken(token), config.googleCalendarTimeZone]);
   return validateBotAppointment(result.rows[0], agreementPrefixForRequest(request), { allowCompleted });
+};
+
+export const readProfessionalBotReport = async (appointmentId, professionalId, { execute = query } = {}) => {
+  const result = await execute(`SELECT usage.report_encrypted
+    FROM consultation_bot_usage usage JOIN appointments appointment ON appointment.id = usage.appointment_id
+    WHERE appointment.id = $1 AND appointment.professional_id = $2
+      AND usage.completed_at IS NOT NULL AND usage.report_encrypted IS NOT NULL`, [appointmentId, professionalId]);
+  if (!result.rows[0]) throw Object.assign(new Error('BOT_REPORT_NOT_FOUND'), { statusCode: 404 });
+  return decryptBotReport(result.rows[0].report_encrypted, appointmentId);
+};
+
+// Call only after authenticating the administrator and checking appointments.read.
+export const readAdminBotReport = async (appointmentId, { execute = query } = {}) => {
+  const result = await execute(`SELECT report_encrypted FROM consultation_bot_usage
+    WHERE appointment_id = $1 AND completed_at IS NOT NULL AND report_encrypted IS NOT NULL`, [appointmentId]);
+  if (!result.rows[0]) throw Object.assign(new Error('BOT_REPORT_NOT_FOUND'), { statusCode: 404 });
+  return decryptBotReport(result.rows[0].report_encrypted, appointmentId);
 };
 
 // A database row lock serializes quota reservation and completion across tabs,

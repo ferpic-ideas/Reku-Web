@@ -24,6 +24,7 @@
     error: '',
     formSlug,
     intakeErrors: {},
+    intakeMedicalOrder: null,
     intakeValues: {
       nombre: '',
       apellido: '',
@@ -75,6 +76,9 @@
     },
     management: {
       appointment: null,
+      deletingDocumentId: null,
+      documentDeletePending: null,
+      documentDeleteError: '',
       rescheduling: false,
       availableDays: [],
       slots: [],
@@ -282,6 +286,11 @@
       state.agreement = payload.agreement || null;
       state.paymentRequired = payload.payment_required !== false;
       state.services = payload.services || [];
+      if (state.agreement?.direct_treatment) {
+        state.service = state.services.find(service => service.id === state.agreement.treatment_service_id);
+        if (!state.service) throw new Error('El tratamiento de este acuerdo no está disponible. Contactanos para que podamos ayudarte.');
+        await selectProfessional('first_available');
+      }
     } catch (error) {
       state.error = error.message;
     } finally {
@@ -578,6 +587,7 @@
 
   async function submitIntake(form) {
     const data = Object.fromEntries(new FormData(form).entries());
+    if (data.medical_order?.size) state.intakeMedicalOrder = data.medical_order;
     state.intakeValues = {
       nombre: data.nombre || '',
       apellido: data.apellido || '',
@@ -586,18 +596,38 @@
       identificador: data.identificador || '',
     };
     state.intakeErrors = {};
+    if (state.agreement?.medical_order_required && !state.intakeMedicalOrder) {
+      state.intakeErrors.medical_order = 'Para poder sacar un turno necesitamos que subas la orden médica.';
+      render();
+      return;
+    }
+    if (state.intakeMedicalOrder?.size > 10 * 1024 * 1024) {
+      state.intakeErrors.medical_order = 'La orden médica no puede superar los 10 MB.';
+      render();
+      return;
+    }
+    if (state.intakeMedicalOrder && !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(state.intakeMedicalOrder.type)) {
+      state.intakeErrors.medical_order = 'Subí la orden en PDF o imagen JPG, PNG o WebP.';
+      render();
+      return;
+    }
     state.loading = true;
     render();
 
     try {
+      const values = { agreement_slug: state.formSlug, ...state.intakeValues };
+      let body = JSON.stringify(values);
+      if (state.intakeMedicalOrder) {
+        body = new FormData();
+        Object.entries(values).forEach(([key, value]) => body.append(key, value));
+        body.append('medical_order', state.intakeMedicalOrder);
+      }
       const payload = await api('/api/booking/intake', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agreement_slug: state.formSlug,
-          ...state.intakeValues,
-        }),
+        ...(state.intakeMedicalOrder ? {} : { headers: { 'Content-Type': 'application/json' } }),
+        body,
       });
+      state.intakeMedicalOrder = null;
       if (payload.verification_required === false) {
         state.patient = payload.patient || null;
         state.agreement = payload.agreement || state.agreement;
@@ -662,7 +692,7 @@
     state.paymentNotice = '';
     state.retryPaymentUrl = '';
     state.step = 4;
-    await loadDays();
+    await loadDays({ selectNearest: Boolean(state.agreement?.direct_treatment) });
   }
 
   async function changeMonth(offset) {
@@ -675,15 +705,26 @@
     await loadDays();
   }
 
-  async function loadDays() {
+  async function loadDays({ selectNearest = false } = {}) {
     if (!state.service || !state.professional) return;
     state.loading = true;
     render();
     try {
-      const payload = await api(
-        `/api/booking/days?service_id=${state.service.id}&professional_id=${state.professional.id}&month=${monthKey(state.month)}`,
-      );
-      state.availableDays = payload.days || [];
+      // Search ahead only on entry, keeping manual month navigation available.
+      const initialMonth = new Date(state.month);
+      for (let offset = 0; offset < (selectNearest ? 3 : 1); offset += 1) {
+        state.month = new Date(initialMonth.getFullYear(), initialMonth.getMonth() + offset, 1);
+        const payload = await api(
+          `/api/booking/days?service_id=${state.service.id}&professional_id=${state.professional.id}&month=${monthKey(state.month)}`,
+        );
+        state.availableDays = payload.days || [];
+        if (state.availableDays.length) break;
+      }
+      if (selectNearest && !state.availableDays.length) state.month = initialMonth;
+      if (selectNearest) {
+        const firstDay = [...state.availableDays].sort((a, b) => a.date.localeCompare(b.date))[0];
+        if (firstDay) await selectDate(firstDay.date);
+      }
     } catch (error) {
       state.error = error.message;
     } finally {
@@ -784,6 +825,7 @@
         body: JSON.stringify({ appointment_id: state.appointment.id }),
       });
       state.triageUrl = payload.url || '';
+      state.consultationStatus = payload.consultation_status || 'pending';
     } catch (error) {
       state.triageError = error.message;
     } finally {
@@ -826,6 +868,7 @@
       state.documentFiles = [];
       state.documentLinksDraft = '';
       state.documentsMessage = payload.message || 'La documentación se compartió.';
+      state.documentsOpen = false;
     } catch (error) {
       state.documentsError = error.message;
     } finally {
@@ -867,11 +910,33 @@
       });
       management.documentFiles = [];
       management.documentLinksDraft = '';
+      management.appointment.documents = [...(management.appointment.documents || []), ...(payload.documents || [])];
       management.documentsMessage = payload.message || 'La documentación se compartió.';
+      management.documentsOpen = false;
     } catch (error) {
       management.documentsError = error.message;
     } finally {
       management.documentsUploading = false;
+      render();
+    }
+  }
+
+  async function deleteManagementDocument() {
+    const management = state.management;
+    const documentId = management.documentDeletePending;
+    if (!documentId || management.deletingDocumentId) return;
+    management.deletingDocumentId = documentId;
+    management.documentDeleteError = '';
+    render();
+    try {
+      const payload = await api(`/api/booking/manage/documents/${documentId}`, { method: 'DELETE' });
+      management.appointment.documents = (management.appointment.documents || []).filter(item => Number(item.id) !== documentId);
+      management.documentDeletePending = null;
+      management.documentsMessage = payload.message || 'El estudio se eliminó de este turno.';
+    } catch (error) {
+      management.documentDeleteError = error.message;
+    } finally {
+      management.deletingDocumentId = null;
       render();
     }
   }
@@ -1059,11 +1124,11 @@
       ? ''
       : `
           <div class="stepper">
-            ${[1, 2, 3, 4, 5]
+            ${(agreement.direct_treatment ? [1, 4, 5] : [1, 2, 3, 4, 5])
               .map(
-                (step) => `
+                (step, index) => `
                   <div class="step${progress.activeStep === step ? ' active' : ''}${progress.completedThrough >= step ? ' done' : ''}">
-                    <span>${progress.completedThrough >= step ? '✓' : step}</span>
+                    <span>${progress.completedThrough >= step ? '✓' : index + 1}</span>
                   </div>
                 `,
               )
@@ -1134,13 +1199,24 @@
             showIdentifier
               ? `
                 <label class="span-two">
-                  Identificador
+                  ${escapeHtml(agreement.identifier_label || 'Identificador')}
                   <input name="identificador" value="${escapeHtml(values.identificador)}" autocomplete="off" required />
                   ${fieldError('identificador')}
                 </label>
               `
               : ''
           }
+          <label class="span-two">
+            Orden médica${agreement.medical_order_required ? ' (obligatoria)' : ' (opcional)'}
+            <span class="field-help">${agreement.medical_order_required
+              ? 'Para poder sacar un turno necesitamos que subas la orden médica.'
+              : 'Si tenés una orden médica, podés subirla desde acá.'}</span>
+            <input name="medical_order" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" ${agreement.medical_order_required && !state.intakeMedicalOrder ? 'required' : ''} />
+            <span class="field-help">PDF o imagen JPG, PNG o WebP. Hasta 10 MB.</span>
+            ${state.intakeMedicalOrder ? `<span class="field-help">Seleccionada: ${escapeHtml(state.intakeMedicalOrder.name)}</span>` : ''}
+            ${state.intakeMedicalOrder ? '<button type="button" class="back-button" data-action="clear-medical-order">Quitar archivo seleccionado</button>' : ''}
+            ${fieldError('medical_order')}
+          </label>
           <div class="form-actions span-two">
             <button type="submit" class="primary-button">Continuar</button>
           </div>
@@ -1152,8 +1228,8 @@
   function renderServices() {
     return `
       <section>
-        <h2 class="section-title">Elegí tu servicio</h2>
-        <p class="section-copy">Seleccioná el servicio que deseás reservar.</p>
+        <h2 class="section-title">Seleccioná la práctica:</h2>
+        <p class="section-copy">Tené en cuenta que primero tenés que realizar una consulta con el profesional. Una vez realizada, y si el profesional te lo indicó, podés seleccionar Tratamiento.</p>
         <div class="card-grid">
           ${state.services
             .map(
@@ -1267,7 +1343,7 @@
   function renderCalendar() {
     return `
       <section>
-        <h2 class="section-title">Elegí fecha y hora</h2>
+        <h2 class="section-title">${state.agreement?.direct_treatment ? 'Seleccioná el turno más cercano' : 'Elegí fecha y hora'}</h2>
         <p class="section-copy">${
           state.professional?.automatic
             ? 'Te mostramos la disponibilidad combinada de los kinesiólogos que realizan esta práctica.'
@@ -1305,7 +1381,7 @@
           }
         </div>
         <div class="actions">
-          ${renderBackButton(3)}
+          ${state.agreement?.direct_treatment ? '' : renderBackButton(3)}
           <button type="button" class="primary-button" data-action="go-payment" ${state.selectedSlot ? '' : 'disabled'}>Continuar</button>
         </div>
       </section>
@@ -1353,12 +1429,18 @@
   function renderDocumentsCard() {
     return `
       <div class="documents-section">
-        <button
+        ${state.documentsMessage && !state.documentsOpen ? `
+          <div class="document-status ok documents-confirmation" role="status">
+            <span>${escapeHtml(state.documentsMessage)}</span>
+            <button type="button" class="text-button" data-action="toggle-documents" aria-expanded="false" aria-controls="appointment-documents-panel">Agregar más documentación</button>
+          </div>
+        ` : `<button
           type="button"
           class="secondary-button documents-toggle-button"
           data-action="toggle-documents"
           aria-expanded="${state.documentsOpen ? 'true' : 'false'}"
-        >${state.documentsOpen ? 'Ocultar documentación' : 'Quiero enviar estudios previos'}</button>
+          aria-controls="appointment-documents-panel"
+        >${state.documentsOpen ? 'Ocultar documentación' : 'Quiero enviar estudios previos'}</button>`}
         ${state.documentsOpen ? `
           <div class="documents-card" id="appointment-documents-panel">
             <div>
@@ -1389,7 +1471,6 @@
               <button class="secondary-button documents-submit-button" type="submit" ${state.documentsUploading ? 'disabled' : ''}>${
                 state.documentsUploading ? 'Compartiendo…' : 'Compartir documentación'
               }</button>
-              ${state.documentsMessage ? `<div class="document-status ok">${escapeHtml(state.documentsMessage)}</div>` : ''}
               ${state.documentsError ? `<div class="document-status error">${escapeHtml(state.documentsError)}</div>` : ''}
             </form>
           </div>
@@ -1399,6 +1480,7 @@
   }
 
   function renderTriageCard() {
+    if (state.consultationStatus === 'completed') return '';
     return `
       <div class="triage-card">
         <h3>Último paso: cuestionario previo</h3>
@@ -1548,6 +1630,43 @@
     `;
   }
 
+  function renderManagementSentDocuments() {
+    const management = state.management;
+    const documents = management.appointment?.documents || [];
+    if (!documents.length && !management.documentsMessage) return '';
+    return `<section class="management-sent-documents" aria-labelledby="sent-documents-title">
+      <h3 id="sent-documents-title">Estudios enviados</h3>
+      ${documents.length ? `<ul>${documents.map(item => `<li>
+        <div class="sent-document-info">
+          <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.kind === 'link' ? item.url : item.name)}</a>
+          <small>${item.kind === 'link' ? 'Enlace al estudio' : 'Archivo'} · <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">Ver ${item.kind === 'link' ? 'enlace' : 'archivo'}</a></small>
+        </div>
+        ${management.appointment.status === 'confirmed' && item.can_delete !== false ? `<button type="button" class="document-delete-button" data-action="delete-management-document" data-id="${Number(item.id)}" aria-label="Eliminar ${escapeHtml(item.kind === 'link' ? item.url : item.name)}" title="Eliminar estudio" ${management.deletingDocumentId ? 'disabled' : ''}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5" /></svg>
+        </button>` : ''}
+      </li>`).join('')}</ul>` : '<p>No hay estudios enviados para este turno.</p>'}
+      ${management.documentsMessage ? `<div class="document-status ok" role="status">${escapeHtml(management.documentsMessage)}</div>` : ''}
+    </section>`;
+  }
+
+  function renderDocumentDeleteModal() {
+    const management = state.management;
+    if (!management.documentDeletePending) return '';
+    const item = (management.appointment?.documents || []).find(item => Number(item.id) === management.documentDeletePending);
+    return `<div class="booking-modal-backdrop" data-action="close-document-delete" role="presentation">
+      <section class="booking-modal" role="dialog" aria-modal="true" aria-labelledby="document-delete-title">
+        <h2 id="document-delete-title">¿Eliminar este estudio?</h2>
+        <p class="document-delete-name">${escapeHtml(item?.kind === 'link' ? item.url : item?.name || 'Estudio')}</p>
+        <p>Se quitará de este turno y el profesional dejará de verlo. Si lo necesitás, podés volver a enviarlo.</p>
+        ${management.documentDeleteError ? `<div class="document-status error" role="alert">${escapeHtml(management.documentDeleteError)}</div>` : ''}
+        <div class="booking-modal-actions">
+          <button type="button" class="secondary-button" data-action="close-document-delete" ${management.deletingDocumentId ? 'disabled' : ''}>Volver</button>
+          <button type="button" class="danger-outline-button" data-action="confirm-document-delete" ${management.deletingDocumentId ? 'disabled' : ''}>${management.deletingDocumentId ? 'Eliminando…' : 'Eliminar estudio'}</button>
+        </div>
+      </section>
+    </div>`;
+  }
+
   function renderManagementDocumentsPanel() {
     const management = state.management;
     return `
@@ -1574,7 +1693,6 @@
           <button class="secondary-button documents-submit-button" type="submit" ${management.documentsUploading ? 'disabled' : ''}>${
             management.documentsUploading ? 'Enviando…' : 'Enviar documentación'
           }</button>
-          ${management.documentsMessage ? `<div class="document-status ok management-documents-status">${escapeHtml(management.documentsMessage)}</div>` : ''}
           ${management.documentsError ? `<div class="document-status error management-documents-status">${escapeHtml(management.documentsError)}</div>` : ''}
         </form>
       </div>
@@ -1625,6 +1743,7 @@
           <p><strong>Hora:</strong> ${escapeHtml(appointment.start_time)} a ${escapeHtml(appointment.end_time)}</p>
           <p><strong>Profesional:</strong> ${escapeHtml(appointment.professional.name)}</p>
           ${meetCard}
+          ${renderManagementSentDocuments()}
           <div class="management-actions">
             ${
               appointment.status === 'confirmed'
@@ -1636,7 +1755,7 @@
                      aria-expanded="${management.documentsOpen ? 'true' : 'false'}"
                      aria-controls="management-documents-panel"
                    >
-                     <span>${management.documentsOpen ? 'Ocultar estudios' : 'Enviar estudios'}</span>
+                     <span>${management.documentsOpen ? 'Ocultar formulario' : appointment.documents?.length ? 'Enviar más estudios' : 'Enviar estudios'}</span>
                      <svg class="management-documents-toggle-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
                        <path d="m5 7.5 5 5 5-5" />
                      </svg>
@@ -1720,6 +1839,7 @@
             }
           </div>
           ${management.meetLobby.error ? `<div class="document-status error">${escapeHtml(management.meetLobby.error)} La pantalla volverá a intentarlo automáticamente.</div>` : ''}
+          ${renderManagementSentDocuments()}
           <div class="management-actions meet-lobby-actions">
             ${appointment.triage_url ? `<a class="primary-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Completar cuestionario previo</a>` : ''}
             <button
@@ -1729,7 +1849,7 @@
               aria-expanded="${management.documentsOpen ? 'true' : 'false'}"
               aria-controls="management-documents-panel"
             >
-              <span>${management.documentsOpen ? 'Ocultar estudios' : 'Enviar estudios'}</span>
+              <span>${management.documentsOpen ? 'Ocultar formulario' : appointment.documents?.length ? 'Enviar más estudios' : 'Enviar estudios'}</span>
               <svg class="management-documents-toggle-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
                 <path d="m5 7.5 5 5 5-5" />
               </svg>
@@ -1835,7 +1955,7 @@
           <div class="success-mark pending">✉</div>
           <h2 class="section-title">Confirmá tu mail para continuar</h2>
           <p class="section-copy">Completaste el paso 1. Todavía no reservamos ningún turno.</p>
-          <p class="section-copy">Te enviamos un enlace para confirmar tu dirección. Al abrirlo, vas a poder elegir servicio, profesional, fecha y horario.</p>
+          <p class="section-copy">Te enviamos un enlace para confirmar tu dirección. Al abrirlo, ${state.agreement?.direct_treatment ? 'vas a poder elegir el turno de tratamiento más cercano.' : 'vas a poder elegir servicio, profesional, fecha y horario.'}</p>
           <p class="section-copy">El enlace vence en 24 horas y puede usarse una sola vez.</p>
         </div>
       </section>
@@ -1870,12 +1990,24 @@
       8: renderAppointmentManagement,
       9: renderMeetLobby,
     }[state.step]();
-    app.innerHTML = `${renderHeader()}${content}${renderManagementCancelModal()}${renderBookingHelpModal()}`;
+    app.innerHTML = `${renderHeader()}${content}${renderManagementCancelModal()}${renderDocumentDeleteModal()}${renderBookingHelpModal()}`;
     bindEvents();
     scheduleManagementMeetRefresh();
   }
 
   function bindEvents() {
+    app.querySelector('[data-action="clear-medical-order"]')?.addEventListener('click', () => {
+      state.intakeMedicalOrder = null;
+      const input = app.querySelector('input[name="medical_order"]');
+      if (input) input.value = '';
+      const form = app.querySelector('#booking-intake-form');
+      if (form) {
+        const fields = Object.fromEntries(new FormData(form).entries());
+        Object.keys(state.intakeValues).forEach(key => { state.intakeValues[key] = fields[key] || ''; });
+      }
+      delete state.intakeErrors.medical_order;
+      render();
+    });
     app.querySelector('#booking-help-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       await submitBookingHelp(event.currentTarget);
@@ -2058,6 +2190,21 @@
             });
           }
         }
+        if (action === 'delete-management-document' && !state.management.deletingDocumentId) {
+          const documentId = Number(element.dataset.id);
+          if ((state.management.appointment?.documents || []).some(item => Number(item.id) === documentId)) {
+            state.management.documentDeletePending = documentId;
+            state.management.documentDeleteError = '';
+            render();
+          }
+        }
+        if (action === 'close-document-delete' && !state.management.deletingDocumentId) {
+          if (element.classList.contains('booking-modal-backdrop') && event.target !== element) return;
+          state.management.documentDeletePending = null;
+          state.management.documentDeleteError = '';
+          render();
+        }
+        if (action === 'confirm-document-delete') await deleteManagementDocument();
         if (action === 'close-management-reschedule') {
           state.management.rescheduling = false;
           state.management.selectedDate = '';
@@ -2109,6 +2256,12 @@
   }
 
   document.addEventListener?.('keydown', (event) => {
+    if (event.key === 'Escape' && state.management.documentDeletePending && !state.management.deletingDocumentId) {
+      state.management.documentDeletePending = null;
+      state.management.documentDeleteError = '';
+      render();
+      return;
+    }
     if (event.key === 'Escape' && state.help.open && !state.help.submitting) {
       state.help.open = false;
       state.help.error = '';
@@ -2125,6 +2278,24 @@
       state.management.error = '';
       render();
     }
+  });
+
+  // A questionnaire opens in another tab. Refresh only its status on return,
+  // preserving documents/drafts and removing obsolete completion buttons.
+  let refreshingConsultation = false;
+  window.addEventListener?.('focus', async () => {
+    if (refreshingConsultation || state.loading) return;
+    refreshingConsultation = true;
+    try {
+      if (state.management.appointment && [8, 9].includes(state.step)) {
+        const payload = await api('/api/booking/manage/appointment');
+        state.management.appointment = payload.appointment;
+        render();
+      } else if (state.step === 6 && state.appointment?.status === 'confirmed') {
+        await loadTriage();
+      }
+    } catch { /* Keep the current screen on transient connectivity failures. */ }
+    finally { refreshingConsultation = false; }
   });
 
   loadInitial();

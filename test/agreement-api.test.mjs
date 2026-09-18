@@ -103,3 +103,28 @@ test("public documentation and Admin expose the complete agreement API workflow"
   assert.match(admin, /Copiá este token ahora/);
   assert.match(admin, /No se volverá a mostrar completo/i);
 });
+
+test("OpenAPI describes Nómina, agreement settings, orders and questionnaire status", async () => {
+  const spec = JSON.parse(await readFile(new URL('../integraciones/api/openapi.json', import.meta.url), 'utf8'));
+  assert.equal(spec.info.version, '1.2.0');
+  const agreement = spec.components.schemas.Agreement.properties;
+  assert.deepEqual(agreement.type.enum, ['Pago', 'Nomina']);
+  for (const field of ['slug', 'direct_treatment', 'treatment_service_id', 'medical_order_required', 'identifier_label']) assert.ok(agreement[field]);
+  assert.ok(spec.components.schemas.Patient.properties.identifier);
+  assert.ok(spec.paths['/appointments'].post.requestBody.content['multipart/form-data']);
+  const response = spec.components.schemas.AppointmentResponse.properties.data.properties;
+  assert.deepEqual(response.consultation_status.enum, ['pending', 'started', 'completed']);
+  assert.ok(response.medical_order.properties.received);
+  assert.equal(response.triage_url, undefined);
+  assert.equal(response.report_url, undefined);
+  const visit = value => {
+    if (!value || typeof value !== 'object') return;
+    if (value.$ref) {
+      assert.ok(value.$ref.startsWith('#/'));
+      const target = value.$ref.slice(2).split('/').reduce((node, key) => node?.[key], spec);
+      assert.ok(target, 'Unresolved reference: ' + value.$ref);
+    }
+    Object.values(value).forEach(visit);
+  };
+  visit(spec);
+});

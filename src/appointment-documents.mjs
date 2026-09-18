@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { one, recordAudit } from "./db.mjs";
+import { one, query, tx, recordAudit } from "./db.mjs";
 import { privateUploadRoot } from "./config.mjs";
 import { withSecurityHeaders } from "./http.mjs";
 
@@ -114,14 +114,20 @@ export const normalizeDocumentLinks = (value) => {
   return links;
 };
 
-export const saveClinicalDocument = async (file, appointmentId) => {
+const savePrivateClinicalDocument = async (file, folder, ownerId) => {
   const validated = validateClinicalDocument(file);
-  const directory = join(privateUploadRoot, "appointments", String(appointmentId));
+  const directory = join(privateUploadRoot, folder, String(ownerId));
   await mkdir(directory, { recursive: true });
-  const storagePath = `appointments/${appointmentId}/${randomUUID()}${validated.extension}`;
+  const storagePath = `${folder}/${ownerId}/${randomUUID()}${validated.extension}`;
   await writeFile(join(privateUploadRoot, storagePath), file.buffer, { mode: 0o640 });
   return { ...validated, storagePath };
 };
+
+export const saveClinicalDocument = (file, appointmentId) =>
+  savePrivateClinicalDocument(file, 'appointments', appointmentId);
+
+export const saveIntakeMedicalOrder = (file, intakeId) =>
+  savePrivateClinicalDocument(file, 'intakes', intakeId);
 
 export const removeClinicalDocuments = async (storagePaths) => {
   await Promise.all(
@@ -134,7 +140,11 @@ export const removeClinicalDocuments = async (storagePaths) => {
 const mapAppointmentDocumentFor = (row, fileBasePath) => ({
   id: Number(row.id),
   kind: row.kind,
-  name: row.original_name || (row.kind === "link" ? "Estudio por enlace" : "Documento"),
+  purpose: row.purpose || 'study',
+  can_delete: row.can_delete !== false,
+  name: row.purpose === 'medical_order'
+    ? `Orden médica · ${row.original_name || 'Documento'}`
+    : row.original_name || (row.kind === "link" ? "Estudio por enlace" : "Documento"),
   mime_type: row.mime_type || "",
   size_bytes: Number(row.size_bytes || 0),
   url:
@@ -150,11 +160,49 @@ export const mapAppointmentDocument = (row) =>
 export const mapAdminAppointmentDocument = (row) =>
   mapAppointmentDocumentFor(row, "/api/admin/appointment-documents");
 
+export const mapPatientAppointmentDocument = (row) =>
+  mapAppointmentDocumentFor(row, "/api/booking/manage/documents");
+
+export const listPatientAppointmentDocuments = async (appointmentId) => {
+  const result = await query(`SELECT document.*,
+      NOT (document.purpose = 'medical_order' AND appointment.medical_order_required) AS can_delete
+    FROM appointment_documents document JOIN appointments appointment ON appointment.id = document.appointment_id
+    WHERE document.appointment_id = $1 AND document.uploaded_by = 'patient'
+    ORDER BY document.created_at, document.id`, [appointmentId]);
+  return result.rows.map(mapPatientAppointmentDocument);
+};
+
+export const deletePatientAppointmentDocument = async (documentId, appointmentId) => {
+  const removed = await tx(async client => {
+    const result = await client.query(`DELETE FROM appointment_documents document
+      USING appointments appointment
+      WHERE document.id = $1 AND document.appointment_id = $2
+        AND document.uploaded_by = 'patient' AND appointment.id = document.appointment_id
+        AND appointment.status = 'confirmed'
+        AND NOT (document.purpose = 'medical_order' AND appointment.medical_order_required)
+      RETURNING document.id, document.storage_path`, [documentId, appointmentId]);
+    const row = result.rows[0];
+    if (!row) return null;
+    await client.query(`INSERT INTO audit_events (event_type, detail) VALUES ($1, $2::jsonb)`, [
+      'patient.appointment.document.deleted',
+      JSON.stringify({ appointment_document_id: Number(row.id), appointment_id: Number(appointmentId) }),
+    ]);
+    return row;
+  });
+  if (removed?.storage_path) {
+    // Intake orders can back more than one appointment. Do not remove a shared file.
+    const referenced = await one(`SELECT 1 FROM patient_intake_medical_orders WHERE storage_path = $1
+      UNION ALL SELECT 1 FROM appointment_documents WHERE storage_path = $1 LIMIT 1`, [removed.storage_path]);
+    if (!referenced) await removeClinicalDocuments([removed.storage_path]);
+  }
+  return Boolean(removed);
+};
+
 const streamAppointmentDocument = async (
   request,
   response,
   documentId,
-  { actorUserId, professionalId = null, auditEvent },
+  { actorUserId = null, professionalId = null, appointmentId = null, inline = false, auditEvent },
 ) => {
   const document = await one(
     `
@@ -168,7 +216,8 @@ const streamAppointmentDocument = async (
   );
   if (
     !document ||
-    (professionalId !== null && Number(document.professional_id) !== Number(professionalId))
+    (professionalId !== null && Number(document.professional_id) !== Number(professionalId)) ||
+    (appointmentId !== null && (Number(document.appointment_id) !== Number(appointmentId) || document.uploaded_by !== 'patient'))
   ) {
     response.writeHead(404, withSecurityHeaders({ "Content-Type": "text/plain; charset=utf-8" }, { privateRoute: true }));
     response.end("Documento no encontrado.");
@@ -182,7 +231,14 @@ const streamAppointmentDocument = async (
     error.statusCode = 500;
     throw error;
   }
-  const fileStat = await stat(filePath);
+  let fileStat;
+  try { fileStat = await stat(filePath); }
+  catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    response.writeHead(404, withSecurityHeaders({ "Content-Type": "text/plain; charset=utf-8" }, { privateRoute: true }));
+    response.end("Documento no encontrado.");
+    return;
+  }
   const safeAsciiName = cleanOriginalName(document.original_name).replace(/[^a-zA-Z0-9._-]/g, "_");
   await recordAudit(auditEvent, {
     actorUserId,
@@ -198,14 +254,16 @@ const streamAppointmentDocument = async (
       {
         "Content-Type": document.mime_type || "application/octet-stream",
         "Content-Length": String(fileStat.size),
-        "Content-Disposition": `attachment; filename="${safeAsciiName}"; filename*=UTF-8''${encodeURIComponent(cleanOriginalName(document.original_name))}`,
+        "Content-Disposition": `${inline ? 'inline' : 'attachment'}; filename="${safeAsciiName}"; filename*=UTF-8''${encodeURIComponent(cleanOriginalName(document.original_name))}`,
         "Cache-Control": "private, no-store",
       },
       { privateRoute: true },
     ),
   );
   if (request.method === "HEAD") response.end();
-  else createReadStream(filePath).pipe(response);
+  // Deletion can race an already-authorized download. Fail only this response,
+  // never let an unhandled read error terminate the application process.
+  else createReadStream(filePath).on('error', () => response.destroy()).pipe(response);
 };
 
 export const streamProfessionalAppointmentDocument = async (
@@ -229,4 +287,9 @@ export const streamAdminAppointmentDocument = async (
   streamAppointmentDocument(request, response, documentId, {
     actorUserId: user.id,
     auditEvent: "admin.appointment.document.downloaded",
+  });
+
+export const streamPatientAppointmentDocument = async (request, response, documentId, appointmentId) =>
+  streamAppointmentDocument(request, response, documentId, {
+    appointmentId, inline: true, auditEvent: 'patient.appointment.document.viewed',
   });

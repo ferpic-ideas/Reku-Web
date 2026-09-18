@@ -92,6 +92,7 @@ export const getAgreementSettlementPreview = async ({ agreementId, month }) => {
       INNER JOIN services service ON service.id = appointment.service_id
       WHERE appointment.agreement_id = $1
         AND appointment.booking_channel = 'agreement_api'
+        AND appointment.agreement_type_snapshot = 'Pago'
         AND appointment.appointment_date >= $2::date
         AND appointment.appointment_date < $3::date
       ORDER BY appointment.appointment_date, appointment.start_time, appointment.id

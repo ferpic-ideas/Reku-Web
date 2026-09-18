@@ -89,11 +89,13 @@
   }
 
   const groupAppointments = () =>
-    state.appointments.reduce((groups, appointment) => {
-      if (!groups.has(appointment.date)) groups.set(appointment.date, []);
-      groups.get(appointment.date).push(appointment);
-      return groups;
-    }, new Map());
+    [...state.appointments]
+      .sort((a, b) => `${a.date} ${a.start_time}`.localeCompare(`${b.date} ${b.start_time}`) || Number(a.id) - Number(b.id))
+      .reduce((groups, appointment) => {
+        if (!groups.has(appointment.date)) groups.set(appointment.date, []);
+        groups.get(appointment.date).push(appointment);
+        return groups;
+      }, new Map());
 
   async function api(path, options = {}) {
     const response = await fetch(path, options);
@@ -165,7 +167,7 @@
         </dl>
         <div class="room-actions">
           ${meetAvailable(appointment) ? `<a class="meet-button" href="${escapeHtml(appointment.google_meet_url)}" target="_blank" rel="noopener noreferrer">Entrar a Google Meet</a>` : '<span class="action-unavailable">Meet disponible 20 minutos antes</span>'}
-          ${appointment.triage_url ? `<a class="triage-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Ver Formulario Triage</a>` : '<span class="action-unavailable">Formulario Triage no disponible</span>'}
+          ${appointment.consultation_report_url ? `<a class="triage-button" href="${escapeHtml(appointment.consultation_report_url)}" target="_blank" rel="noopener noreferrer">Ver informe PDF</a>` : `<span class="action-unavailable">${appointment.consultation_status === 'started' ? 'Cuestionario en curso' : 'Cuestionario pendiente'}</span>`}
         </div>
         <section class="appointment-documents">
           <div>
@@ -188,10 +190,10 @@
               ${Number(state.copiedAppointmentId) === Number(appointment.id) ? '<small class="copy-success" role="status">URL copiada</small>' : ''}
             </section>`
           : ''}
-        <div class="triage-note">
-          <strong>Formulario Triage</strong>
-          <span>${appointment.triage_url ? 'Disponible para consulta. Mientras cerramos la integración con ReHub, se muestra el enlace asignado como si ya estuviera completo.' : 'No se obtuvo un formulario para este turno.'}</span>
-        </div>
+        ${appointment.consultation_report_url ? '' : `<div class="triage-note">
+          <strong>Informe del bot Reku</strong>
+          <span>${appointment.consultation_status === 'started' ? 'El paciente inició el cuestionario y todavía no lo completó. El informe PDF estará disponible al finalizar.' : 'El paciente todavía no completó el cuestionario. El informe PDF estará disponible al finalizar.'}</span>
+        </div>`}
       </article>
     `;
   }

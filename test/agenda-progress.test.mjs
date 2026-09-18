@@ -158,6 +158,8 @@ test("intake continues directly to services when email verification is disabled"
   for (const pendingStep of [2, 3, 4, 5]) {
     assert.match(stepper, new RegExp(`<span>${pendingStep}</span>`));
   }
-  assert.match(html, /Elegí tu servicio/);
+  assert.match(html, /Seleccioná la práctica:/);
+  assert.match(html, /primero tenés que realizar una consulta con el profesional/);
+  assert.match(html, /si el profesional te lo indicó, podés seleccionar Tratamiento/);
   assert.doesNotMatch(html, /Revisá tu mail/);
 });

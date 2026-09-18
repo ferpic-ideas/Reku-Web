@@ -318,8 +318,12 @@ Variables clave:
 - `UPLOAD_MAX_BYTES`
 - `CSV_UPLOAD_MAX_BYTES`
 - `BOOKING_ACCESS_COOKIE_NAME`
+- `BOOKING_VERIFIED_EMAIL_COOKIE_NAME`
+- `BOOKING_VERIFIED_EMAIL_TTL_SECONDS` (180 días por defecto; recuerda en el
+  mismo navegador un email ya verificado que tenga al menos un turno previo)
 - `BOOKING_EMAIL_VERIFICATION_ENABLED` (debe permanecer `true` en producción;
-  verifica el email antes de habilitar la agenda)
+  verifica el email antes de habilitar la agenda y sólo omite el paso cuando el
+  navegador presenta un comprobante firmado válido para ese mismo email)
 - `PATIENT_APPOINTMENT_LINK_GRACE_DAYS` (7 por defecto)
 - Los links privados del mail pueden reutilizarse hasta su vencimiento o revocación.
 - `PROFESSIONAL_LINK_TTL_HOURS`

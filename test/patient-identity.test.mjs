@@ -11,7 +11,14 @@ test("patient identity is unique by normalized email across intake and booking",
     readSource("../migrations/012_patient_email_identity.sql"),
   ]);
 
-  assert.match(intakes, /redeemPatientIntakeVerification[\s\S]+ON CONFLICT \(email_normalized\)\s+DO UPDATE/s);
+  assert.match(
+    intakes,
+    /createVerifiedPatientBookingAccessWithClient[\s\S]+ON CONFLICT \(email_normalized\)\s+DO UPDATE/s,
+  );
+  assert.match(
+    intakes,
+    /redeemPatientIntakeVerification[\s\S]+createVerifiedPatientBookingAccessWithClient/s,
+  );
   assert.doesNotMatch(
     intakes.match(/const insertPatientIntake[\s\S]+?^};/m)?.[0] || "",
     /INSERT INTO patients/,

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bookingAccessCookie } from "../src/booking-links.mjs";
+import { patientEmailVerificationCookie } from "../src/patient-email-verification.mjs";
 import { professionalSessionCookie } from "../src/professional-links.mjs";
 import { patientAppointmentSessionCookie } from "../src/patient-appointment-links.mjs";
 
@@ -13,6 +14,17 @@ test("booking access is stored in a scoped HttpOnly cookie", () => {
   assert.match(cookie, /Path=\/api\/booking/);
   assert.match(cookie, /HttpOnly/);
   assert.match(cookie, /SameSite=Lax/);
+});
+
+test("remembered patient email verification uses a separate scoped cookie", () => {
+  const cookie = patientEmailVerificationCookie("Patient@Example.com", {
+    now: Date.UTC(2026, 8, 2, 12, 0, 0),
+  });
+  assert.match(cookie, /^reku_booking_verified_email=/);
+  assert.match(cookie, /Path=\/api\/booking/);
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /SameSite=Lax/);
+  assert.match(cookie, /Max-Age=15552000/);
 });
 
 test("professional access uses a separate scoped HttpOnly cookie", () => {

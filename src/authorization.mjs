@@ -82,6 +82,8 @@ const routeRules = [
   ["POST", /^\/api\/admin\/schedule-blocks$/, "schedule_blocks.write"],
   ["DELETE", /^\/api\/admin\/schedule-blocks\/\d+$/, "schedule_blocks.delete"],
   ["GET", /^\/api\/admin\/appointments$/, "appointments.read"],
+  ["GET", /^\/api\/admin\/appointments\/\d+\/consultation-report$/, "appointments.read"],
+  ["HEAD", /^\/api\/admin\/appointments\/\d+\/consultation-report$/, "appointments.read"],
   ["GET", /^\/api\/admin\/appointment-documents\/\d+$/, "appointments.read"],
   ["HEAD", /^\/api\/admin\/appointment-documents\/\d+$/, "appointments.read"],
   ["GET", /^\/api\/admin\/appointments\/\d+\/slots$/, "appointments.write"],
@@ -184,7 +186,7 @@ const professionalRouteRules = [
   ],
   [
     "GET|HEAD",
-    /^\/api\/professional\/appointment-documents\/\d+$/,
+    /^\/api\/professional\/(?:appointment-documents\/\d+|appointments\/\d+\/consultation-report)$/,
     "professional.appointments.read_self",
   ],
   [

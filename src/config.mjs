@@ -37,6 +37,12 @@ export const config = {
   bootstrapAdminPassword: process.env.BOOTSTRAP_ADMIN_PASSWORD || "",
   bookingAccessCookieName:
     process.env.BOOKING_ACCESS_COOKIE_NAME || "reku_booking_access",
+  bookingVerifiedEmailCookieName:
+    process.env.BOOKING_VERIFIED_EMAIL_COOKIE_NAME ||
+    "reku_booking_verified_email",
+  bookingVerifiedEmailTtlSeconds: Number(
+    process.env.BOOKING_VERIFIED_EMAIL_TTL_SECONDS || 180 * 24 * 60 * 60,
+  ),
   bookingEmailVerificationEnabled:
     process.env.BOOKING_EMAIL_VERIFICATION_ENABLED !== "false",
   allowBookingEmailVerificationDisabledInProduction:

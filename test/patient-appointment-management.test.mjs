@@ -175,7 +175,7 @@ test("managed document uploads use the private session and same-origin protectio
   assert.match(source, /pathname === "\/api\/booking\/manage\/documents"/);
 });
 
-test("managed document confirmation stays in the open upload panel", async () => {
+test("managed document confirmation collapses the panel and updates sent studies", async () => {
   const source = await readFile(new URL("../agenda/app.js", import.meta.url), "utf8");
   const submit = source.match(
     /async function submitManagementDocuments[\s\S]*?async function loadManagementDays/,
@@ -184,10 +184,10 @@ test("managed document confirmation stays in the open upload panel", async () =>
     /function renderManagementDocumentsPanel[\s\S]*?function renderAppointmentManagement/,
   )?.[0] || "";
   assert.match(submit, /management\.documentsMessage = payload\.message/);
-  assert.doesNotMatch(submit, /management\.documentsOpen = false/);
-  assert.ok(
-    panel.indexOf("Enviar documentación") < panel.indexOf("management.documentsMessage"),
-  );
+  assert.match(submit, /management\.documentsOpen = false/);
+  assert.match(submit, /management\.appointment\.documents =/);
+  assert.doesNotMatch(panel, /management\.documentsMessage/);
+  assert.match(source, /Estudios enviados/);
 });
 
 test("managed appointments reuse the booking cobranded header", async () => {

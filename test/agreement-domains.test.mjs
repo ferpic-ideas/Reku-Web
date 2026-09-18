@@ -83,3 +83,14 @@ test("agreement URLs prefer the dedicated subdomain and keep legacy fallback", (
     "https://www.reku.io/turnos/?form=legacy",
   );
 });
+
+test('admin presents one editable slug/subdomain and no duplicate column', async () => {
+  const source = await readFile(new URL('../admin/app.js', import.meta.url), 'utf8');
+  const fields = source.slice(source.indexOf('function renderAgreementFormFields()'), source.indexOf('function renderAgreements()'));
+  assert.match(fields, /Slug \(subdominio\)/);
+  assert.equal((fields.match(/name="slug"/g) || []).length, 1);
+  assert.doesNotMatch(fields, /name="subdomain_prefix"|Prefijo de subdominio/);
+  assert.match(fields, /ypf → ypf\.reku\.io/);
+  assert.match(source, /<th>Slug \/ subdominio<\/th>/);
+  assert.doesNotMatch(source, /<th>Subdominio<\/th>/);
+});

@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Reku API de acuerdos",
-    "version": "1.1.0",
-    "description": "API server-to-server para consultar disponibilidad, pre-reservar durante 10 minutos y operar turnos pagados por acuerdos no nominados."
+    "version": "1.2.0",
+    "description": "API server-to-server para acuerdos Pago y Nomina. Consultar GET /agreement antes de reservar: tratamiento directo, identificador y orden médica. Los turnos de Nómina se validan contra su nómina y no declaran pago externo. Se conserva X-API-Version: 2026-08-01 por compatibilidad."
   },
   "servers": [{ "url": "https://www.reku.io/api/partners/v1" }],
   "security": [{ "bearerAuth": [] }],
@@ -11,7 +11,7 @@
     "/agreement": {
       "get": {
         "summary": "Obtener el acuerdo autenticado",
-        "responses": { "200": { "description": "Acuerdo y capacidades" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+        "responses": { "200": { "description": "Acuerdo y capacidades", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Agreement" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
       }
     },
     "/services": {
@@ -23,16 +23,16 @@
     "/professionals": {
       "get": {
         "summary": "Listar profesionales habilitados",
-        "parameters": [{ "name": "service_id", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "parameters": [{ "$ref": "#/components/parameters/ServiceId" }],
         "responses": { "200": { "description": "Lista de profesionales" }, "422": { "$ref": "#/components/responses/ValidationError" } }
       }
     },
     "/availability": {
       "get": {
         "summary": "Consultar disponibilidad",
-        "description": "Usar date para un día o from/to para un rango máximo de 31 días.",
+        "description": "Usar date para un día o from/to para un rango máximo de 31 días. En tratamiento directo se usa la práctica configurada y se ignora professional_id: mostrar el horario más cercano sin pedirle al paciente elegir profesional.",
         "parameters": [
-          { "name": "service_id", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+          { "$ref": "#/components/parameters/ServiceId" },
           { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
           { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
           { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
@@ -75,18 +75,28 @@
         "responses": { "200": { "description": "Lista paginada de turnos" } }
       },
       "post": {
-        "summary": "Confirmar un turno ya pagado",
+        "summary": "Confirmar un turno de Pago o Nómina",
+        "description": "Pago declara un pago externo; Nomina requiere patient.identifier habilitado y crea monto cero sin liquidación. Si medical_order_required=true, usar multipart con payload JSON y archivo medical_order. PDF/JPG/PNG/WebP, máximo 10 MB. Misma clave y mismos datos/archivo reproducen la respuesta original; para estado actual hacer GET.",
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": { "$ref": "#/components/schemas/CreateAppointment" }
+            },
+            "multipart/form-data": {
+              "schema": { "type": "object", "required": ["payload"], "properties": {
+                "payload": { "type": "string", "description": "JSON serializado con el esquema CreateAppointment; no incluir medical_order dentro de este JSON." },
+                "medical_order": { "type": "string", "format": "binary", "description": "Obligatorio si medical_order_required=true. Un archivo PDF/JPG/PNG/WebP de hasta 10 MB. Se comprueba MIME y firma." }
+              } }
             }
           }
         },
         "responses": {
           "201": { "description": "Turno confirmado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppointmentResponse" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "413": { "$ref": "#/components/responses/UploadTooLarge" },
+          "415": { "$ref": "#/components/responses/UnsupportedMedia" },
           "409": { "$ref": "#/components/responses/Conflict" },
           "422": { "$ref": "#/components/responses/ValidationError" }
         }
@@ -100,9 +110,10 @@
       },
       "patch": {
         "summary": "Modificar o reprogramar un turno",
+        "description": "No permite cambiar email ni identificador del paciente (409 patient_identity_not_editable); cancelar y crear otra reserva. Si se envía patient se envía el objeto completo. Conserva tipo económico y obligatoriedad de orden del turno original. En modo directo sólo permite el tratamiento configurado; conserva profesional salvo cambio explícito a otro habilitado. No admite archivos en PATCH.",
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateAppointment" } } } },
-        "responses": { "200": { "description": "Turno actualizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppointmentResponse" } } } }, "409": { "$ref": "#/components/responses/Conflict" } }
+        "responses": { "200": { "description": "Turno actualizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppointmentResponse" } } } }, "409": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/ValidationError" } }
       }
     },
     "/appointments/{appointmentId}/cancel": {
@@ -122,10 +133,25 @@
       "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "Reku agreement token" }
     },
     "parameters": {
+      "ServiceId": { "name": "service_id", "in": "query", "required": false, "description": "Obligatorio salvo direct_treatment=true. En modo directo se usa treatment_service_id; otro servicio se rechaza.", "schema": { "type": "integer", "minimum": 1 } },
       "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "minLength": 8, "maxLength": 128 } },
       "AppointmentId": { "name": "appointmentId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^apt_[a-f0-9]{32}$" } }
     },
     "schemas": {
+      "Agreement": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" }, "name": { "type": "string" },
+          "slug": { "type": "string", "description": "Identificador del acuerdo; también se utiliza como subdominio, sin configurar otro prefijo." },
+          "type": { "type": "string", "enum": ["Pago", "Nomina"] },
+          "direct_treatment": { "type": "boolean" },
+          "treatment_service_id": { "type": ["integer", "null"] },
+          "medical_order_required": { "type": "boolean" },
+          "identifier_label": { "type": "string", "description": "Nombre del identificador de Nómina; usar Identificador si está vacío." },
+          "timezone": { "type": "string" },
+          "capabilities": { "type": "array", "items": { "type": "string" } }
+        }
+      },
       "Patient": {
         "type": "object",
         "required": ["first_name", "last_name", "email", "phone"],
@@ -133,7 +159,8 @@
           "first_name": { "type": "string", "maxLength": 100 },
           "last_name": { "type": "string", "maxLength": 100 },
           "email": { "type": "string", "format": "email", "maxLength": 254 },
-          "phone": { "type": "string", "maxLength": 50 }
+          "phone": { "type": "string", "maxLength": 50 },
+          "identifier": { "type": "string", "maxLength": 200, "description": "Obligatorio para Nomina. Debe existir en la nómina del acuerdo autenticado; comparación sin distinguir mayúsculas. No se crea una entrada de nómina al reservar." }
         }
       },
       "CreateAppointment": {
@@ -142,16 +169,17 @@
         "properties": {
           "external_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$" },
           "hold_id": { "type": "string", "pattern": "^hold_[a-f0-9]{32}$", "description": "Pre-reserva obtenida con POST /holds. Puede confirmarse después de vencer si el horario aún está libre." },
-          "payment_reference": { "type": "string", "maxLength": 200, "description": "Referencia del pago en el sistema del acuerdo. Si se omite, se usa external_id." },
+          "payment_reference": { "type": "string", "maxLength": 200, "description": "Sólo Pago: referencia del pago externo, por defecto external_id. Nomina ignora este valor y devuelve referencia vacía." },
           "patient": { "$ref": "#/components/schemas/Patient" }
         }
       },
       "CreateHold": {
         "type": "object",
-        "required": ["service_id", "date", "start_time"],
+        "required": ["date", "start_time"],
+        "description": "service_id es obligatorio en modo normal; en tratamiento directo se puede omitir y se rechaza otro servicio.",
         "properties": {
           "service_id": { "type": "integer", "minimum": 1 },
-          "professional_id": { "type": "integer", "minimum": 1, "description": "Opcional. Si se omite, Reku asigna el primer profesional disponible." },
+          "professional_id": { "type": "integer", "minimum": 1, "description": "Opcional. Si se omite, Reku asigna el primer profesional disponible. En tratamiento directo se ignora y la asignación siempre es automática." },
           "date": { "type": "string", "format": "date" },
           "start_time": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" }
         }
@@ -174,7 +202,6 @@
       },
       "UpdateAppointment": {
         "type": "object",
-        "minProperties": 1,
         "properties": {
           "service_id": { "type": "integer", "minimum": 1 },
           "professional_id": { "type": "integer", "minimum": 1 },
@@ -193,12 +220,18 @@
               "id": { "type": "string" },
               "external_id": { "type": "string" },
               "status": { "type": "string", "enum": ["confirmed", "cancelled"] },
+              "agreement_type": { "type": "string", "enum": ["Pago", "Nomina"] },
+              "consultation_status": { "type": "string", "enum": ["pending", "started", "completed"], "description": "Estado del cuestionario Reku. Si completed, no insistir en completarlo. No se expone información clínica ni URL de ReHub." },
+              "medical_order": { "type": "object", "properties": { "required": { "type": "boolean" }, "received": { "type": "boolean", "description": "Archivo recibido, no implica aprobación clínica." } } },
               "patient": { "$ref": "#/components/schemas/Patient" },
               "schedule": { "type": "object" },
               "service": { "type": "object" },
               "professional": { "type": "object" },
-              "payment": { "type": "object" },
-              "settlement": { "type": "object" }
+              "payment": { "type": "object", "properties": { "status": { "type": "string", "enum": ["paid", "nomina"] }, "provider": { "type": "string", "enum": ["agreement", "nomina"] }, "reference": { "type": "string" } } },
+              "settlement": { "type": "object", "properties": { "amount": { "type": "number" }, "currency": { "type": "string", "const": "ARS" }, "billable": { "type": "boolean", "description": "Sólo confirmed de Pago. Nomina siempre false y amount=0." } } },
+              "cancellation": { "type": ["object", "null"], "properties": { "reason": { "type": "string" }, "cancelled_at": { "type": ["string", "null"], "format": "date-time" } } },
+              "created_at": { "type": "string", "format": "date-time" },
+              "updated_at": { "type": "string", "format": "date-time" }
             }
           }
         }
@@ -209,6 +242,8 @@
       }
     },
     "responses": {
+      "UploadTooLarge": { "description": "Orden mayor a 10 MB o cuerpo demasiado grande", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "UnsupportedMedia": { "description": "Tipo o firma de archivo inválido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Unauthorized": { "description": "Token inválido o revocado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "ValidationError": { "description": "Datos inválidos", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Conflict": { "description": "Conflicto de disponibilidad, estado o idempotencia", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },

@@ -9,7 +9,7 @@ import { transcribeConsultation, botSettings } from "./consultation-bot-ai.mjs";
 import { advanceConsultation } from "./consultation-bot-conversation.mjs";
 import { loadBotBrandLogo, renderConsultationReport } from "./consultation-bot-report.mjs";
 import { buildConsultationNarrative, cachedConsultationNarrative } from "./consultation-bot-narrative.mjs";
-import { consultationBotMode, requireBotAppointment, botAppointmentCookie, botAccessMessages,
+import { hasBotAppointmentAccess, requireBotAppointment, botAppointmentCookie, botAccessMessages,
   beginBotAppointmentAction, finishBotAppointmentAction, readBotAppointmentReport } from "./consultation-bot-access.mjs";
 import { requireBotReportKey } from "./consultation-bot-report-storage.mjs";
 
@@ -58,7 +58,7 @@ const sendReport = (response, pdf) => {
 export const handleConsultationBot = async (request, response, url) => {
   try {
     const action = url.pathname.slice("/api/bot/".length);
-    const productionAccess = consultationBotMode() === "production";
+    let productionAccess = hasBotAppointmentAccess(request);
     if (request.method === "GET" && action === "logo") {
       const logo = await loadBotBrandLogo(await context(request, url));
       if (!logo) throw fail("Logo no encontrado.", 404);
@@ -83,16 +83,25 @@ export const handleConsultationBot = async (request, response, url) => {
     }
     if (request.method === "POST") requireBotOrigin(request);
     if (request.method === "POST" && action === "access") {
-      if (!productionAccess) { sendJson(response, 200, { ok: true }); return; }
       await consumeRateLimit({ scope: "bot.access", key: getClientIp(request), limit: 30, windowSeconds: 3600 });
       const body = JSON.parse(await readBody(request, 1000));
-      await requireBotAppointment(request, { token: body.token, allowCompleted: true });
+      try {
+        await requireBotAppointment(request, { token: body.token, allowCompleted: true });
+      } catch (error) {
+        if (error.message === 'BOT_ACCESS_REQUIRED') {
+          error.publicMessage = 'No pudimos validar este enlace: puede haber vencido o haber sido reemplazado. Abrí el correo más reciente de tu turno para acceder al cuestionario o al informe, si ya lo completaste.';
+        }
+        throw error;
+      }
       sendJson(response, 200, { ok: true }, { "Set-Cookie": botAppointmentCookie(body.token) });
       return;
     }
     const token = parseCookies(request)[cookieName];
     let session = sessions.get(token);
     if (session && (session.expiresAt < Date.now() || session.host !== request.headers.host)) session = null;
+    // Removing an appointment cookie must never turn a bound conversation into
+    // an anonymous test session or bypass persistence/ownership checks.
+    if (session?.appointmentId) productionAccess = true;
     if (request.method === "GET" && action === "session") {
       // Visits never restore prior conversations, even with a legacy cookie.
       sendJson(response, 200, { session: null });
@@ -126,11 +135,13 @@ export const handleConsultationBot = async (request, response, url) => {
       session = {
         host: request.headers.host, brand, data: null, status: "collecting", busy: false,
         appointmentId: appointmentAccess?.appointment_id || null,
+        patient: appointmentAccess ? { id: appointmentAccess.patient_id, name: appointmentAccess.patient_name, email: appointmentAccess.patient_email, phone: appointmentAccess.patient_phone } : null,
         createdAt: Date.now(), updatedAt: Date.now(), expiresAt: Date.now() + ttl,
         version: 0, lastRequestId: null, audioCount: 0,
         instanceId: randomBytes(12).toString("hex"),
         diagnosticId: randomBytes(6).toString("hex"), followupDiagnostics: [],
-        messages: welcomeMessages.map((text) => ({ role: "assistant", text })),
+        messages: welcomeMessages.map((text, index) => ({ role: "assistant", text: index === 0 && appointmentAccess?.patient_name
+          ? text.replace(/^Hola,/, `Hola ${String(appointmentAccess.patient_name).trim().split(/\s+/)[0]},`) : text })),
       };
       sessions.set(id, session);
       sendJson(response, 201, { session: present(session) }, { "Set-Cookie": `${cookieName}=${id}; Path=/api/bot/; HttpOnly; SameSite=Strict${isProduction ? "; Secure" : ""}` });

@@ -27,7 +27,7 @@ test("the selected calendar day uses the same highlighted state as a selected ti
   assert.match(styles, /\.documents-submit-button\s*\{[^}]*background:\s*#dff5e8/s);
 });
 
-test("success keeps documentation collapsed and confirms below its submit button", async () => {
+test("uploaded documentation confirmation replaces the collapsed toggle", async () => {
   const source = await readFile(new URL("../agenda/app.js", import.meta.url), "utf8");
   const documentsCard = source.match(
     /function renderDocumentsCard\(\)[\s\S]*?function renderTriageCard\(\)/,
@@ -37,9 +37,11 @@ test("success keeps documentation collapsed and confirms below its submit button
   assert.match(documentsCard, /Quiero enviar estudios previos/);
   assert.match(documentsCard, /state\.documentsOpen \? `\s*<div class="documents-card"/);
   assert.ok(
-    documentsCard.indexOf("documents-submit-button") <
+    documentsCard.indexOf("documents-submit-button") >
       documentsCard.indexOf("state.documentsMessage"),
   );
+  assert.match(documentsCard, /documents-confirmation" role="status"/);
+  assert.match(documentsCard, /Agregar más documentación/);
 });
 
 test("selecting a day reveals its times and calendar actions open separately", async () => {

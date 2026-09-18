@@ -103,7 +103,8 @@ test("professional appointments refresh on entry and poll every five minutes", a
                 agreement_type: "Nomina",
                 status: "confirmed",
                 google_meet_url: "https://meet.google.com/available",
-                triage_url: "https://patient-dev2.rehub.cloud/opentriage/completed-form",
+                consultation_report_url: "/api/professional/appointments/10/consultation-report",
+                consultation_status: 'completed',
                 booking_url: "https://ypf.reku.io/turnos/",
                 documents: [
                   {
@@ -221,8 +222,9 @@ test("professional appointments refresh on entry and poll every five minutes", a
   assert.match(html, /Sala profesional/);
   assert.match(html, /https:\/\/meet\.google\.com\/available/);
   assert.match(html, /target="_blank"[^>]*>Entrar a Google Meet/);
-  assert.match(html, /https:\/\/patient-dev2\.rehub\.cloud\/opentriage\/completed-form/);
-  assert.match(html, /Ver Formulario Triage/);
+  assert.match(html, /\/api\/professional\/appointments\/10\/consultation-report/);
+  assert.doesNotMatch(html, /rehub\.cloud|Formulario Triage/);
+  assert.match(html, /Ver informe PDF/);
   assert.match(html, /Documentación del turno/);
   assert.match(html, /https:\/\/imagenes\.example\.com\/estudio\/50/);
   assert.match(html, /paciente quiere comenzar el tratamiento/);

@@ -29,11 +29,21 @@ const appointment = {
 
 const manageUrl = "https://www.reku.io/turnos/#manage=private-token";
 
+test('patient mail never falls back to the internally retained ReHub URL', () => {
+  for (const template of [patientConfirmationText, patientConfirmationHtml, patientFollowupText, patientFollowupHtml]) {
+    const completed = template({ appointment: { ...appointment, bot_url: '', triage_url: 'https://rehub.example/private' }, manageUrl });
+    assert.doesNotMatch(completed, /rehub\.example|Complet[áa]r? cuestionario|completá este breve cuestionario|Si todavía no completaste/);
+    const pending = template({ appointment: { ...appointment, bot_url: 'https://ypf.reku.io/bot#appointment=example', triage_url: 'https://rehub.example/private' }, manageUrl });
+    assert.match(pending, /ypf\.reku\.io\/bot/);
+    assert.doesNotMatch(pending, /rehub\.example/);
+  }
+});
+
 test("confirmation email is the patient's no-account management access", () => {
   const withTriage = {
     ...appointment,
     payment_status: "approved",
-    triage_url: "https://patient-dev2.rehub.cloud/opentriage/example",
+    bot_url: "https://ypf.reku.io/bot#appointment=example",
   };
 
   for (const content of [
@@ -43,11 +53,11 @@ test("confirmation email is the patient's no-account management access", () => {
     assert.match(content, /Guardá este mail/i);
     assert.match(content, /no necesitás.*usuario/i);
     assert.match(content, /manage=private-token/);
-    assert.match(content, /gestionar o mover/i);
-    assert.match(content, /Agregar a mi calendario/i);
-    assert.match(content, /calendar=1/);
+    assert.match(content, /Gestionar mi turno/i);
+    assert.match(content, /Agregar a Google Calendar/i);
+    assert.match(content, /calendar\.google\.com/);
     assert.match(content, /aproximadamente 24 horas/i);
-    assert.match(content, /opentriage\/example/);
+    assert.match(content, /appointment=example/);
   }
 });
 
@@ -63,20 +73,28 @@ test("calendar buttons in patient emails request a new tab", () => {
   assert.match(html, /rel="noopener noreferrer"/);
 });
 
-test("Gmail confirmations open Google Calendar and retain the universal fallback", () => {
-  const gmailAppointment = {
-    ...appointment,
-    patient_email: "paciente@gmail.com",
-  };
-  for (const content of [
-    patientConfirmationText({ appointment: gmailAppointment, manageUrl }),
-    patientConfirmationHtml({ appointment: gmailAppointment, manageUrl }),
-  ]) {
-    assert.match(content, /Agregar a Google Calendar/i);
-    assert.match(content, /calendar\.google\.com/);
-    assert.match(content, /Usar otro calendario/i);
-    assert.match(content, /calendar=1/);
-    assert.doesNotMatch(content, /meet\.google\.com/);
+test("patient confirmations and reminders offer only Google Calendar for every email provider", () => {
+  for (const patient_email of ["paciente@gmail.com", "paciente@example.com", ""]) {
+    for (const template of [patientConfirmationText, patientConfirmationHtml, patientFollowupText, patientFollowupHtml]) {
+      const content = template({ appointment: { ...appointment, patient_email }, manageUrl });
+      assert.match(content, /Agregar a Google Calendar/i);
+      assert.match(content, /calendar\.google\.com/);
+      assert.doesNotMatch(content, /Usar otro calendario|Agregar a mi calendario|calendar=1|meet\.google\.com/);
+    }
+  }
+});
+
+test("patient email management and Google Calendar buttons share one presentation row", () => {
+  for (const template of [patientConfirmationHtml, patientFollowupHtml]) {
+    const html = template({ appointment, manageUrl });
+    const actionTable = html.match(/<table role="presentation"[^>]*>([\s\S]*?)<\/table>/)?.[1];
+    assert.ok(actionTable);
+    assert.equal((actionTable.match(/<tr>/g) || []).length, 1);
+    assert.equal((actionTable.match(/<td\b/g) || []).length, 2);
+    assert.match(actionTable, /Gestionar mi turno<\/a><\/td>\s*<td[^>]*><a[^>]*target="_blank"[^>]*>[\s\S]*Agregar a Google Calendar<\/a><\/td>/);
+    assert.doesNotMatch(actionTable, /<br/);
+    const withoutAccess = template({ appointment, manageUrl: "" });
+    assert.doesNotMatch(withoutAccess, /Gestionar mi turno|Agregar a Google Calendar/);
   }
 });
 
@@ -107,20 +125,19 @@ test("patient confirmation places protected video access after the questionnaire
   const withMeet = {
     ...appointment,
     google_meet_url: "https://meet.google.com/private-raw-url",
-    triage_url: "https://patient-dev2.rehub.cloud/opentriage/confirmation-order",
+    bot_url: "https://ypf.reku.io/bot#appointment=confirmation-order",
   };
   const text = patientConfirmationText({ appointment: withMeet, manageUrl });
   const html = patientConfirmationHtml({ appointment: withMeet, manageUrl });
 
-  assert.ok(text.indexOf("opentriage/confirmation-order") < text.indexOf("Ingresar a la videollamada"));
+  assert.ok(text.indexOf("appointment=confirmation-order") < text.indexOf("Ingresar a la videollamada"));
   assert.ok(html.indexOf("Cuestionario previo") < html.indexOf("Ingresar a la videollamada"));
   assert.ok(html.indexOf("Ingresar a la videollamada") < html.indexOf("Por seguridad"));
   assert.match(html, /<h2[^>]*>Ingresar a la videollamada<\/h2>/);
   assert.match(html, /<a[^>]*>Ingresar<\/a>/);
-  assert.match(html, />Gestionar o mover mi turno<\/a>/);
+  assert.match(html, />Gestionar mi turno<\/a>/);
   assert.match(html, /Confirmamos tu reserva\./);
   assert.doesNotMatch(html, /Confirmamos tu reserva en Reku/);
-  assert.doesNotMatch(html, /background:#18213f[^>]*>Gestionar o mover mi turno/);
 });
 
 test("professional confirmation names the agreement and the reminder opens the preparation room", () => {
@@ -172,7 +189,7 @@ test("pending payment email allows payment or cancellation without an account", 
 test("24-hour reminder keeps management and triage access", () => {
   const withTriage = {
     ...appointment,
-    triage_url: "https://patient-dev2.rehub.cloud/opentriage/reminder",
+    bot_url: "https://ypf.reku.io/bot#appointment=reminder",
   };
 
   for (const content of [
@@ -181,9 +198,9 @@ test("24-hour reminder keeps management and triage access", () => {
   ]) {
     assert.match(content, /aproximadamente 24 horas/i);
     assert.match(content, /manage=private-token/);
-    assert.match(content, /opentriage\/reminder/);
-    assert.match(content, /Agregar a mi calendario/i);
-    assert.match(content, /calendar=1/);
+    assert.match(content, /appointment=reminder/);
+    assert.match(content, /Agregar a Google Calendar/i);
+    assert.match(content, /calendar\.google\.com/);
   }
 });
 
@@ -191,7 +208,7 @@ test("patient reminder leaves management and calendar actions at the end", () =>
   const reminder = {
     ...appointment,
     patient_email: "paciente@gmail.com",
-    triage_url: "https://patient-dev2.rehub.cloud/opentriage/reminder-order",
+    bot_url: "https://ypf.reku.io/bot#appointment=reminder-order",
     google_meet_url: "https://meet.google.com/private-reminder-url",
   };
   const html = patientFollowupHtml({ appointment: reminder, manageUrl });
@@ -200,7 +217,7 @@ test("patient reminder leaves management and calendar actions at the end", () =>
   assert.ok(html.indexOf("Cuestionario previo") < html.indexOf("Ingresar a la videollamada"));
   assert.ok(html.indexOf("Ingresar a la videollamada") < html.indexOf("Gestionar mi turno"));
   assert.ok(html.indexOf("Gestionar mi turno") < html.indexOf("Agregar a Google Calendar"));
-  assert.ok(text.indexOf("opentriage/reminder-order") < text.indexOf("Ingresar a la videollamada"));
+  assert.ok(text.indexOf("appointment=reminder-order") < text.indexOf("Ingresar a la videollamada"));
   assert.ok(text.indexOf("Ingresar a la videollamada") < text.indexOf("Gestionar mi turno"));
   assert.ok(text.indexOf("Gestionar mi turno") < text.indexOf("Agregar a Google Calendar"));
 });
@@ -228,7 +245,7 @@ test("patient emails gate Meet behind Reku and never expose Google's URL", () =>
 test("patient emails include the triage URL when it was assigned", () => {
   const withTriage = {
     ...appointment,
-    triage_url: "https://patient-dev2.rehub.cloud/opentriage/example",
+    bot_url: "https://ypf.reku.io/bot#appointment=example",
   };
 
   for (const content of [
@@ -237,7 +254,7 @@ test("patient emails include the triage URL when it was assigned", () => {
     patientFollowupText({ appointment: withTriage }),
     patientFollowupHtml({ appointment: withTriage }),
   ]) {
-    assert.match(content, /patient-dev2\.rehub\.cloud\/opentriage\/example/);
+    assert.match(content, /ypf\.reku\.io\/bot#appointment=example/);
     assert.match(content, /cuestionario/i);
   }
 });
@@ -290,7 +307,7 @@ test("manual triage reminders include the assigned questionnaire and safe fallba
   const withTriage = {
     ...appointment,
     patient_name: "Paciente <Reku>",
-    triage_url: "https://patient-dev2.rehub.cloud/opentriage/reminder-example",
+    bot_url: "https://ypf.reku.io/bot#appointment=reminder-example",
   };
 
   const text = patientTriageReminderText({ appointment: withTriage });

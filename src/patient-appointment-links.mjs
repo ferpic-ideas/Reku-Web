@@ -3,13 +3,15 @@ import { config } from "./config.mjs";
 import { one, query, tx } from "./db.mjs";
 import { parseCookies } from "./http.mjs";
 import { hashToken } from "./security.mjs";
+import { appointmentBotUrl } from './consultation-links.mjs';
 
 export const createPatientAppointmentAccessLink = async ({
   appointmentId,
   graceDays = config.patientAppointmentLinkGraceDays,
+  execute = query,
 } = {}) => {
   const token = randomBytes(32).toString("base64url");
-  const result = await query(
+  const result = await execute(
     `
       INSERT INTO patient_appointment_access_links
         (token_hash, appointment_id, expires_at)
@@ -23,7 +25,11 @@ export const createPatientAppointmentAccessLink = async ({
         )
       FROM appointments appointment
       WHERE appointment.id = $2
-      RETURNING id, expires_at
+      RETURNING id, expires_at,
+        (SELECT COALESCE(NULLIF(agreement.subdomain_prefix, ''), agreement.slug, '')
+         FROM appointments linked_appointment
+         LEFT JOIN agreements agreement ON agreement.id = linked_appointment.agreement_id
+         WHERE linked_appointment.id = patient_appointment_access_links.appointment_id) AS agreement_prefix
     `,
     [
       hashToken(token),
@@ -37,13 +43,13 @@ export const createPatientAppointmentAccessLink = async ({
     error.statusCode = 404;
     throw error;
   }
-  await query(
+  await execute(
     `
       DELETE FROM patient_appointment_sessions
       WHERE expires_at < NOW() - INTERVAL '30 days'
     `,
   );
-  await query(
+  await execute(
     `
       DELETE FROM patient_appointment_access_links
       WHERE expires_at < NOW() - INTERVAL '30 days'
@@ -52,6 +58,7 @@ export const createPatientAppointmentAccessLink = async ({
   return {
     id: Number(result.rows[0].id),
     token,
+    bot_url: appointmentBotUrl(result.rows[0].agreement_prefix || '', token, config.appPublicUrl),
     expires_at: result.rows[0].expires_at,
     url: `${config.appPublicUrl}/turnos/#manage=${encodeURIComponent(token)}`,
     meet_url: `${config.appPublicUrl}/turnos/?view=videollamada#manage=${encodeURIComponent(token)}`,
