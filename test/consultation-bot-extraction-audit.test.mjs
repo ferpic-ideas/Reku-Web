@@ -26,7 +26,9 @@ test("extraction is intake-only and discards legacy triage fields", async () => 
 
 test("global facts require literal patient evidence, never assistant suggestions", async () => {
   const result = await analyzeConsultation([{ role: "user", text: "Me molesta un tobillo" }, { role: "assistant", text: "¿Te operaron? ¿Querés correr?" }], {
-    settings, fetchImpl: async () => response({ ...empty(), priorCare: "Cirugía", goal: "Correr", globalEvidence: { priorCare: "operaron", goal: "correr" } }),
+    settings, fetchImpl: async (_url, options) => response(JSON.parse(options.body).text.format.name === 'reku_citation_repair'
+      ? { repairs: [{ complaintIndex: null, field: 'priorCare', quote: 'operaron' }, { complaintIndex: null, field: 'goal', quote: 'correr' }] }
+      : { ...empty(), priorCare: "Cirugía", goal: "Correr", globalEvidence: { priorCare: "operaron", goal: "correr" } }),
   });
   assert.equal(result.priorCare, null);
   assert.equal(result.goal, null);
@@ -42,7 +44,10 @@ test("global evidence repairs once inside the same deadline and preserves the fa
     settings, fetchImpl: async (_url, options) => {
       signals.push(options.signal);
       const payload = JSON.parse(options.body);
-      if (signals.length === 2) assert.match(payload.input[0].content, /"field":"priorCare"/);
+      if (signals.length === 2) {
+        assert.match(payload.input[0].content, /"field":"priorCare"/);
+        return response({ repairs: [{ complaintIndex: null, field: 'priorCare', quote: 'Hice fisioterapia' }] });
+      }
       return response({ ...empty(), priorCare: "Fisioterapia", goal: "Volver a bailar",
         globalEvidence: { priorCare: signals.length === 1 ? "realizó fisioterapia" : "Hice fisioterapia", goal: "quiero volver a bailar" } });
     },
@@ -92,6 +97,41 @@ test("recognized muscles, joints and regions use the same detail criterion and s
     assert.equal(nextConsultationStep(result).field, "side");
     assert.equal(result.complaints[0].location, location);
   }
+});
+
+test('citation repair preserves anatomical certainty and all facts outside the invalid citation', async () => {
+  const text = 'Me torcí el tobillo jugando al fútbol, el del pie derecho, fue hace 15 días. Ahora me cuesta pisar, me pincha, me duele, una escala de 0 al 10 me duele 8, me dificulta bajar escaleras, etcétera.';
+  const item = { id: null, reason: 'Torcedura de tobillo', location: 'tobillo', locationClear: true,
+    sideRequired: true, side: 'derecho', onset: 'hace 15 días', mechanism: 'Torcedura jugando al fútbol', mechanismClear: true,
+    pain: 8, painNote: null, limitations: 'Me cuesta pisar y bajar escaleras',
+    evidence: { reason: 'Me torcí', location: 'tobillo', side: 'pie derecho', onset: 'hace 15 días', mechanism: 'jugando al fútbol', pain: 'me duele 8', limitations: 'me cuesta pisar y bajar escaleras' } };
+  let calls = 0;
+  const result = await analyzeConsultation([{ role: 'user', text }], { settings, fetchImpl: async (_url, options) => {
+    calls++;
+    const request = JSON.parse(options.body);
+    if (calls === 1) return response({ ...empty(), complaints: [item] });
+    assert.equal(request.text.format.name, 'reku_citation_repair');
+    assert.deepEqual(JSON.parse(request.input[0].content).invalidEvidence.map(row => row.field), ['limitations']);
+    return response({ repairs: [
+      { complaintIndex: 0, field: 'limitations', quote: text.slice(text.indexOf('me cuesta')) },
+      // Unrequested changes must be ignored, even when the citation is literal.
+      { complaintIndex: 0, field: 'location', quote: 'pie derecho' },
+    ] });
+  } });
+  assert.equal(calls, 2);
+  assert.equal(result.complaints[0].location, 'tobillo');
+  assert.equal(result.complaints[0].evidence.location, 'tobillo');
+  assert.equal(result.complaints[0].locationClear, true);
+  assert.equal(result.complaints[0].limitations, item.limitations);
+  assert.equal(result.lastAnswer.status, 'unrelated');
+  assert.equal(nextConsultationStep(result).complete, true);
+});
+
+test('missing reason does not ask again for a known location', () => {
+  const data = { complaints: [{ id: 'c1', reason: null, location: 'región conocida', locationClear: true }] };
+  const next = nextConsultationStep(data);
+  assert.equal(next.field, 'reason');
+  assert.doesNotMatch(next.text, /zona|parte exacta/);
 });
 
 test("narrative generation and review share one deadline and keep correction metadata", async t => {

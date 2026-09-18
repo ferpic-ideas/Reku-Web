@@ -167,7 +167,7 @@ test("professional patient visibility includes confirmed past and future appoint
     "utf8",
   );
   const relationshipScope = source.match(
-    /AND EXISTS \(\s*SELECT 1\s*FROM appointments related_appointment[\s\S]*?\n\s*\)/,
+    /WHERE EXISTS \(\s*SELECT 1\s*FROM appointments related_appointment[\s\S]*?\n\s*\)/,
   )?.[0] || "";
   assert.match(relationshipScope, /related_appointment\.status = 'confirmed'/);
   assert.doesNotMatch(relationshipScope, /appointment_date/);

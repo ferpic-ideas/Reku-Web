@@ -10,6 +10,31 @@ const state = (items = [complaint()]) => ({ complaints: items, priorCare: null, 
 const msgs = text => [{ role: "user", text }];
 const contextText = "Ayer sentí un tirón en el muslo derecho jugando al fútbol, me duele 4.";
 
+test('an answered location question closes localization instead of requesting more detail', async () => {
+  for (const location of ['tobillo', 'aductor', 'zona lumbar']) {
+    const previous = state([complaint('c1', { location: null, locationClear: false })]);
+    const text = `en el ${location}`;
+    const extracted = { ...state([]), lastAnswer: { status: 'answered', value: location, evidence: text } };
+    const turn = await advanceConsultation({ data: previous, version: 1, lastQuestion: { field: 'location', complaintId: 'c1' } }, msgs(text), {
+      analyze: async () => extracted, chooseFollowup: async () => null,
+    });
+    assert.equal(turn.data.complaints[0].location, location);
+    assert.equal(turn.data.complaints[0].locationClear, true);
+    assert.equal(turn.next.complete, true);
+  }
+});
+
+test('an unclear location answer still requests clarification instead of inventing a location', async () => {
+  const previous = state([complaint('c1', { location: null, locationClear: false })]);
+  const turn = await advanceConsultation({ data: previous, version: 1, lastQuestion: { field: 'location', complaintId: 'c1', text: '¿En qué zona?' } }, msgs('por ahí'), {
+    analyze: async () => ({ ...state([]), lastAnswer: { status: 'unclear', value: null, evidence: 'por ahí' } }),
+    chooseFollowup: async () => null,
+  });
+  assert.equal(turn.data.complaints[0].location, null);
+  assert.equal(turn.next.field, 'location');
+  assert.equal(turn.next.clarification, true);
+});
+
 test("verified facts survive omitted fields, omitted complaints and reordered extraction", () => {
   const previous = state([complaint(), complaint("c2", { location: "espalda baja", sideRequired: false })]);
   const extracted = state([complaint("c2", { onset: null }), complaint("c1", { onset: null, mechanism: null })]);

@@ -154,6 +154,7 @@ test("professional link shows agreement and Meet only inside the access window",
   assert.match(html, /Si el paciente quiere comenzar el tratamiento/);
   assert.match(html, /data-action="copy-booking-url"/);
   assert.doesNotMatch(html, /appointment-featured|Ver todos los turnos/);
+  assert.match(html, /href="\/profesional\/">Ingresar a mi portal<\/a>/);
   assert.ok(html.indexOf('Paciente YPF') < html.indexOf('Paciente futuro'));
   assert.ok(html.indexOf('Paciente futuro') < html.indexOf('Paciente con cuestionario en curso'));
   assert.ok(html.indexOf('Paciente con cuestionario en curso') < html.indexOf('Paciente del día siguiente'));
@@ -178,6 +179,8 @@ test('a professional appointment link shows only the requested appointment and l
     context.page.state.appointments = appointments;
     context.page.render();
     assert.match(app.innerHTML, /<header[\s\S]*href="\/profesional-turnos\/">Ver todos los turnos<\/a>[\s\S]*<\/header>/);
+    assert.match(app.innerHTML, /<nav class="header-actions"[^>]*>[\s\S]*Ver todos los turnos<\/a>[\s\S]*href="\/profesional\/">Ingresar a mi portal<\/a>[\s\S]*<\/nav>/);
+    assert.doesNotMatch(app.innerHTML, /Turno seleccionado|featured-badge/);
     assert.doesNotMatch(app.innerHTML, /token=/);
     assert.equal((app.innerHTML.match(/<article /g) || []).length, selection === 999 ? 0 : 1);
     for (const appointment of appointments) {
@@ -207,7 +210,7 @@ test('professional room labels documentation by purpose and explains when the me
     const html = context.renderAppointment({ id: 42, documents });
     assert.ok(html.includes(`<strong>${title}</strong>`));
     assert.equal(html.includes('El paciente aún no envió la orden médica.'), missingOrder);
-    assert.match(html, /Turno seleccionado/);
+    assert.doesNotMatch(html, /Turno seleccionado|featured-badge/);
     for (const item of documents) assert.ok(html.includes(`href="${item.url}"`));
   }
   assert.doesNotMatch(context.renderAppointment({ id: 43 }), /Turno seleccionado/);
@@ -239,7 +242,7 @@ test('past appointment badges follow the end time and update without a Meet link
   now += 1;
   timers[0].callback();
   assert.match(app.innerHTML, /elapsed-badge">Horario finalizado/);
-  assert.match(app.innerHTML, /Turno seleccionado/);
+  assert.doesNotMatch(app.innerHTML, /Turno seleccionado|featured-badge/);
   assert.match(app.innerHTML, /Ver informe PDF/);
   assert.doesNotMatch(app.innerHTML, /Meet disponible 20 minutos antes|Entrar a Google Meet/);
   assert.doesNotMatch(page.renderAppointment({ ...appointment, end_time: '12:30' }), /Horario finalizado/);

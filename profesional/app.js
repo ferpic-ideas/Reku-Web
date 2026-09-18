@@ -38,6 +38,7 @@
     appointments: [],
     appointmentsRefreshing: false,
     appointmentSearch: '',
+    appointmentScope: 'upcoming',
     patients: [],
     availability: [],
     blocks: [],
@@ -450,6 +451,8 @@
     render();
     if (moduleId === 'appointments') {
       await refreshAppointments({ showError: true });
+    } else if (moduleId === 'patients') {
+      await refreshPatients();
     }
   }
 
@@ -702,8 +705,13 @@
 
   function upcomingAppointments() {
     return state.appointments
-      .filter((item) => item.date >= today() && item.status === 'confirmed')
+      .filter(isUpcomingAppointment)
       .sort((a, b) => `${a.date}${a.start_time}`.localeCompare(`${b.date}${b.start_time}`));
+  }
+
+  function isUpcomingAppointment(item) {
+    const endsAt = appointmentTime(item, 'end_time');
+    return item.status === 'confirmed' && endsAt !== null && endsAt >= Date.now();
   }
 
   function renderMeetAccess(appointment) {
@@ -924,9 +932,12 @@
   function renderAppointments() {
     const search = normalizeSearchText(state.appointmentSearch);
     const items = state.appointments
+      .filter((item) => state.appointmentScope === 'all' || isUpcomingAppointment(item))
       .filter((item) => !search || normalizeSearchText(item.patient_name).includes(search))
       .sort((a, b) =>
-        `${b.date}${b.start_time}`.localeCompare(`${a.date}${a.start_time}`),
+        state.appointmentScope === 'all'
+          ? `${b.date}${b.start_time}`.localeCompare(`${a.date}${a.start_time}`)
+          : `${a.date}${a.start_time}`.localeCompare(`${b.date}${b.start_time}`),
       );
     return `
       ${pageHeader('Turnos', 'Próximos e históricos vinculados a tu ficha profesional.')}
@@ -934,6 +945,10 @@
         <div class="panel-header">
           <h2>Agenda</h2>
           <div class="appointments-panel-tools">
+            <div class="appointment-scope" role="group" aria-label="Filtrar turnos">
+              <button type="button" data-appointment-scope="upcoming" aria-pressed="${state.appointmentScope === 'upcoming'}">Próximos</button>
+              <button type="button" data-appointment-scope="all" aria-pressed="${state.appointmentScope === 'all'}">Todos</button>
+            </div>
             <span class="appointments-refresh-status">
               ${state.appointmentsRefreshing ? 'Actualizando…' : 'Actualización automática cada 5 min'}
             </span>
@@ -994,7 +1009,7 @@
   function selectedPatientDetails() {
     if (state.selectedPatientId !== null) {
       return state.patients.find(
-        (patient) => Number(patient.id) === Number(state.selectedPatientId),
+        (patient) => (patient.directory_key || String(patient.id)) === String(state.selectedPatientId),
       );
     }
     if (state.selectedAppointmentId === null) return null;
@@ -1283,7 +1298,7 @@
             ? `
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Paciente</th><th>Contacto</th><th>Próximo turno</th><th>Práctica</th><th>Triaje</th><th>Origen</th><th></th></tr></thead>
+                  <thead><tr><th>Paciente</th><th>Contacto</th><th>Próximo turno</th><th>Práctica</th><th>Origen</th><th></th></tr></thead>
                   <tbody>
                     ${state.patients
                       .map(
@@ -1297,10 +1312,9 @@
                             </td>
                             <td>${patient.next_appointment ? `<strong>${escapeHtml(formatDate(patient.next_appointment.date))}</strong><br />${escapeHtml(patient.next_appointment.start_time)}–${escapeHtml(patient.next_appointment.end_time)}` : 'Sin próximo turno'}</td>
                             <td>${escapeHtml(patient.practice || '—')}</td>
-                            <td><span class="patient-status ${escapeHtml(patient.triage_status)}">${escapeHtml(triageLabel(patient.consultation_status || patient.triage_status))}</span></td>
                             <td>${escapeHtml(patientSourceLabel(patient))}</td>
                             <td>
-                              <button class="appointment-icon-button" data-action="patient-details" data-id="${patient.id}" type="button" aria-label="Ver información del paciente" title="Ver información del paciente">
+                              <button class="appointment-icon-button" data-action="patient-details" data-id="${escapeHtml(patient.directory_key || String(patient.id))}" type="button" aria-label="Ver información del paciente" title="Ver información del paciente">
                                 ${eyeIcon}
                               </button>
                             </td>
@@ -1535,6 +1549,13 @@
   }
 
   function bindEvents() {
+    app.querySelectorAll('[data-appointment-scope]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (!['upcoming', 'all'].includes(button.dataset.appointmentScope)) return;
+        state.appointmentScope = button.dataset.appointmentScope;
+        render();
+      });
+    });
     app.querySelectorAll('[data-module]').forEach((button) => {
       button.addEventListener('click', () => activateModule(button.dataset.module));
     });
@@ -1633,7 +1654,7 @@
     });
     app.querySelectorAll('[data-action="patient-details"]').forEach((button) => {
       button.addEventListener('click', () => {
-        state.selectedPatientId = Number(button.dataset.id);
+        state.selectedPatientId = button.dataset.id;
         state.selectedAppointmentId = null;
         state.waitingAppointmentId = null;
         state.consultationRoomOpen = false;
@@ -1943,6 +1964,10 @@
   async function handlePatientSearch(event) {
     event.preventDefault();
     state.patientSearch = event.currentTarget.q.value.trim();
+    await refreshPatients();
+  }
+
+  async function refreshPatients() {
     try {
       const payload = await api(
         `/api/professional/patients?q=${encodeURIComponent(state.patientSearch)}`,

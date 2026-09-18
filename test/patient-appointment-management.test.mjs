@@ -139,7 +139,11 @@ test("agenda exposes the allowed patient management actions", async () => {
   )?.[0] || "";
   assert.match(source, /Guardá el mail que recibiste/);
   assert.match(source, /data-action="cancel-management-appointment"/);
-  assert.match(managementView, /Completar cuestionario previo/);
+  assert.match(managementView, />Completar cuestionario<\/a>/);
+  assert.doesNotMatch(managementView, /Completar cuestionario previo/);
+  assert.match(managementView, /class="secondary-button management-reschedule-button"/);
+  assert.match(styles, /\.management-actions \.management-reschedule-button\s*\{[^}]*background:\s*#fff1ef/s);
+  assert.match(styles, /\.management-actions \.secondary-button\s*\{[^}]*font-size:\s*15px/s);
   assert.match(managementView, /data-action="toggle-management-documents"/);
   assert.match(managementView, /class="secondary-button management-documents-toggle"/);
   assert.match(managementView, /aria-expanded="\$\{management\.documentsOpen \? 'true' : 'false'\}"/);

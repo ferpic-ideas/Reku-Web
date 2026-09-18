@@ -1736,7 +1736,7 @@
           <div class="management-actions">
             ${
               appointment.status === 'confirmed'
-                ? `${appointment.triage_url ? `<a class="primary-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Completar cuestionario previo</a>` : ''}
+                ? `${appointment.triage_url ? `<a class="primary-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Completar cuestionario</a>` : ''}
                    <button
                      type="button"
                      class="secondary-button management-documents-toggle"
@@ -1751,7 +1751,7 @@
                    </button>`
                 : ''
             }
-            ${capabilities.can_reschedule ? `<button type="button" class="secondary-button" data-action="open-management-reschedule" ${management.submitting || management.rescheduling ? 'disabled' : ''}>Mover turno</button>` : ''}
+            ${capabilities.can_reschedule ? `<button type="button" class="secondary-button management-reschedule-button" data-action="open-management-reschedule" ${management.submitting || management.rescheduling ? 'disabled' : ''}>Mover turno</button>` : ''}
             ${appointment.payment_url && appointment.status === 'pending_payment' ? `<a class="primary-button" href="${escapeHtml(appointment.payment_url)}">Completar pago</a>` : ''}
             ${capabilities.can_cancel ? `<button type="button" class="danger-outline-button" data-action="cancel-management-appointment" ${management.submitting ? 'disabled' : ''}>Cancelar reserva</button>` : ''}
           </div>
@@ -1830,7 +1830,7 @@
           ${management.meetLobby.error ? `<div class="document-status error">${escapeHtml(management.meetLobby.error)} La pantalla volverá a intentarlo automáticamente.</div>` : ''}
           ${renderManagementSentDocuments()}
           <div class="management-actions meet-lobby-actions">
-            ${appointment.triage_url ? `<a class="primary-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Completar cuestionario previo</a>` : ''}
+            ${appointment.triage_url ? `<a class="primary-button" href="${escapeHtml(appointment.triage_url)}" target="_blank" rel="noopener noreferrer">Completar cuestionario</a>` : ''}
             <button
               type="button"
               class="secondary-button management-documents-toggle"

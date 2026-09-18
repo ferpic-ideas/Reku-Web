@@ -91,7 +91,8 @@ test("extraction rejects fields without literal patient evidence and disables pr
     settings: { apiKey: "test", model: "test" },
     fetchImpl: async (_url, options) => {
       request = JSON.parse(options.body);
-      return { ok: true, json: async () => ({ status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify(data) }] }] }) };
+      const output = request.text.format.name === 'reku_citation_repair' ? { repairs: [] } : data;
+      return { ok: true, json: async () => ({ status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify(output) }] }] }) };
     },
   });
   assert.equal(request.store, false);
@@ -123,11 +124,11 @@ test("evidence repair identifies the exact invalid field instead of making the p
     settings: { apiKey: "test", model: "test" }, fetchImpl: async (_url, options) => {
       const request = JSON.parse(options.body);
       requests.push(request);
-      const output = structuredClone(data);
+      let output = structuredClone(data);
       if (requests.length === 2) {
         assert.match(request.input[0].content, /\"field\":\"reason\",\"invalidQuote\":\"dolor\"/);
         assert.match(request.instructions, /evidence.reason/);
-        output.complaints[0].evidence.reason = "Me duele";
+        output = { repairs: [{ complaintIndex: 0, field: 'reason', quote: 'Me duele' }] };
       }
       return { ok: true, json: async () => ({ status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify(output) }] }] }) };
     },
@@ -146,7 +147,8 @@ test("a paraphrased side citation is repaired without asking the patient again",
     settings: { apiKey: "test", model: "test" },
     fetchImpl: async () => {
       calls++;
-      return { ok: true, json: async () => ({ status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify(data) }] }] }) };
+      const output = calls === 2 ? { repairs: [] } : data;
+      return { ok: true, json: async () => ({ status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify(output) }] }] }) };
     },
   });
   assert.equal(calls, 2);

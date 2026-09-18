@@ -28,3 +28,5 @@ La recuperación de contraseña verifica además:
 - límites persistentes por IP con `Retry-After`.
 
 GitHub Actions levanta PostgreSQL 16 y ejecuta `npm run check:ci` en cada push a `main` y en cada pull request. Ninguna prueba usa pacientes, pagos ni credenciales reales.
+
+`integration/professional-directory.test.mjs` verifica la consulta del directorio profesional en un esquema PostgreSQL temporal: turnos sin ficha, fichas inactivas sin reactivación, próximo turno, agrupación por identidad/email normalizado, fechas, búsqueda e aislamiento entre profesionales. Se ejecuta con `TEST_DATABASE_URL`; el esquema sintético se elimina al finalizar.

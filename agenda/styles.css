@@ -1103,6 +1103,22 @@ button {
   flex: 1 1 190px;
 }
 
+.management-actions .primary-button,
+.management-actions .secondary-button {
+  flex-basis: 220px;
+  font-size: 15px;
+}
+
+.management-actions .management-reschedule-button {
+  background: #fff1ef;
+  border: 1px solid #f3aaa4;
+}
+
+.management-actions .management-reschedule-button:not(:disabled):hover,
+.management-actions .management-reschedule-button:not(:disabled):focus-visible {
+  background: #ffe1dd;
+}
+
 .management-documents-panel {
   display: grid;
   gap: 14px;

@@ -699,18 +699,49 @@ const listPatients = async (url, response, account) => {
   const pattern = `%${search}%`;
   const result = await query(
     `
+      WITH directory_patients AS (
+        SELECT id, id AS source_patient_id, NULL::bigint AS directory_appointment_id,
+          full_name, email, phone, email_normalized
+        FROM patients WHERE active = TRUE
+        UNION ALL
+        (
+          SELECT DISTINCT ON (COALESCE('patient:' || COALESCE(appointment.patient_id, known.id),
+            'email:' || NULLIF(lower(trim(appointment.patient_email)), ''), 'appointment:' || appointment.id))
+            NULL::bigint AS id, COALESCE(appointment.patient_id, known.id) AS source_patient_id,
+            appointment.id AS directory_appointment_id, appointment.patient_name AS full_name,
+            appointment.patient_email AS email, appointment.patient_phone AS phone,
+            lower(trim(appointment.patient_email)) AS email_normalized
+          FROM appointments appointment
+          LEFT JOIN patients known ON appointment.patient_id IS NULL
+            AND known.email_normalized = lower(trim(appointment.patient_email))
+          WHERE appointment.professional_id = $3 AND appointment.status = 'confirmed'
+            AND NOT EXISTS (
+              SELECT 1 FROM patients canonical WHERE canonical.active = TRUE
+                AND (canonical.id = appointment.patient_id OR (appointment.patient_id IS NULL
+                  AND canonical.email_normalized = lower(trim(appointment.patient_email))))
+            )
+          ORDER BY COALESCE('patient:' || COALESCE(appointment.patient_id, known.id),
+            'email:' || NULLIF(lower(trim(appointment.patient_email)), ''), 'appointment:' || appointment.id),
+            appointment.appointment_date DESC, appointment.start_time DESC, appointment.id DESC
+        )
+      )
       SELECT
         patient.id,
+        patient.directory_appointment_id,
         patient.full_name,
         patient.email,
         patient.phone,
         (SELECT jsonb_agg(jsonb_build_object('appointment_id', report_appointment.id, 'date', report_appointment.appointment_date)
             ORDER BY report_appointment.appointment_date DESC, report_appointment.id DESC)
          FROM appointments report_appointment JOIN consultation_bot_usage report_usage ON report_usage.appointment_id = report_appointment.id
-         WHERE report_appointment.patient_id = patient.id AND report_appointment.professional_id = $3
+         WHERE (report_appointment.patient_id = patient.source_patient_id
+           OR report_appointment.id = patient.directory_appointment_id
+           OR (report_appointment.patient_id IS NULL AND patient.email_normalized <> ''
+             AND lower(trim(report_appointment.patient_email)) = patient.email_normalized))
+           AND report_appointment.professional_id = $3
            AND report_usage.completed_at IS NOT NULL AND report_usage.report_encrypted IS NOT NULL) AS consultation_reports,
         next_appointment.id AS next_appointment_id,
-        next_appointment.appointment_date AS next_appointment_date,
+        to_char(next_appointment.appointment_date, 'YYYY-MM-DD') AS next_appointment_date,
         next_appointment.start_time AS next_start_time,
         next_appointment.end_time AS next_end_time,
         next_appointment.service_name AS next_service_name,
@@ -726,9 +757,9 @@ const listPatients = async (url, response, account) => {
         COALESCE(next_appointment.agreement_type, latest_appointment.agreement_type, '') AS source_type,
         COALESCE(next_appointment.payment_status, latest_appointment.payment_status, '') AS payment_status,
         COALESCE(next_appointment.amount, latest_appointment.amount, 0) AS amount,
-        latest_appointment.appointment_date AS latest_appointment_date,
+        to_char(latest_appointment.appointment_date, 'YYYY-MM-DD') AS latest_appointment_date,
         latest_appointment.service_name AS latest_service_name
-      FROM patients patient
+      FROM directory_patients patient
       LEFT JOIN LATERAL (
         SELECT
           appointment.id,
@@ -775,11 +806,14 @@ const listPatients = async (url, response, account) => {
          AND agreement.deleted_at IS NULL
         WHERE appointment.professional_id = $3
           AND appointment.status = 'confirmed'
-          AND appointment.appointment_date >= CURRENT_DATE
+          AND (appointment.appointment_date + appointment.end_time)
+            AT TIME ZONE 'America/Argentina/Buenos_Aires' >= NOW()
           AND (
-            appointment.patient_id = patient.id
+            appointment.patient_id = patient.source_patient_id
+            OR appointment.id = patient.directory_appointment_id
             OR (
               appointment.patient_id IS NULL
+              AND patient.email_normalized <> ''
               AND lower(trim(appointment.patient_email)) = patient.email_normalized
             )
           )
@@ -798,25 +832,28 @@ const listPatients = async (url, response, account) => {
         INNER JOIN services service ON service.id = appointment.service_id
         WHERE appointment.professional_id = $3
           AND (
-            appointment.patient_id = patient.id
+            appointment.patient_id = patient.source_patient_id
+            OR appointment.id = patient.directory_appointment_id
             OR (
               appointment.patient_id IS NULL
+              AND patient.email_normalized <> ''
               AND lower(trim(appointment.patient_email)) = patient.email_normalized
             )
           )
         ORDER BY appointment.appointment_date DESC, appointment.start_time DESC
         LIMIT 1
       ) latest_appointment ON TRUE
-      WHERE patient.active = TRUE
-        AND EXISTS (
+      WHERE EXISTS (
           SELECT 1
           FROM appointments related_appointment
           WHERE related_appointment.professional_id = $3
             AND related_appointment.status = 'confirmed'
             AND (
-              related_appointment.patient_id = patient.id
+              related_appointment.patient_id = patient.source_patient_id
+              OR related_appointment.id = patient.directory_appointment_id
               OR (
                 related_appointment.patient_id IS NULL
+                AND patient.email_normalized <> ''
                 AND lower(trim(related_appointment.patient_email)) = patient.email_normalized
               )
             )
@@ -842,7 +879,8 @@ const listPatients = async (url, response, account) => {
   });
   sendJson(response, 200, {
     patients: result.rows.map((row) => ({
-      id: Number(row.id),
+      id: row.id === null ? null : Number(row.id),
+      directory_key: row.id === null ? `appointment:${row.directory_appointment_id}` : `patient:${row.id}`,
       name: row.full_name || "",
       email: row.email || "",
       phone: row.phone || "",

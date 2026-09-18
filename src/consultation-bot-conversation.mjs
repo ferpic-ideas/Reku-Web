@@ -112,7 +112,7 @@ export function mergeConsultationData(previous, extracted, latestText, lastQuest
       const value = unknownMechanism(answer.value) && !expressesUncertainty(answer.evidence) ? answer.evidence : answer.value;
       if (!currentMechanisms.has(target.id) || (unknownMechanism(target.mechanism) && !unknownMechanism(value))) target.mechanism = value.slice(0, 1000);
       target.mechanismClear = true;
-    } else if (lastQuestion.field === "detail") {
+    } else if (lastQuestion.field === "detail" || field === "location") {
       if (unknownMechanism(answer.value) || expressesUncertainty(answer.evidence)) {
         target.locationNote = answer.value.slice(0, 1000);
       } else if (!currentLocations.has(target.id)) {
@@ -126,10 +126,9 @@ export function mergeConsultationData(previous, extracted, latestText, lastQuest
       target.locationClear = true;
     } else {
       target[field] = answer.value.slice(0, 1000);
-      if (lastQuestion.field === "detail") target.locationClear = true;
     }
     if (!(field === "mechanism" && currentMechanisms.has(target.id))
-      && !(lastQuestion.field === "detail" && (currentLocations.has(target.id) || target.locationNote))) {
+      && !(field === "location" && (currentLocations.has(target.id) || target.locationNote))) {
       target.evidence = { ...target.evidence, [field]: answer.evidence };
     }
   }

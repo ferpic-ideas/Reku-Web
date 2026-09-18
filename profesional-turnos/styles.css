@@ -48,8 +48,16 @@ a {
   margin-bottom: 22px;
 }
 
-.all-appointments-link {
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
   margin-left: auto;
+}
+
+.all-appointments-link,
+.portal-link {
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -64,9 +72,20 @@ a {
   background: #eeeaff;
 }
 
-.all-appointments-link:focus-visible {
+.all-appointments-link:focus-visible,
+.portal-link:focus-visible {
   outline: 2px solid #5132d7;
   outline-offset: 3px;
+}
+
+.portal-link {
+  background: #5132d7;
+  border-color: #5132d7;
+  color: #ffffff;
+}
+
+.portal-link:hover {
+  background: #4328b8;
 }
 
 .page-header img {
@@ -176,20 +195,14 @@ a {
   gap: 8px;
 }
 
-.featured-badge,
 .elapsed-badge {
   border-radius: 999px;
   padding: 7px 10px;
-  color: #5132d7;
-  background: #eeeaff;
+  color: #73521b;
+  background: #fff2d9;
   font-size: 11px;
   font-weight: 850;
   white-space: nowrap;
-}
-
-.elapsed-badge {
-  color: #73521b;
-  background: #fff2d9;
 }
 
 .appointment-facts {

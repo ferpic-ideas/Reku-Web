@@ -144,7 +144,10 @@
           <span>${requestedAppointmentId ? 'Sala profesional' : 'Próximos turnos'}</span>
           <h1>${escapeHtml(state.professional?.name || 'Profesional')}</h1>
         </div>
-        ${requestedAppointmentId ? '<a class="all-appointments-link" href="/profesional-turnos/">Ver todos los turnos</a>' : ''}
+        <nav class="header-actions" aria-label="Navegación profesional">
+          ${requestedAppointmentId ? '<a class="all-appointments-link" href="/profesional-turnos/">Ver todos los turnos</a>' : ''}
+          <a class="portal-link" href="/profesional/">Ingresar a mi portal</a>
+        </nav>
       </header>
     `;
   }
@@ -167,9 +170,8 @@
             <time>${escapeHtml(appointment.start_time)} - ${escapeHtml(appointment.end_time)}</time>
             <strong>${escapeHtml(appointment.patient_name || 'Paciente')}</strong>
           </div>
-          ${featured || elapsed ? `<div class="appointment-badges">
-            ${elapsed ? '<span class="elapsed-badge">Horario finalizado</span>' : ''}
-            ${featured ? '<span class="featured-badge">Turno seleccionado</span>' : ''}
+          ${elapsed ? `<div class="appointment-badges">
+            <span class="elapsed-badge">Horario finalizado</span>
           </div>` : ''}
         </div>
         <dl class="appointment-facts">
