@@ -753,6 +753,32 @@ a:focus-visible {
   gap: 14px;
 }
 
+.agreement-form-layout,
+.agreement-form-stack {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  align-content: start;
+}
+
+.agreement-form-row {
+  align-items: start;
+}
+
+.agreement-form-row label {
+  min-width: 0;
+  align-content: start;
+}
+
+.agreement-form-layout .check-row {
+  padding-top: 0;
+}
+
+.agreement-form-options {
+  padding-top: 24px;
+  gap: 4px;
+}
+
 .grid-three {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1602,6 +1628,10 @@ code {
   .grid-two,
   .grid-three {
     grid-template-columns: 1fr;
+  }
+
+  .agreement-form-options {
+    padding-top: 0;
   }
 
   .professional-account-box {

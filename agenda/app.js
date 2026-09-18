@@ -597,7 +597,7 @@
     };
     state.intakeErrors = {};
     if (state.agreement?.medical_order_required && !state.intakeMedicalOrder) {
-      state.intakeErrors.medical_order = 'Para poder sacar un turno necesitamos que subas la orden médica.';
+      state.intakeErrors.medical_order = 'Subí la orden médica para continuar.';
       render();
       return;
     }
@@ -1206,17 +1206,17 @@
               `
               : ''
           }
-          <label class="span-two">
-            Orden médica${agreement.medical_order_required ? ' (obligatoria)' : ' (opcional)'}
-            <span class="field-help">${agreement.medical_order_required
-              ? 'Para poder sacar un turno necesitamos que subas la orden médica.'
-              : 'Si tenés una orden médica, podés subirla desde acá.'}</span>
-            <input name="medical_order" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" ${agreement.medical_order_required && !state.intakeMedicalOrder ? 'required' : ''} />
-            <span class="field-help">PDF o imagen JPG, PNG o WebP. Hasta 10 MB.</span>
-            ${state.intakeMedicalOrder ? `<span class="field-help">Seleccionada: ${escapeHtml(state.intakeMedicalOrder.name)}</span>` : ''}
-            ${state.intakeMedicalOrder ? '<button type="button" class="back-button" data-action="clear-medical-order">Quitar archivo seleccionado</button>' : ''}
+          <div class="span-two medical-order-field">
+            <label id="medical-order-label" for="medical-order-input">Orden médica${agreement.medical_order_required ? ' (obligatoria)' : ' (opcional)'}</label>
+            ${!agreement.medical_order_required ? '<span class="medical-order-help">Si tenés una orden médica, podés subirla desde acá.</span>' : ''}
+            <div class="medical-order-picker">
+              <input id="medical-order-input" name="medical_order" type="file" aria-label="Seleccionar archivo de orden médica" aria-describedby="medical-order-file-name" accept="application/pdf,image/jpeg,image/png,image/webp" ${agreement.medical_order_required && !state.intakeMedicalOrder ? 'required' : ''} />
+              <span class="medical-order-select" aria-hidden="true">Seleccionar archivo</span>
+              <span class="medical-order-file-name" id="medical-order-file-name" aria-live="polite">${state.intakeMedicalOrder ? escapeHtml(state.intakeMedicalOrder.name) : 'PDF o imagen JPG, PNG o WebP. Hasta 10 MB.'}</span>
+            </div>
+            <button type="button" class="back-button" data-action="clear-medical-order" ${state.intakeMedicalOrder ? '' : 'hidden'}>Quitar archivo seleccionado</button>
             ${fieldError('medical_order')}
-          </label>
+          </div>
           <div class="form-actions span-two">
             <button type="submit" class="primary-button">Continuar</button>
           </div>
@@ -1996,6 +1996,15 @@
   }
 
   function bindEvents() {
+    app.querySelector('input[name="medical_order"]')?.addEventListener('change', (event) => {
+      const file = event.currentTarget.files?.[0];
+      if (!file) return;
+      state.intakeMedicalOrder = file;
+      const fileName = app.querySelector('#medical-order-file-name');
+      if (fileName) fileName.textContent = file.name;
+      const clearButton = app.querySelector('[data-action="clear-medical-order"]');
+      if (clearButton) clearButton.hidden = false;
+    });
     app.querySelector('[data-action="clear-medical-order"]')?.addEventListener('click', () => {
       state.intakeMedicalOrder = null;
       const input = app.querySelector('input[name="medical_order"]');

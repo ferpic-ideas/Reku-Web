@@ -49,6 +49,7 @@ import {
   createBookingAccessLink,
 } from "./booking-links.mjs";
 import { config } from "./config.mjs";
+import { enforceBookingIntakeOrigin } from './booking-origin.mjs';
 import {
   cancelGoogleCalendarAppointment,
   getGoogleBusyRanges,
@@ -2627,7 +2628,7 @@ export const handleBookingApi = async (request, response, url) => {
 
     if (pathname === '/api/booking/intake' && request.method === 'POST' &&
         String(request.headers['content-type'] || '').startsWith('multipart/form-data')) {
-      enforcePatientAppointmentOrigin(request);
+      enforceBookingIntakeOrigin(request);
       const { fields, files } = await parseMultipartForm(request, { maxBytes: 10 * 1024 * 1024, maxFiles: 1 });
       await createIntakeAccess(request, fields, response, url, files.medical_order || null);
       return true;

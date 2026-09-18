@@ -2611,11 +2611,21 @@
   function renderAgreementFormFields() {
     const item = agreementFormValues();
     return `
-      <div class="grid-two">
+      <div class="agreement-form-layout">
+      <div class="grid-two agreement-form-row">
         <label>
           Nombre
           <input name="name" value="${escapeHtml(item.name)}" required />
         </label>
+        <label>
+          Tipo
+          <select name="type" id="agreement-type-select">
+            <option value="Pago" ${item.type === 'Pago' ? 'selected' : ''}>Pago</option>
+            <option value="Nomina" ${item.type === 'Nomina' ? 'selected' : ''}>Nómina</option>
+          </select>
+        </label>
+      </div>
+      <div class="grid-two agreement-form-row">
         <label>
           Slug (subdominio)
           <input
@@ -2630,22 +2640,14 @@
           <span class="field-help">Se usa también como subdominio: ypf → ypf.reku.io. Si lo dejás vacío se genera desde el nombre. Cambiarlo modifica la dirección del acuerdo.</span>
           ${item.subdomain_prefix && item.subdomain_prefix !== item.slug ? `<span class="field-help">El subdominio anterior es ${escapeHtml(item.subdomain_prefix)}.reku.io. Al guardar se unificará con el slug.</span>` : ''}
         </label>
-        <label>
-          Tipo
-          <select name="type" id="agreement-type-select">
-            <option value="Pago" ${item.type === 'Pago' ? 'selected' : ''}>Pago</option>
-            <option value="Nomina" ${item.type === 'Nomina' ? 'selected' : ''}>Nómina</option>
-          </select>
-        </label>
         <label data-nomina-identifier ${item.type !== 'Nomina' ? 'hidden' : ''}>
           Tipo de identificador
           <input name="identifier_label" value="${escapeHtml(item.identifier_label || '')}" placeholder="DNI, número de cliente, legajo" maxlength="80" ${item.type !== 'Nomina' ? 'disabled' : ''} />
           <span class="field-help">Este nombre se mostrará al paciente al pedirle el identificador de la nómina.</span>
         </label>
-        <label class="check-row">
-          <input type="checkbox" name="cobranded" ${item.cobranded ? 'checked' : ''} />
-          Cobranded
-        </label>
+      </div>
+      <div class="grid-two agreement-form-row">
+        <div class="agreement-form-stack">
         <label>
           Inicio de la reserva
           <select name="direct_treatment" id="agreement-booking-mode">
@@ -2661,11 +2663,45 @@
           </select>
           <span class="field-help">Se omiten la selección de práctica y profesional. Se ofrece la primera disponibilidad del acuerdo.</span>
         </label>
-        <label class="check-row">
-          <input type="checkbox" name="medical_order_required" ${item.medical_order_required ? 'checked' : ''} />
-          Orden médica obligatoria para reservar
+        </div>
+        <div class="agreement-form-stack agreement-form-options">
+          <label class="check-row">
+            <input type="checkbox" name="cobranded" ${item.cobranded ? 'checked' : ''} />
+            Cobranded
+          </label>
+          <label class="check-row">
+            <input type="checkbox" name="medical_order_required" ${item.medical_order_required ? 'checked' : ''} />
+            Orden médica obligatoria para reservar
+          </label>
+        </div>
+      </div>
+      <div class="grid-two agreement-form-row">
+        <div class="agreement-form-stack">
+        <label>
+          Logo
+          <input class="file-input" name="logo" type="file" accept="image/*" />
         </label>
-        <div class="span-two grid-two payment-fields" data-payment-fields ${item.type === 'Nomina' ? 'hidden' : ''}>
+        ${item.logo_url ? `
+          <label class="check-row">
+            <input type="checkbox" name="remove_logo" />
+            Quitar logo actual
+          </label>
+        ` : ''}
+        </div>
+        <div class="agreement-form-stack">
+        <label>
+          PDF Cómo funciona
+          <input class="file-input" name="pdf" type="file" accept="application/pdf" />
+        </label>
+        ${item.pdf_url ? `
+          <label class="check-row">
+            <input type="checkbox" name="remove_pdf" />
+            Quitar PDF actual
+          </label>
+        ` : ''}
+        </div>
+      </div>
+        <div class="grid-two agreement-form-row payment-fields" data-payment-fields ${item.type === 'Nomina' ? 'hidden' : ''}>
           <label>
             Link pago evaluación
             <input name="payment_evaluation_url" type="url" value="${escapeHtml(item.payment_evaluation_url)}" />
@@ -2675,31 +2711,7 @@
             <input name="payment_treatment_url" type="url" value="${escapeHtml(item.payment_treatment_url)}" />
           </label>
         </div>
-        <label>
-          Logo
-          <input class="file-input" name="logo" type="file" accept="image/*" />
-        </label>
-        <label>
-          PDF Cómo funciona
-          <input class="file-input" name="pdf" type="file" accept="application/pdf" />
-        </label>
-        ${item.logo_url || item.pdf_url ? `
-          <div class="span-two grid-two">
-            ${item.logo_url ? `
-              <label class="check-row">
-                <input type="checkbox" name="remove_logo" />
-                Quitar logo actual
-              </label>
-            ` : '<span></span>'}
-            ${item.pdf_url ? `
-              <label class="check-row">
-                <input type="checkbox" name="remove_pdf" />
-                Quitar PDF actual
-              </label>
-            ` : '<span></span>'}
-          </div>
-        ` : ''}
-        <div class="form-actions span-two">
+        <div class="form-actions">
           <button type="submit" class="primary-button">Guardar acuerdo</button>
         </div>
       </div>

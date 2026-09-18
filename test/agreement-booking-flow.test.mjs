@@ -36,7 +36,7 @@ const setup = async ({ direct = true, required = false, fail = false, emptyFirst
       return { ok: !fail, json: async () => payload };
     },
   };
-  vm.runInNewContext(source.replace('  loadInitial();', '  globalThis.page = { state, loadServices, renderIntakeForm, renderCalendar, renderHeader, submitIntake };'), context);
+  vm.runInNewContext(source.replace('  loadInitial();', '  globalThis.page = { state, loadServices, renderIntakeForm, renderCalendar, renderHeader, submitIntake, bindEvents };'), context);
   context.page.state.loading = false;
   context.page.state.step = 2;
   context.page.state.agreement = agreement;
@@ -97,7 +97,7 @@ test('required orders block progression without a file and keep patient fields',
   await page.submitIntake({ nombre: 'Paciente', email: 'test@example.test' });
   assert.equal(page.requests.length, 0);
   assert.equal(page.state.intakeValues.nombre, 'Paciente');
-  assert.match(page.state.intakeErrors.medical_order, /necesitamos que subas/);
+  assert.match(page.state.intakeErrors.medical_order, /Subí la orden médica/);
 });
 
 test('multipart order is retained after validation errors and sent only with patient fields', async () => {
@@ -109,7 +109,48 @@ test('multipart order is retained after validation errors and sent only with pat
   assert.equal(page.state.intakeErrors.nombre, 'Revisá tu nombre.');
   assert.equal(page.requests[0].options.headers['Content-Type'], undefined);
   assert.equal(page.requests[0].options.body.get('medical_order').name, 'orden.pdf');
-  assert.match(page.app.innerHTML, /Seleccionada: orden.pdf/);
+  assert.match(page.app.innerHTML, /aria-live="polite">orden.pdf<\/span>/);
+});
+
+test('medical order picker uses Spanish copy and replaces the hint immediately with the selected filename', async () => {
+  const page = await setup({ required: true });
+  page.state.step = 1;
+  const html = page.renderIntakeForm();
+  assert.match(html, /Seleccionar archivo<\/span>/);
+  assert.match(html, /aria-live="polite">PDF o imagen JPG, PNG o WebP\. Hasta 10 MB\.<\/span>/);
+  assert.doesNotMatch(html, /Para poder sacar|Choose File|No file chosen|Seleccionada:/i);
+  assert.match(html, /data-action="clear-medical-order" hidden/);
+  const handlers = {};
+  const input = { value: '', addEventListener: (event, callback) => { handlers[event] = callback; } };
+  const status = { textContent: '' };
+  const clear = { hidden: true, addEventListener: (event, callback) => { handlers.clear = callback; } };
+  page.app.querySelector = selector => ({
+    'input[name="medical_order"]': input,
+    '#medical-order-file-name': status,
+    '[data-action="clear-medical-order"]': clear,
+  })[selector] || null;
+  page.bindEvents();
+  const file = new File(['%PDF-1.4 test'], 'orden <personal>.pdf', { type: 'application/pdf' });
+  handlers.change({ currentTarget: { files: [file] } });
+  assert.equal(page.state.intakeMedicalOrder, file);
+  assert.equal(status.textContent, 'orden <personal>.pdf');
+  assert.equal(clear.hidden, false);
+  assert.match(page.renderIntakeForm(), /orden &lt;personal&gt;\.pdf/);
+  assert.doesNotMatch(page.renderIntakeForm(), /aria-live="polite">PDF o imagen/);
+  handlers.change({ currentTarget: { files: [] } });
+  assert.equal(page.state.intakeMedicalOrder, file, 'cancelling replacement preserves the chosen order');
+  handlers.clear();
+  assert.equal(page.state.intakeMedicalOrder, null);
+  assert.match(page.app.innerHTML, /aria-live="polite">PDF o imagen/);
+  assert.match(page.app.innerHTML, /name="medical_order"[^>]*required/);
+});
+
+test('medical order helper is normal weight and the native picker remains keyboard accessible', async () => {
+  const css = await readFile(new URL('../agenda/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.medical-order-file-name,\s*\.medical-order-help\s*\{[^}]*font-weight: 400;/);
+  assert.match(css, /\.medical-order-picker:focus-within/);
+  const html = (await setup()).renderIntakeForm();
+  assert.doesNotMatch(html, /name="medical_order"[^>]*(?:hidden|tabindex="-1")/);
 });
 
 test('server validates required, optional, forged and oversized medical orders', async () => {

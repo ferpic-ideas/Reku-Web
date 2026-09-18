@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { request as httpRequest } from 'node:http';
 import test from "node:test";
 import pg from "pg";
 import { encryptBotReport } from '../src/consultation-bot-report-storage.mjs';
@@ -215,7 +216,8 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
 
   await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
   const port = await reservePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
+  // A hostname (rather than an IP literal) also permits testing agreement subdomains.
+  const baseUrl = `http://localhost:${port}`;
   serverProcess = spawn(process.execPath, ["server.mjs"], {
     cwd: root,
     env: {
@@ -991,7 +993,29 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     assert.equal(wrongOrigin.status, 403);
     const forged = await fetch(`${baseUrl}/api/booking/intake`, { method: 'POST', headers: { Origin: baseUrl }, body: orderForm('<script>Not a PDF</script>') });
     assert.equal(forged.status, 422);
-    const intake = await fetch(`${baseUrl}/api/booking/intake`, { method: 'POST', headers: { Origin: baseUrl }, body: orderForm('%PDF-1.4 synthetic medical order') });
+    // The patient submits from the agreement subdomain, not the canonical site.
+    const agreementOrigin = new URL(baseUrl);
+    agreementOrigin.hostname = `ordenes-test.${agreementOrigin.hostname}`;
+    assert.equal(agreementOrigin.hostname, 'ordenes-test.localhost');
+    // Native fetch overrides Host; send the browser-equivalent host via HTTP directly.
+    const uploadRequest = new Request(`${baseUrl}/api/booking/intake`, {
+      method: 'POST', body: orderForm('%PDF-1.4 synthetic medical order'),
+    });
+    const uploadBytes = Buffer.from(await uploadRequest.arrayBuffer());
+    const intake = await new Promise((resolve, reject) => {
+      const request = httpRequest(uploadRequest.url, { method: 'POST', headers: {
+        Origin: agreementOrigin.origin, Host: agreementOrigin.host,
+        'Content-Type': uploadRequest.headers.get('content-type'),
+        'Content-Length': uploadBytes.length,
+      } }, response => {
+        const chunks = [];
+        response.on('data', chunk => chunks.push(chunk));
+        response.on('error', reject);
+        response.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode })));
+      });
+      request.on('error', reject);
+      request.end(uploadBytes);
+    });
     assert.equal(intake.status, 202);
     const intakeRow = (await pool.query('SELECT id FROM patient_intakes WHERE email=$1', [values.email])).rows[0];
     const orderRow = (await pool.query('SELECT * FROM patient_intake_medical_orders WHERE patient_intake_id=$1', [intakeRow.id])).rows[0];
