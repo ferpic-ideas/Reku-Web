@@ -26,6 +26,8 @@ export const createPatientAppointmentAccessLink = async ({
       FROM appointments appointment
       WHERE appointment.id = $2
       RETURNING id, expires_at,
+        (SELECT consultation_required FROM appointments
+         WHERE id = patient_appointment_access_links.appointment_id) AS consultation_required,
         (SELECT COALESCE(NULLIF(agreement.subdomain_prefix, ''), agreement.slug, '')
          FROM appointments linked_appointment
          LEFT JOIN agreements agreement ON agreement.id = linked_appointment.agreement_id
@@ -58,7 +60,7 @@ export const createPatientAppointmentAccessLink = async ({
   return {
     id: Number(result.rows[0].id),
     token,
-    bot_url: appointmentBotUrl(result.rows[0].agreement_prefix || '', token, config.appPublicUrl),
+    bot_url: result.rows[0].consultation_required === false ? '' : appointmentBotUrl(result.rows[0].agreement_prefix || '', token, config.appPublicUrl),
     expires_at: result.rows[0].expires_at,
     url: `${config.appPublicUrl}/turnos/#manage=${encodeURIComponent(token)}`,
     meet_url: `${config.appPublicUrl}/turnos/?view=videollamada#manage=${encodeURIComponent(token)}`,

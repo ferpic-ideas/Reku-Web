@@ -1,6 +1,17 @@
 # Reserva por acuerdo y orden médica
 
-Estado: publicado en producción el 2026-09-18 (código `ef084ea`). Migraciones 024, 025 y 026 verificadas; 412 pruebas unitarias y 26 de integración aprobadas. Se preservaron las credenciales, los datos y el modo existente del bot.
+Base publicada el 2026-09-18 (código `ef084ea`, migraciones 024–026). La actualización v1.3 requiere también la migración 027 y preserva credenciales, datos e informes existentes.
+
+## Actualización API v1.3 (24/09/2026)
+
+- Migración 027: `access_mode` (`web` por defecto / `api`), `communication_sender` (`reku` / `integrator`) y `email_verification_required` (Web: `true` por defecto). No convierte automáticamente acuerdos existentes a API.
+- En Admin, API mantiene Cobranded y Logo para personalizar la sala de espera. Oculta verificación, PDF “Cómo funciona” y enlaces de pago. Se conservan el PDF y los enlaces existentes para volver a Web; no se aceptan cambios de esos campos ocultos en API. API fuerza `email_verification_required=false`. Si Cobranded está activo, exige logo también en API.
+- Web usa el atributo de verificación del acuerdo, no las antiguas variables globales de pruebas. Sin acuerdo, se exige verificación. El comprobante firmado del mismo email con turno previo sigue siendo reutilizable.
+- En API, validar la titularidad del correo es responsabilidad del integrador. `GET /agreement` lo informa explícitamente. Las credenciales existentes siguen vigentes hasta revocación; el botón para administrarlas sigue disponible cuando el acuerdo tiene credenciales, aunque esté en Web.
+- Con comunicación Integrador se omiten los correos del paciente (confirmación, pago pendiente, recordatorio, reprogramación, cancelación y cuestionario), incluso desde los reintentos periódicos. Profesionales y correos de seguridad no cambian. La política se evalúa según la configuración vigente del acuerdo.
+- POST de confirmación devuelve `data.links.manage_url`, `waiting_room_url` y `expires_at`. Se deben guardar y entregar sólo al paciente validado; GET/PATCH/listado no los devuelven. El replay conserva enlaces y vencimiento originales. Se guardan cifrados en la respuesta de idempotencia con `SETTINGS_ENCRYPTION_KEY`, vinculados a credencial y clave de idempotencia; las tablas de acceso mantienen sólo hashes.
+- Las nuevas reservas por API guardan `consultation_required=false` y exponen `consultation_status=not_applicable`. No hay bot, invitaciones ni recordatorios del cuestionario. La asignación de ReHub y el guardado de su URL siguen en segundo plano. Los turnos API previos sin informe completado también pasan a no requerir cuestionario; los informes históricos completados se conservan.
+- La integración que comunica debe consultar GET/listados para enterarse de cambios realizados en Reku: aún no hay webhooks.
 
 ## Configuración
 
@@ -24,7 +35,7 @@ Esta configuración se aplica a la agenda pública y a la API de partners v1.2. 
 - En tratamiento directo, `/services` sólo ofrece la práctica configurada. Disponibilidad y holds permiten omitir `service_id` y asignan profesional automáticamente, ignorando `professional_id`. En PATCH se conserva el profesional previo salvo cambio explícito por la integración; siempre debe estar habilitado para esa práctica/acuerdo.
 - `POST /appointments` conserva JSON y agrega multipart: campo `payload` con el mismo JSON y archivo `medical_order`. Si la orden es obligatoria se rechaza la confirmación sin archivo válido. Se guarda en almacenamiento privado, visible para admin/fisio y sin URL clínica en la respuesta del partner. Un fallo de transacción limpia el archivo.
 - La idempotencia incluye la huella del archivo; reintentar no duplica orden ni reserva. Para conocer el estado actual después de un replay, hacer GET del turno.
-- Las respuestas incluyen `consultation_status` (`pending`, `started`, `completed`) y `medical_order.required/received`. No exponen el PDF clínico ni la URL interna de ReHub; los mails mantienen los enlaces al bot y sala del acuerdo.
+- Las respuestas incluyen `consultation_status` (`not_applicable` en nuevas reservas API; estados históricos `pending`, `started`, `completed`) y `medical_order.required/received`. No exponen el PDF clínico ni la URL interna de ReHub. Ver las reglas de v1.3 arriba.
 - PATCH no permite reemplazar email/identificador del paciente: cancelar y crear otro turno evita transferir enlaces privados, documentación o informes. Se mantiene el tipo económico original del turno aunque el acuerdo cambie después.
 - Requiere migraciones 024, 025 y 026 junto con el código; aplicadas en producción el 2026-09-18.
 

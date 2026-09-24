@@ -2,6 +2,7 @@ import { createProfessionalAccessLink } from "./professional-links.mjs";
 import { query, recordAudit } from "./db.mjs";
 import { consultationStatusSql, readAppointmentConsultationStatus } from './consultation-status.mjs';
 import { sendEmail } from "./email.mjs";
+import { patientCommunicationsSql } from './agreement-policy.mjs';
 import { escapeHtml } from "./http.mjs";
 import { syncAppointmentToGoogleCalendar } from "./google-calendar.mjs";
 import { config } from "./config.mjs";
@@ -479,6 +480,7 @@ const claimPatientConfirmation = async (appointmentId) => {
         AND a.service_id = s.id
         AND a.status = 'confirmed'
         AND a.patient_notified_at IS NULL
+        AND ${patientCommunicationsSql('a')}
         AND NULLIF(a.patient_email, '') IS NOT NULL
       RETURNING
         a.id,
@@ -542,6 +544,7 @@ const claimPendingPaymentNotification = async (appointmentId) => {
         AND appointment.service_id = service.id
         AND appointment.status = 'pending_payment'
         AND appointment.pending_payment_notified_at IS NULL
+        AND ${patientCommunicationsSql('appointment')}
         AND NULLIF(appointment.patient_email, '') IS NOT NULL
       RETURNING
         appointment.id,
@@ -729,6 +732,7 @@ const claimPatientFollowup = async (appointmentId) => {
         AND a.service_id = s.id
         AND a.status = 'confirmed'
         AND a.patient_followup_notified_at IS NULL
+        AND ${patientCommunicationsSql('a')}
         AND NULLIF(a.patient_email, '') IS NOT NULL
         AND ((a.appointment_date + a.start_time) AT TIME ZONE $2) > NOW()
         AND ((a.appointment_date + a.start_time) AT TIME ZONE $2) <= NOW() + INTERVAL '24 hours'
@@ -928,11 +932,12 @@ const claimManualTriageReminder = async (appointmentId, professionalId) => {
            services service
       WHERE appointment.id = $1
         AND appointment.professional_id = $2
+        AND ${patientCommunicationsSql('appointment')}
         AND appointment.professional_id = professional.id
         AND appointment.service_id = service.id
         AND appointment.status = 'confirmed'
         AND NULLIF(appointment.patient_email, '') IS NOT NULL
-        AND ${consultationStatusSql('appointment')} <> 'completed'
+        AND ${consultationStatusSql('appointment')} IN ('pending', 'started')
         AND ((appointment.appointment_date + appointment.start_time) AT TIME ZONE $3) > NOW()
         AND (
           appointment.triage_reminder_last_attempted_at IS NULL
@@ -962,6 +967,7 @@ const claimManualTriageReminder = async (appointmentId, professionalId) => {
         triage_url,
         ${consultationStatusSql('appointments')} AS consultation_status,
         triage_reminder_last_attempted_at,
+        ${patientCommunicationsSql('appointments')} AS patient_communications_enabled,
         ((appointment_date + start_time) AT TIME ZONE $3) > NOW() AS is_future
       FROM appointments
       WHERE id = $1 AND professional_id = $2
@@ -972,7 +978,8 @@ const claimManualTriageReminder = async (appointmentId, professionalId) => {
   if (!row) throw triageReminderError("TRIAGE_REMINDER_NOT_FOUND", 404);
   if (
     row.status !== "confirmed" ||
-    row.consultation_status === 'completed' ||
+    row.patient_communications_enabled === false ||
+    ['completed', 'not_applicable'].includes(row.consultation_status) ||
     !row.patient_email ||
     !row.is_future
   ) {
@@ -989,7 +996,7 @@ export const notifyPatientTriageReminder = async (
   const appointment = await claimManualTriageReminder(appointmentId, professionalId);
   try {
     const botLink = await createPatientAppointmentAccessLink({ appointmentId });
-    if (await readAppointmentConsultationStatus(appointmentId) === 'completed') return { ok: true, skipped: true };
+    if (!['pending', 'started'].includes(await readAppointmentConsultationStatus(appointmentId))) return { ok: true, skipped: true };
     appointment.bot_url = botLink.bot_url;
     const result = await sendEmail({
       formName: "recordatorio-triaje-paciente",
@@ -1097,6 +1104,7 @@ export const sendUpcomingAppointmentFollowups = async () => {
         AND (
           (
             a.patient_followup_notified_at IS NULL
+            AND ${patientCommunicationsSql('a')}
             AND NULLIF(a.patient_email, '') IS NOT NULL
           )
           OR (
@@ -1154,6 +1162,7 @@ export const retryPendingPaymentNotifications = async () => {
       FROM appointments
       WHERE status = 'pending_payment'
         AND pending_payment_notified_at IS NULL
+        AND ${patientCommunicationsSql('appointments')}
         AND NULLIF(patient_email, '') IS NOT NULL
         AND NULLIF(payment_init_point, '') IS NOT NULL
         AND created_at > NOW() - INTERVAL '40 minutes'
@@ -1180,7 +1189,7 @@ export const retryPendingGoogleAppointmentNotifications = async () => {
       WHERE a.status = 'confirmed'
         AND a.google_sync_status IN ('pending', 'failed')
         AND (
-          a.patient_notified_at IS NULL
+          (a.patient_notified_at IS NULL AND ${patientCommunicationsSql('a')})
           OR a.professional_notified_at IS NULL
         )
       ORDER BY a.updated_at
@@ -1209,6 +1218,7 @@ export const notifyPatientForCancellation = async (appointmentId) => {
         AND a.service_id = s.id
         AND a.status = 'cancelled'
         AND a.patient_cancellation_notified_at IS NULL
+        AND ${patientCommunicationsSql('a')}
         AND NULLIF(a.patient_email, '') IS NOT NULL
       RETURNING
         a.id,

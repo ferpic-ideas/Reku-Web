@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { escapeHtml } from '../src/http.mjs';
 import { config } from '../src/config.mjs';
+import { patientCommunicationsSql } from '../src/agreement-policy.mjs';
 import { googleCalendarTemplateUrl, isGoogleCalendarEmail, patientCalendarActionUrl } from '../src/appointment-calendar.mjs';
 
 for (const action of ['notifyPatientForAppointment', 'notifyPatientForPendingPayment', 'notifyPatientAppointmentFollowup']) {
@@ -13,7 +14,7 @@ for (const action of ['notifyPatientForAppointment', 'notifyPatientForPendingPay
     const appointment = { id: 1, appointment_date: '2026-10-01', start_time: '14:00', end_time: '14:30',
       patient_email: 'synthetic@example.test', professional_name: 'Profesional de prueba', service_name: 'Consulta', google_meet_url: 'https://meet.google.com/synthetic' };
     const context = {
-      config, escapeHtml, googleCalendarTemplateUrl, isGoogleCalendarEmail, patientCalendarActionUrl,
+      config, escapeHtml, googleCalendarTemplateUrl, isGoogleCalendarEmail, patientCalendarActionUrl, patientCommunicationsSql,
       query: async text => { sql.push(text); return { rows: /RETURNING/.test(text) ? [appointment] : [] }; },
       recordAudit: async event => audit.push(event),
       readAppointmentConsultationStatus: async () => 'pending',

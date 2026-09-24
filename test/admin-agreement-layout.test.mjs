@@ -13,8 +13,10 @@ const render = (overrides = {}) => vm.runInNewContext(`${renderSource}\nrenderAg
 
 test('agreement form groups requested pairs in stable rows', () => {
   const html = render();
-  const rows = html.split('<div class="grid-two agreement-form-row">').slice(1);
-  assert.equal(rows.length, 4);
+  const allRows = html.split(/<div class="grid-two agreement-form-row"(?: data-web-only)?>/).slice(1);
+  assert.equal(allRows.length, 5);
+  assert.match(allRows[0], /name="access_mode"[\s\S]*name="communication_sender"/);
+  const rows = allRows.slice(1);
   for (const [index, names] of [['name', 'type'], ['slug', 'identifier_label'], ['direct_treatment', 'cobranded', 'medical_order_required'], ['logo', 'remove_logo', 'pdf', 'remove_pdf']].entries()) {
     let previous = -1;
     for (const name of names) {
@@ -24,7 +26,7 @@ test('agreement form groups requested pairs in stable rows', () => {
     }
   }
   assert.match(rows[2], /name="treatment_service_id"/);
-  assert.match(rows[3], /name="logo"[\s\S]*name="remove_logo"[\s\S]*<\/div>\s*<div class="agreement-form-stack">[\s\S]*name="pdf"[\s\S]*name="remove_pdf"/);
+  assert.match(rows[3], /name="logo"[\s\S]*name="remove_logo"[\s\S]*<\/div>\s*<div class="agreement-form-stack" data-web-only>[\s\S]*name="pdf"[\s\S]*name="remove_pdf"/);
 });
 
 test('conditional agreement fields keep their behavior and removal stays with its file', () => {

@@ -103,7 +103,7 @@ test("booking intake wires remembered verification into direct booking access", 
   );
   assert.match(
     source,
-    /config\.bookingEmailVerificationEnabled && !reuseEmailVerification/,
+    /requiresAgreementEmailVerification\(agreement\) && !reuseEmailVerification/,
   );
   assert.match(
     source,

@@ -1473,7 +1473,7 @@
   }
 
   function renderTriageCard() {
-    if (state.consultationStatus === 'completed') return '';
+    if (['completed', 'not_applicable'].includes(state.consultationStatus)) return '';
     return `
       <div class="triage-card">
         <h3>Último paso: cuestionario previo</h3>

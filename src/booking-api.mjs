@@ -1,4 +1,5 @@
 import { one, query, recordAudit, tx } from "./db.mjs";
+import { requiresAgreementEmailVerification } from './agreement-policy.mjs';
 import { consultationStatusSql, readAppointmentConsultationStatus } from './consultation-status.mjs';
 import {
   getClientIp,
@@ -312,6 +313,7 @@ const requireAccessLink = async (token) => {
         a.treatment_service_id,
         a.medical_order_required,
         a.identifier_label,
+        a.access_mode, a.communication_sender, a.email_verification_required,
         a.logo_path AS current_agreement_logo_path,
         a.pdf_path AS current_agreement_pdf_path
       FROM booking_access_links l
@@ -357,6 +359,9 @@ const requireAccessLink = async (token) => {
       treatment_service_id: link.treatment_service_id ? Number(link.treatment_service_id) : null,
       medical_order_required: Boolean(link.medical_order_required),
       identifier_label: link.identifier_label || '',
+      access_mode: link.access_mode || 'web',
+      communication_sender: link.communication_sender || 'reku',
+      email_verification_required: link.email_verification_required !== false,
       logo_url:
         link.current_agreement_cobranded && link.current_agreement_logo_path
           ? `/uploads/${link.current_agreement_logo_path}`
@@ -410,6 +415,9 @@ const mapAgreement = (agreement) => ({
   treatment_service_id: agreement.treatment_service_id ? Number(agreement.treatment_service_id) : null,
   medical_order_required: Boolean(agreement.medical_order_required),
   identifier_label: agreement.identifier_label || '',
+  access_mode: agreement.access_mode || 'web',
+  communication_sender: agreement.communication_sender || 'reku',
+  email_verification_required: requiresAgreementEmailVerification(agreement),
   type: agreement.type,
   logo_url: agreement.cobranded ? agreement.logo_url : "",
   pdf_url: agreement.pdf_url,
@@ -501,7 +509,7 @@ const createIntakeAccess = async (request, payload, response, url, medicalOrder 
     hasPriorAppointment,
   });
   const requireEmailVerification =
-    config.bookingEmailVerificationEnabled && !reuseEmailVerification;
+    requiresAgreementEmailVerification(agreement) && !reuseEmailVerification;
 
   const sourcePath = `/turnos/?form=${encodeURIComponent(agreement.slug)}`;
   const result = await savePatientIntakeAndNotify({
@@ -1012,6 +1020,10 @@ const listDays = async (url, response, agreementId = null) => {
 };
 
 const createAppointment = async (payload, response, url, link) => {
+  if (link.agreement?.access_mode === 'api') {
+    sendJson(response, 403, { error: 'Para reservar con este acuerdo, ingresá desde el sitio de tu prestador.' });
+    return;
+  }
   const serviceId = Number(payload.service_id);
   const agreementId = link.agreement?.id || null;
   const automaticProfessional =
@@ -1439,7 +1451,7 @@ const mapManagedAppointment = async (row) => ({
   payment_status: row.payment_status || "",
   payment_url: row.payment_init_point || "",
   consultation_status: row.consultation_status,
-  triage_url: row.status === 'confirmed' && row.consultation_status !== 'completed' ? '/api/booking/manage/consultation' : '',
+  triage_url: row.status === 'confirmed' && ['pending', 'started'].includes(row.consultation_status) ? '/api/booking/manage/consultation' : '',
   agreement: row.agreement_id
     ? {
         id: Number(row.agreement_id),
@@ -2036,7 +2048,7 @@ const assignAppointmentTriage = async (payload, response, link) => {
   const appointment = await one("SELECT id FROM appointments WHERE id = $1 AND booking_access_link_id = $2 AND status = 'confirmed'", [appointmentId, link.id]);
   if (!appointment) { sendJson(response, 409, { error: 'Turno no disponible.' }); return; }
   const consultationStatus = await readAppointmentConsultationStatus(appointmentId);
-  if (consultationStatus === 'completed') {
+  if (['completed', 'not_applicable'].includes(consultationStatus)) {
     sendJson(response, 200, { ok: true, url: '', consultation_status: consultationStatus });
     return;
   }
@@ -2505,6 +2517,8 @@ export const handleBookingApi = async (request, response, url) => {
         sendJson(response, 409, { error: 'El cuestionario se habilita cuando el turno queda confirmado.' });
       } else if (appointment.consultation_status === 'completed') {
         sendJson(response, 200, { message: '¡Gracias! Ya completaste el cuestionario para este turno.' });
+      } else if (appointment.consultation_status === 'not_applicable') {
+        sendJson(response, 409, { error: 'Este turno no requiere cuestionario.' });
       } else {
         const link = await createPatientAppointmentAccessLink({ appointmentId: appointment.id });
         sendRedirect(response, link.bot_url);
@@ -2793,6 +2807,10 @@ export const handleBookingApi = async (request, response, url) => {
       sendJson(response, 409, {
         error: "El pago informado no corresponde de forma segura a este turno.",
       });
+      return true;
+    }
+    if (error.message === 'AGREEMENT_API_ACCESS_REQUIRED') {
+      sendJson(response, 403, { error: error.publicMessage });
       return true;
     }
     if (error.message === "AGREEMENT_NOT_FOUND") {

@@ -910,7 +910,7 @@ const listPatients = async (url, response, account) => {
       practice: row.next_service_name || row.latest_service_name || "",
       triage_status: row.next_bot_report_available
         ? "assigned"
-        : row.next_appointment_date
+        : row.next_appointment_date && row.next_consultation_status !== 'not_applicable'
             ? "pending"
             : "not_applicable",
       source: {
@@ -976,7 +976,7 @@ const mapAppointment = (row) => ({
   google_sync_error: row.google_sync_error || "",
   triage_status: row.bot_report_available
     ? "assigned"
-    : "pending",
+    : row.consultation_status === 'not_applicable' ? 'not_applicable' : "pending",
   triage_url: row.bot_report_available ? professionalReportUrl(row.id) : '',
   consultation_report_url: row.bot_report_available ? professionalReportUrl(row.id) : '',
   consultation_status: row.consultation_status || 'pending',

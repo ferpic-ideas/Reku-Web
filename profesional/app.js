@@ -1099,6 +1099,7 @@
     const consultationService = detailAppointment?.service_name || patient.practice || '';
     const showTreatmentHandoff = isConsultationService(consultationService) && Boolean(bookingUrl);
     const canRemindTriage =
+      patient.consultation_status !== 'not_applicable' &&
       patient.triage_status === 'pending' &&
       detailAppointment?.status !== 'cancelled' &&
       (!patient.detail_appointment || isFutureAppointment(detailAppointment)) &&
@@ -1154,7 +1155,7 @@
                         : '<span class="room-action-disabled">Meet no disponible</span>'}
                     ${triageUrl
                       ? `<a class="secondary-button triage-form-button" href="${escapeHtml(triageUrl)}" target="_blank" rel="noopener noreferrer">Ver informe PDF</a>`
-                      : `<span class="room-action-disabled">${patient.consultation_status === 'started' ? 'Cuestionario en curso' : 'Cuestionario pendiente'}</span>`}
+                      : patient.consultation_status === 'not_applicable' ? '' : `<span class="room-action-disabled">${patient.consultation_status === 'started' ? 'Cuestionario en curso' : 'Cuestionario pendiente'}</span>`}
                   </div>
                 </div>`
               : ''
@@ -1164,7 +1165,7 @@
             <div><dt>Teléfono</dt><dd>${patient.phone ? `<a href="tel:${escapeHtml(patient.phone)}">${escapeHtml(patient.phone)}</a>` : '—'}</dd></div>
             <div><dt>${patient.detail_appointment ? 'Turno seleccionado' : 'Próximo turno'}</dt><dd>${detailAppointment ? `${escapeHtml(formatDate(detailAppointment.date))} · ${escapeHtml(detailAppointment.start_time)}–${escapeHtml(detailAppointment.end_time)}` : 'Sin próximo turno'}</dd></div>
             <div><dt>Práctica</dt><dd>${escapeHtml(patient.practice || 'Sin información')}</dd></div>
-            <div><dt>Cuestionario previo</dt><dd>${escapeHtml(triageLabel(patient.consultation_status || patient.triage_status))}</dd></div>
+            ${patient.consultation_status === 'not_applicable' ? '' : `<div><dt>Cuestionario previo</dt><dd>${escapeHtml(triageLabel(patient.consultation_status || patient.triage_status))}</dd></div>`}
             <div><dt>Acuerdo / origen</dt><dd>${escapeHtml(patientSourceLabel(patient))}</dd></div>
             <div><dt>Importe</dt><dd>${patient.payment?.amount ? escapeHtml(new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(patient.payment.amount)) : '—'}</dd></div>
             <div><dt>Último turno registrado</dt><dd>${patient.latest_appointment_date ? escapeHtml(formatDate(patient.latest_appointment_date)) : '—'}</dd></div>
@@ -1199,12 +1200,12 @@
                 </div>`
               : ''
           }
-          <div class="details-note">
+          ${patient.consultation_status === 'not_applicable' && !triageUrl ? '' : `<div class="details-note">
             <strong>Informe del bot Reku</strong>
             ${!isAppointmentRoom ? (patient.consultation_reports || []).map(report => `<a class="secondary-button triage-form-button" href="${escapeHtml(report.url)}" target="_blank" rel="noopener noreferrer">Ver informe PDF · ${escapeHtml(formatDate(report.date))}</a>`).join('') : ''}
             <span>${triageUrl ? 'El informe PDF está disponible para consulta.' : patient.consultation_status === 'started' ? 'El paciente inició el cuestionario y todavía no lo completó. El informe PDF estará disponible al finalizar.' : 'El paciente todavía no completó el cuestionario. El informe PDF estará disponible al finalizar.'}</span>
             ${reminderSentAt ? `<span>Último recordatorio enviado: ${escapeHtml(formatDateTime(reminderSentAt))}.</span>` : ''}
-          </div>
+          </div>`}
           <div class="form-actions patient-detail-actions">
             <button class="secondary-button" data-action="close-patient-details" type="button">Cerrar</button>
             ${canRemindTriage

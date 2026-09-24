@@ -182,7 +182,7 @@
         </dl>
         <div class="room-actions">
           ${elapsed ? '' : meetAvailable(appointment) ? `<a class="meet-button" href="${escapeHtml(appointment.google_meet_url)}" target="_blank" rel="noopener noreferrer">Entrar a Google Meet</a>` : '<span class="action-unavailable">Meet disponible 20 minutos antes</span>'}
-          ${appointment.consultation_report_url ? `<a class="triage-button" href="${escapeHtml(appointment.consultation_report_url)}" target="_blank" rel="noopener noreferrer">Ver informe PDF</a>` : `<span class="action-unavailable">${appointment.consultation_status === 'started' ? 'Cuestionario en curso' : 'Cuestionario pendiente'}</span>`}
+          ${appointment.consultation_report_url ? `<a class="triage-button" href="${escapeHtml(appointment.consultation_report_url)}" target="_blank" rel="noopener noreferrer">Ver informe PDF</a>` : appointment.consultation_status === 'not_applicable' ? '' : `<span class="action-unavailable">${appointment.consultation_status === 'started' ? 'Cuestionario en curso' : 'Cuestionario pendiente'}</span>`}
         </div>
         <section class="appointment-documents">
           <div>
@@ -206,7 +206,7 @@
               ${Number(state.copiedAppointmentId) === Number(appointment.id) ? '<small class="copy-success" role="status">URL copiada</small>' : ''}
             </section>`
           : ''}
-        ${appointment.consultation_report_url ? '' : `<div class="triage-note">
+        ${appointment.consultation_report_url || appointment.consultation_status === 'not_applicable' ? '' : `<div class="triage-note">
           <strong>Informe del bot Reku</strong>
           <span>${appointment.consultation_status === 'started' ? 'El paciente inició el cuestionario y todavía no lo completó. El informe PDF estará disponible al finalizar.' : 'El paciente todavía no completó el cuestionario. El informe PDF estará disponible al finalizar.'}</span>
         </div>`}

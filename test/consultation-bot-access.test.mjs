@@ -14,6 +14,7 @@ test('access mode is server-only and invalid values fail closed', () => {
 test('production validates confirmed current appointment, tenant and single-use marker', () => {
   const row = { appointment_id: 1, status: 'confirmed', current_appointment: true, agreement_prefix: 'ypf', completed_at: null };
   assert.equal(validateBotAppointment(row, 'ypf'), row);
+  assert.throws(() => validateBotAppointment({ ...row, consultation_required: false }, 'ypf'), /ACCESS_REQUIRED/);
   for (const invalid of [null, { ...row, status: 'cancelled' }, { ...row, status: 'pending_payment' }, { ...row, current_appointment: false }])
     assert.throws(() => validateBotAppointment(invalid, 'ypf'), /ACCESS_REQUIRED/);
   assert.throws(() => validateBotAppointment(row, 'other'), /ACCESS_REQUIRED/);

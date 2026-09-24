@@ -9,6 +9,7 @@ import {
   tx,
 } from "./db.mjs";
 import { sendEmail } from "./email.mjs";
+import { requiresAgreementEmailVerification } from './agreement-policy.mjs';
 import {
   buildPatientEmail,
   buildPatientVerificationEmail,
@@ -89,6 +90,12 @@ export const loadPatientIntakeAgreement = async (submission) => {
 };
 
 export const validatePatientIntakeSubmission = async (submission, agreement) => {
+  if (agreement?.access_mode === 'api') {
+    throw Object.assign(new Error('AGREEMENT_API_ACCESS_REQUIRED'), {
+      statusCode: 403,
+      publicMessage: 'Para reservar con este acuerdo, ingresá desde el sitio de tu prestador.',
+    });
+  }
   const errors = {
     nombre: validateName(submission.values.nombre, "nombre"),
     apellido: validateName(submission.values.apellido, "apellido"),
@@ -396,7 +403,7 @@ export const savePatientIntakeAndNotify = async ({
   submission,
   agreement,
   sourcePath,
-  requireEmailVerification = true,
+  requireEmailVerification = requiresAgreementEmailVerification(agreement),
 }) => {
   const saved = await insertPatientIntake(submission, agreement, sourcePath);
   const verification = requireEmailVerification
@@ -437,6 +444,7 @@ export const redeemPatientIntakeVerification = async (token) => {
           a.treatment_service_id,
           a.medical_order_required,
           a.identifier_label,
+          a.access_mode, a.communication_sender, a.email_verification_required,
           a.logo_path,
           a.pdf_path
         FROM patient_intake_verifications v
@@ -479,6 +487,9 @@ export const redeemPatientIntakeVerification = async (token) => {
       treatment_service_id: row.treatment_service_id ? Number(row.treatment_service_id) : null,
       medical_order_required: Boolean(row.medical_order_required),
       identifier_label: row.identifier_label || '',
+      access_mode: row.access_mode || 'web',
+      communication_sender: row.communication_sender || 'reku',
+      email_verification_required: row.email_verification_required !== false,
       logo_path: row.logo_path || "",
       pdf_path: row.pdf_path || "",
       logo_url: row.logo_path ? `/uploads/${row.logo_path}` : "",

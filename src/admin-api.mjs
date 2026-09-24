@@ -676,6 +676,9 @@ const mapAgreement = (row) => ({
   treatment_service_id: row.treatment_service_id ? Number(row.treatment_service_id) : null,
   medical_order_required: Boolean(row.medical_order_required),
   identifier_label: row.identifier_label || '',
+  access_mode: row.access_mode || 'web',
+  communication_sender: row.communication_sender || 'reku',
+  email_verification_required: row.email_verification_required !== false,
   type: row.type,
   logo_path: row.logo_path || "",
   logo_url: row.logo_path ? `/uploads/${row.logo_path}` : "",
@@ -687,7 +690,7 @@ const mapAgreement = (row) => ({
   intake_count: Number(row.intake_count || 0),
   professional_count: Number(row.professional_count || 0),
   active_api_credentials: Number(row.active_api_credentials || 0),
-  api_available: ["Pago", "Nomina"].includes(row.type),
+  api_available: (row.access_mode === 'api' || Number(row.active_api_credentials || 0) > 0) && ["Pago", "Nomina"].includes(row.type),
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -700,6 +703,11 @@ const agreementPayloadFromMultipart = async (request) => {
   // response/storage field for existing URL consumers, never trust a second input.
   const subdomainPrefix = validateAgreementSubdomainPrefix(slug);
   const type = fields.type === "Nomina" ? "Nomina" : "Pago";
+  const accessMode = fields.access_mode || 'web';
+  const communicationSender = accessMode === 'api' ? (fields.communication_sender || 'reku') : 'reku';
+  if (!['web', 'api'].includes(accessMode) || !['reku', 'integrator'].includes(communicationSender)) {
+    throw Object.assign(new Error('AGREEMENT_ACCESS_POLICY_INVALID'), { statusCode: 422 });
+  }
   const identifierLabel = type === 'Nomina' ? String(fields.identifier_label || '').trim() : '';
   if (identifierLabel.length > 80 || /[\u0000-\u001f\u007f]/.test(identifierLabel)) {
     throw Object.assign(new Error('AGREEMENT_IDENTIFIER_LABEL_INVALID'), { statusCode: 422 });
@@ -733,15 +741,18 @@ const agreementPayloadFromMultipart = async (request) => {
       slug,
       subdomain_prefix: subdomainPrefix,
       cobranded: fields.cobranded === "true" || fields.cobranded === "on",
+      access_mode: accessMode,
+      communication_sender: communicationSender,
+      email_verification_required: accessMode === 'web' && fields.email_verification_required !== 'false',
       direct_treatment: directTreatment,
       treatment_service_id: treatmentServiceId,
       medical_order_required: fields.medical_order_required === "true" || fields.medical_order_required === "on",
       type,
       identifier_label: identifierLabel,
       payment_evaluation_url:
-        type === "Nomina" ? "" : optionalUrl(fields.payment_evaluation_url),
+        type === "Nomina" || accessMode === 'api' ? "" : optionalUrl(fields.payment_evaluation_url),
       payment_treatment_url:
-        type === "Nomina" ? "" : optionalUrl(fields.payment_treatment_url),
+        type === "Nomina" || accessMode === 'api' ? "" : optionalUrl(fields.payment_treatment_url),
       remove_logo: fields.remove_logo === "true",
       remove_pdf: fields.remove_pdf === "true",
     },
@@ -752,7 +763,7 @@ const agreementPayloadFromMultipart = async (request) => {
 const createAgreement = async (request, response, user) => {
   const payload = await agreementPayloadFromMultipart(request);
   const logoPath = await saveAgreementLogo(payload.files.logo);
-  const pdfPath = await saveAgreementPdf(payload.files.pdf);
+  const pdfPath = payload.fields.access_mode === 'api' ? null : await saveAgreementPdf(payload.files.pdf);
   if (payload.fields.cobranded && !logoPath) {
     const error = new Error("COBRANDED_LOGO_REQUIRED");
     error.statusCode = 422;
@@ -775,9 +786,9 @@ const createAgreement = async (request, response, user) => {
           direct_treatment,
           treatment_service_id,
           medical_order_required,
-          identifier_label
+          identifier_label, access_mode, communication_sender, email_verification_required
         )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
     `,
     [
@@ -794,6 +805,9 @@ const createAgreement = async (request, response, user) => {
       payload.fields.treatment_service_id,
       payload.fields.medical_order_required,
       payload.fields.identifier_label,
+      payload.fields.access_mode,
+      payload.fields.communication_sender,
+      payload.fields.email_verification_required,
     ],
   );
   await recordAudit("agreement.created", {
@@ -815,6 +829,12 @@ const updateAgreement = async (request, response, user, id) => {
   }
 
   const payload = await agreementPayloadFromMultipart(request);
+  if (payload.fields.access_mode === 'api') {
+    payload.files.pdf = null;
+    payload.fields.remove_pdf = false;
+    payload.fields.payment_evaluation_url = current.payment_evaluation_url;
+    payload.fields.payment_treatment_url = current.payment_treatment_url;
+  }
   const logoPath = await saveAgreementLogo(payload.files.logo);
   const pdfPath = await saveAgreementPdf(payload.files.pdf);
   const nextLogoPath = payload.fields.remove_logo
@@ -842,6 +862,9 @@ const updateAgreement = async (request, response, user, id) => {
           treatment_service_id = $12,
           medical_order_required = $13,
           identifier_label = $14,
+          access_mode = $15,
+          communication_sender = $16,
+          email_verification_required = $17,
           updated_at = NOW()
       WHERE id = $10
         AND deleted_at IS NULL
@@ -862,6 +885,9 @@ const updateAgreement = async (request, response, user, id) => {
       payload.fields.treatment_service_id,
       payload.fields.medical_order_required,
       payload.fields.identifier_label,
+      payload.fields.access_mode,
+      payload.fields.communication_sender,
+      payload.fields.email_verification_required,
     ],
   );
   await recordAudit("agreement.updated", {

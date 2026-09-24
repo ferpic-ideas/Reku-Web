@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Reku API de acuerdos",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "description": "API server-to-server para acuerdos Pago y Nomina. Consultar GET /agreement antes de reservar: tratamiento directo, identificador y orden médica. Los turnos de Nómina se validan contra su nómina y no declaran pago externo. Se conserva X-API-Version: 2026-08-01 por compatibilidad."
   },
   "servers": [{ "url": "https://www.reku.io/api/partners/v1" }],
@@ -76,7 +76,7 @@
       },
       "post": {
         "summary": "Confirmar un turno de Pago o Nómina",
-        "description": "Pago declara un pago externo; Nomina requiere patient.identifier habilitado y crea monto cero sin liquidación. Si medical_order_required=true, usar multipart con payload JSON y archivo medical_order. PDF/JPG/PNG/WebP, máximo 10 MB. Misma clave y mismos datos/archivo reproducen la respuesta original; para estado actual hacer GET.",
+        "description": "Pago declara un pago externo; Nomina requiere patient.identifier habilitado y crea monto cero sin liquidación. Si medical_order_required=true, usar multipart con payload JSON y archivo medical_order. PDF/JPG/PNG/WebP, máximo 10 MB. El integrador verifica la titularidad del email. No hay cuestionario Reku; ReHub se asigna internamente. Devuelve links privados para gestionar el turno y acceder a la sala. Misma clave y mismos datos/archivo reproducen la respuesta original, incluidos los enlaces; para estado actual hacer GET.",
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": {
           "required": true,
@@ -144,6 +144,10 @@
           "id": { "type": "integer" }, "name": { "type": "string" },
           "slug": { "type": "string", "description": "Identificador del acuerdo; también se utiliza como subdominio, sin configurar otro prefijo." },
           "type": { "type": "string", "enum": ["Pago", "Nomina"] },
+          "access_mode": { "type": "string", "enum": ["web", "api"], "description": "Modo del acuerdo configurado en Admin. Las credenciales anteriores conservan validez hasta su revocación." },
+          "communication_sender": { "type": "string", "enum": ["reku", "integrator"], "description": "En API, integrator desactiva los correos al paciente de confirmación, recordatorios, reprogramación y cancelación. No afecta avisos al profesional." },
+          "email_verification_required": { "type": "boolean", "const": false, "description": "La API no envía verificación de titularidad del email." },
+          "email_verification_responsibility": { "type": "string", "const": "integrator" },
           "direct_treatment": { "type": "boolean" },
           "treatment_service_id": { "type": ["integer", "null"] },
           "medical_order_required": { "type": "boolean" },
@@ -221,7 +225,9 @@
               "external_id": { "type": "string" },
               "status": { "type": "string", "enum": ["confirmed", "cancelled"] },
               "agreement_type": { "type": "string", "enum": ["Pago", "Nomina"] },
-              "consultation_status": { "type": "string", "enum": ["pending", "started", "completed"], "description": "Estado del cuestionario Reku. Si completed, no insistir en completarlo. No se expone información clínica ni URL de ReHub." },
+              "consultation_required": { "type": "boolean", "description": "False en nuevas reservas por API: no ofrecer el bot ni enviar recordatorios de cuestionario." },
+              "consultation_status": { "type": "string", "enum": ["not_applicable", "pending", "started", "completed"], "description": "Las nuevas reservas por API devuelven not_applicable. Los demás estados se conservan para turnos históricos. No se expone información clínica ni URL de ReHub." },
+              "links": { "$ref": "#/components/schemas/PatientLinks" },
               "medical_order": { "type": "object", "properties": { "required": { "type": "boolean" }, "received": { "type": "boolean", "description": "Archivo recibido, no implica aprobación clínica." } } },
               "patient": { "$ref": "#/components/schemas/Patient" },
               "schedule": { "type": "object" },
@@ -234,6 +240,16 @@
               "updated_at": { "type": "string", "format": "date-time" }
             }
           }
+        }
+      },
+      "PatientLinks": {
+        "type": "object",
+        "description": "Sólo en POST /appointments y su replay idempotente; GET/PATCH/listado no generan ni devuelven estos enlaces. Guardarlos de forma privada y compartirlos únicamente con el paciente validado. No hay enlace a cuestionario. No registrarlos en logs ni analytics. La sala aplica su horario de acceso.",
+        "required": ["manage_url", "waiting_room_url", "expires_at"],
+        "properties": {
+          "manage_url": { "type": "string", "format": "uri" },
+          "waiting_room_url": { "type": "string", "format": "uri" },
+          "expires_at": { "type": "string", "format": "date-time", "description": "Vencimiento de los enlaces emitidos. El replay conserva este vencimiento; no los renueva." }
         }
       },
       "Error": {

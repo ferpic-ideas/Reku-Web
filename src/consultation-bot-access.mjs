@@ -21,6 +21,7 @@ export const hasBotAppointmentAccess = request => consultationBotMode() === 'pro
 
 export const validateBotAppointment = (row, prefix, { allowCompleted = false } = {}) => {
   if (!row || row.status !== 'confirmed' || (!row.current_appointment && !(allowCompleted && row.completed_at)) || row.agreement_prefix !== prefix) throw fail('required');
+  if (row.consultation_required === false) throw fail('required');
   if (row.completed_at && !allowCompleted) throw fail('completed', 409);
   return row;
 };
@@ -29,7 +30,7 @@ export const requireBotAppointment = async (request, { token = parseCookies(requ
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw fail('required');
   const result = await execute(`
     SELECT link.id AS access_link_id, appointment.id AS appointment_id,
-      appointment.status, usage.completed_at, (usage.report_encrypted IS NOT NULL) AS report_available,
+      appointment.status, appointment.consultation_required, usage.completed_at, (usage.report_encrypted IS NOT NULL) AS report_available,
       appointment.patient_id, appointment.patient_name, appointment.patient_email, appointment.patient_phone,
       ((appointment.appointment_date + appointment.end_time) AT TIME ZONE $2) > NOW() AS current_appointment,
       CASE WHEN appointment.agreement_id IS NULL THEN ''

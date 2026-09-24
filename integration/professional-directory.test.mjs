@@ -20,7 +20,7 @@ test('professional directory includes confirmed appointment snapshots without re
       CREATE TABLE services (id BIGINT PRIMARY KEY, name TEXT);
       CREATE TABLE agreements (id BIGINT PRIMARY KEY, slug TEXT, subdomain_prefix TEXT, deleted_at TIMESTAMPTZ);
       CREATE TABLE appointments (id BIGINT PRIMARY KEY, patient_id BIGINT, professional_id BIGINT,
-        patient_name TEXT, patient_email TEXT, patient_phone TEXT, status TEXT,
+        patient_name TEXT, patient_email TEXT, patient_phone TEXT, status TEXT, consultation_required BOOLEAN DEFAULT TRUE,
         appointment_date DATE, start_time TIME, end_time TIME, service_id BIGINT DEFAULT 1,
         agreement_id BIGINT, agreement_slug_snapshot TEXT, agreement_name_snapshot TEXT,
         agreement_type_snapshot TEXT, triage_assignment_error TEXT, triage_reminder_sent_at TIMESTAMPTZ,

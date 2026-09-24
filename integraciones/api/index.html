@@ -68,6 +68,11 @@
           <p class="section-intro">La API es server-to-server. El token debe permanecer en tu backend y nunca incluirse en JavaScript público, una app móvil ni una URL.</p>
           <p>Primero consultá <code>GET /agreement</code>: devuelve <code>type</code> (Pago o Nomina), <code>slug</code> (también subdominio), <code>direct_treatment</code>, <code>treatment_service_id</code>, <code>medical_order_required</code> e <code>identifier_label</code>. Ambos tipos permiten gestionar credenciales desde Admin → Acuerdos → API.</p>
           <p>Los ejemplos de abajo muestran Pago sin orden obligatoria. Para Nómina y carga de órdenes, consultá las variantes del flujo más abajo.</p>
+          <h3>Acceso, correo y comunicación</h3>
+          <p>En Admin → Acuerdos seleccioná <strong>Acceso: API</strong> y elegí <strong>Comunicación: Reku o Integrador</strong>. <strong>Cobranded y Logo</strong> siguen disponibles para personalizar la sala de espera y las pantallas de Reku. No se piden PDF “Cómo funciona” ni enlaces de pago; el cobro de los acuerdos Pago ocurre en tu plataforma. Ambos tipos, Pago y Nómina, permiten integración. Las credenciales emitidas anteriormente siguen vigentes hasta revocarlas, aunque el acuerdo aún figure como Web Reku.</p>
+          <p><code>GET /agreement</code> devuelve <code>access_mode</code>, <code>communication_sender</code>, <code>email_verification_required=false</code> y <code>email_verification_responsibility=integrator</code>. <strong>La API no verifica la titularidad del email:</strong> el integrador debe hacerlo antes de confirmar y de entregar enlaces privados. Reku valida el formato, no la identidad del dueño de la casilla.</p>
+          <p>Con Acceso API, las nuevas reservas se realizan desde el sitio del integrador, no desde el formulario público de Reku. Los enlaces privados para gestionar turnos existentes y entrar a la sala de espera siguen funcionando.</p>
+          <p>Con Comunicación <strong>Reku</strong>, enviamos los correos del turno. Con <strong>Integrador</strong>, no enviamos al paciente confirmaciones, recordatorios, reprogramaciones ni cancelaciones; tu plataforma debe gestionarlos. Los avisos al profesional y correos de seguridad del portal se mantienen. Para detectar cambios realizados desde Reku, consultá periódicamente <code>GET /appointments</code> o el detalle: todavía no hay webhooks.</p>
           <div class="callout base-url">
             <span>Base URL</span>
             <code>https://www.reku.io/api/partners/v1</code>
@@ -155,7 +160,7 @@
             <li><span>3</span><div><strong>Protegé el horario</strong><p>Ejecutá <code>POST /holds</code>. Reku lo retira de disponibilidad durante 10 minutos y devuelve un <code>hold_id</code>.</p></div></li>
             <li><span>4</span><div><strong>Completá los datos</strong><p>En Pago, cobrá en tu sistema. En Nómina, pedí el identificador indicado por el acuerdo. Adjuntá la orden si corresponde.</p></div></li>
             <li><span>5</span><div><strong>Confirmá la reserva</strong><p>Ejecutá <code>POST /appointments</code> con el <code>hold_id</code>. En Pago, un <code>201</code> significa turno confirmado y pago externo declarado. En Nómina significa turno confirmado con cobertura de nómina, sin cobro.</p></div></li>
-            <li><span>6</span><div><strong>Guardá los identificadores</strong><p>Persistí el <code>data.id</code> de Reku junto con tu <code>external_id</code>.</p></div></li>
+            <li><span>6</span><div><strong>Guardá los identificadores y enlaces privados</strong><p>Persistí <code>data.id</code>, tu <code>external_id</code> y <code>data.links</code>. Mostrá o enviá los enlaces sólo al paciente validado.</p></div></li>
             <li><span>7</span><div><strong>Gestioná cambios</strong><p>Reprogramá con <code>PATCH /appointments/{id}</code> o cancelá con <code>POST /appointments/{id}/cancel</code>.</p></div></li>
           </ol>
           <div class="warning"><strong>Vencimiento automático:</strong><span>al cumplirse 10 minutos el horario vuelve a ofrecerse sin intervención. La confirmación posterior vuelve a comprobar disponibilidad y requisitos actuales del acuerdo.</span></div>
@@ -181,9 +186,13 @@
   -F 'payload=&lt;reserva.json' \
   -F 'medical_order=@orden.pdf;type=application/pdf'</code></pre>
           <p>Reintentá con el mismo JSON y archivo usando la misma clave. La huella del archivo forma parte de la idempotencia: cambiarlo con esa clave devuelve conflicto. La orden queda privada y disponible para el admin y el profesional asignado. <code>medical_order.received</code> significa recibida, no validada clínicamente.</p>
-          <h3>Cuestionario y cambios del turno</h3>
-          <p>Los turnos devuelven <code>consultation_status</code>: <code>pending</code>, <code>started</code> o <code>completed</code>. Consultá <code>GET /appointments/{id}</code> para obtener el estado actualizado; si está completo, no muestres la invitación a responder. Un replay conserva la respuesta original.</p>
-          <p>Los mails del paciente mantienen los enlaces al bot Reku y a la sala bajo el subdominio del acuerdo. La llamada a ReHub continúa por detrás; su URL interna no se expone a partners. El PDF clínico tampoco se expone por esta API.</p>
+          <h3>Enlaces de confirmación y cuestionario</h3>
+          <p><code>POST /appointments</code> devuelve <code>data.links.manage_url</code> (gestionar turno), <code>data.links.waiting_room_url</code> (sala) y <code>data.links.expires_at</code>. Guardalos en tu backend de forma privada, sin logs ni analytics. Son accesos personales: no los compartas con otros pacientes. La sala respeta el horario habilitado del turno.</p>
+          <p><strong>No necesitás desarrollar una sala de espera:</strong> un botón “Ingresar a la videollamada” puede abrir <code>waiting_room_url</code>, que muestra la sala de Reku y controla el acceso a Meet. La API de partners todavía no expone presencia del profesional ni habilitación en tiempo real para construir una sala propia.</p>
+          <p>Los enlaces se devuelven al crear y al reintentar la misma operación con su <code>Idempotency-Key</code>; GET, PATCH y el listado no los generan. El replay conserva la respuesta y el vencimiento originales, no los renueva. Consultá GET para el estado actual del turno.</p>
+          <p><strong>Las reservas por API no tienen cuestionario Reku:</strong> devuelven <code>consultation_required=false</code> y <code>consultation_status=not_applicable</code>. No muestres el bot ni envíes recordatorios para completarlo. Los estados <code>pending</code>, <code>started</code> y <code>completed</code> quedan por compatibilidad con turnos históricos. Los informes históricos completados se conservan.</p>
+          <p>La asignación a ReHub continúa internamente y su URL se guarda, independientemente de quién gestione la comunicación. La URL interna de ReHub y los PDF clínicos no se exponen a partners.</p>
+          <h3>Cambios del turno</h3>
           <p>PATCH permite corregir datos y reprogramar, pero no reemplazar email ni identificador del paciente: cancelá y creá otro turno para evitar transferir documentación o enlaces privados. Si enviás <code>patient</code>, enviá todos sus campos. Se conserva el tipo económico y la condición de orden del turno original. En tratamiento directo se conserva el profesional salvo un cambio explícito a otro habilitado. PATCH no admite archivos.</p>
         </section>
 
@@ -243,7 +252,7 @@
 
     <footer>
       <img src="../../images/logo-reku.svg" alt="Reku" />
-      <p>API de acuerdos v1.2 · <a href="mailto:hola@reku.io">hola@reku.io</a></p>
+      <p>API de acuerdos v1.3 · <a href="mailto:hola@reku.io">hola@reku.io</a></p>
     </footer>
   </body>
 </html>

@@ -321,9 +321,11 @@ Variables clave:
 - `BOOKING_VERIFIED_EMAIL_COOKIE_NAME`
 - `BOOKING_VERIFIED_EMAIL_TTL_SECONDS` (180 días por defecto; recuerda en el
   mismo navegador un email ya verificado que tenga al menos un turno previo)
-- `BOOKING_EMAIL_VERIFICATION_ENABLED` (debe permanecer `true` en producción;
-  verifica el email antes de habilitar la agenda y sólo omite el paso cuando el
-  navegador presenta un comprobante firmado válido para ese mismo email)
+- La verificación del correo se configura por acuerdo con
+  `email_verification_required` (Web Reku, activada por defecto). En API la
+  verificación de titularidad queda a cargo del integrador. Las variables antiguas
+  `BOOKING_EMAIL_VERIFICATION_ENABLED` y `ALLOW_BOOKING_EMAIL_VERIFICATION_DISABLED_IN_PRODUCTION`
+  ya no controlan este comportamiento.
 - `PATIENT_APPOINTMENT_LINK_GRACE_DAYS` (7 por defecto)
 - Los links privados del mail pueden reutilizarse hasta su vencimiento o revocación.
 - `PROFESSIONAL_LINK_TTL_HOURS`

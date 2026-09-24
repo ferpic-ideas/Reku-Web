@@ -106,14 +106,18 @@ test("public documentation and Admin expose the complete agreement API workflow"
 
 test("OpenAPI describes Nómina, agreement settings, orders and questionnaire status", async () => {
   const spec = JSON.parse(await readFile(new URL('../integraciones/api/openapi.json', import.meta.url), 'utf8'));
-  assert.equal(spec.info.version, '1.2.0');
+  assert.equal(spec.info.version, '1.3.0');
   const agreement = spec.components.schemas.Agreement.properties;
   assert.deepEqual(agreement.type.enum, ['Pago', 'Nomina']);
   for (const field of ['slug', 'direct_treatment', 'treatment_service_id', 'medical_order_required', 'identifier_label']) assert.ok(agreement[field]);
   assert.ok(spec.components.schemas.Patient.properties.identifier);
   assert.ok(spec.paths['/appointments'].post.requestBody.content['multipart/form-data']);
   const response = spec.components.schemas.AppointmentResponse.properties.data.properties;
-  assert.deepEqual(response.consultation_status.enum, ['pending', 'started', 'completed']);
+  assert.deepEqual(response.consultation_status.enum, ['not_applicable', 'pending', 'started', 'completed']);
+  assert.equal(agreement.email_verification_required.const, false);
+  assert.ok(agreement.communication_sender);
+  assert.ok(response.links);
+  assert.ok(response.consultation_required);
   assert.ok(response.medical_order.properties.received);
   assert.equal(response.triage_url, undefined);
   assert.equal(response.report_url, undefined);

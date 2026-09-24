@@ -1197,10 +1197,10 @@
               ${appointment.google_sync_status ? detailRow('Google Calendar', appointment.google_sync_status) : ''}
               ${appointment.google_meet_url ? detailCopyRow('Google Meet', appointment.google_meet_url) : ''}
               ${appointment.google_sync_error ? detailRow('Error de Google', appointment.google_sync_error) : ''}
-              ${detailRow('Cuestionario previo', appointment.consultation_status === 'completed' ? 'Completado' : appointment.consultation_status === 'started' ? 'Iniciado' : 'Pendiente')}
-              <div class="detail-row"><span>Informe del bot Reku</span><strong>${appointment.consultation_report_url
+              ${detailRow('Cuestionario previo', appointment.consultation_status === 'not_applicable' ? 'No aplica (reserva API)' : appointment.consultation_status === 'completed' ? 'Completado' : appointment.consultation_status === 'started' ? 'Iniciado' : 'Pendiente')}
+              ${appointment.consultation_status === 'not_applicable' ? '' : `<div class="detail-row"><span>Informe del bot Reku</span><strong>${appointment.consultation_report_url
                 ? `<a class="secondary-button" href="${escapeHtml(appointment.consultation_report_url)}" target="_blank" rel="noopener noreferrer">Ver informe PDF</a>`
-                : appointment.consultation_status === 'started' ? 'Cuestionario en curso. El PDF estará disponible al completarlo.' : 'Pendiente de completar por el paciente.'}</strong></div>
+                : appointment.consultation_status === 'started' ? 'Cuestionario en curso. El PDF estará disponible al completarlo.' : 'Pendiente de completar por el paciente.'}</strong></div>`}
               <div class="detail-row"><span>Triage ReHub (sólo admin)</span><strong>${appointment.rehub_triage_url
                 ? `<a href="${escapeHtml(appointment.rehub_triage_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(appointment.rehub_triage_url)}</a>`
                 : 'Sin URL asignada.'}</strong></div>
@@ -2613,6 +2613,21 @@
     return `
       <div class="agreement-form-layout">
       <div class="grid-two agreement-form-row">
+        <label>Acceso
+          <select name="access_mode" id="agreement-access-mode">
+            <option value="web" ${item.access_mode !== 'api' ? 'selected' : ''}>Web Reku</option>
+            <option value="api" ${item.access_mode === 'api' ? 'selected' : ''}>API</option>
+          </select>
+        </label>
+        <label data-api-only ${item.access_mode !== 'api' ? 'hidden' : ''}>Comunicación
+          <select name="communication_sender">
+            <option value="reku" ${item.communication_sender !== 'integrator' ? 'selected' : ''}>Reku</option>
+            <option value="integrator" ${item.communication_sender === 'integrator' ? 'selected' : ''}>Integrador</option>
+          </select>
+          <span class="field-help">Confirmaciones, recordatorios, cambios y cancelaciones al paciente. La verificación del email queda a cargo del integrador.</span>
+        </label>
+      </div>
+      <div class="grid-two agreement-form-row">
         <label>
           Nombre
           <input name="name" value="${escapeHtml(item.name)}" required />
@@ -2669,6 +2684,10 @@
             <input type="checkbox" name="cobranded" ${item.cobranded ? 'checked' : ''} />
             Cobranded
           </label>
+          <label class="check-row" data-web-only>
+            <input type="checkbox" name="email_verification_required" ${item.email_verification_required !== false ? 'checked' : ''} />
+            Verificar email antes de reservar
+          </label>
           <label class="check-row">
             <input type="checkbox" name="medical_order_required" ${item.medical_order_required ? 'checked' : ''} />
             Orden médica obligatoria para reservar
@@ -2688,7 +2707,7 @@
           </label>
         ` : ''}
         </div>
-        <div class="agreement-form-stack">
+        <div class="agreement-form-stack" data-web-only>
         <label>
           PDF Cómo funciona
           <input class="file-input" name="pdf" type="file" accept="application/pdf" />
@@ -3501,6 +3520,20 @@
     });
 
     const agreementTypeSelect = document.getElementById('agreement-type-select');
+    const agreementAccessSelect = document.getElementById('agreement-access-mode');
+    const toggleAgreementAccess = () => {
+      const isApi = agreementAccessSelect?.value === 'api';
+      document.querySelectorAll('#agreement-form [data-web-only], #agreement-form [data-api-only]').forEach(wrapper => {
+        const hide = wrapper.hasAttribute('data-web-only') ? isApi : !isApi;
+        wrapper.hidden = hide;
+        wrapper.querySelectorAll('input, select').forEach(input => { input.disabled = hide; });
+      });
+      document.querySelectorAll('#agreement-form [data-payment-fields]').forEach(wrapper => {
+        wrapper.hidden = isApi || agreementTypeSelect?.value === 'Nomina';
+        wrapper.querySelectorAll('input').forEach(input => { input.disabled = wrapper.hidden; });
+      });
+    };
+    agreementAccessSelect?.addEventListener('change', toggleAgreementAccess);
     if (agreementTypeSelect) {
       const togglePaymentFields = () => {
         const isNomina = agreementTypeSelect.value === 'Nomina';
@@ -3518,8 +3551,10 @@
         });
       };
       agreementTypeSelect.addEventListener('change', togglePaymentFields);
+      agreementTypeSelect.addEventListener('change', toggleAgreementAccess);
       togglePaymentFields();
     }
+    toggleAgreementAccess();
 
     const agreementSlugInput = document.querySelector(
       '#agreement-form input[name="slug"]',
@@ -4603,6 +4638,7 @@
     const form = event.currentTarget;
     const data = new FormData(form);
     data.set('cobranded', form.cobranded.checked ? 'true' : 'false');
+    data.set('email_verification_required', form.email_verification_required.checked ? 'true' : 'false');
     data.set('remove_logo', form.remove_logo?.checked ? 'true' : 'false');
     data.set('remove_pdf', form.remove_pdf?.checked ? 'true' : 'false');
 

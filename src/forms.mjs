@@ -1,4 +1,5 @@
 import { config } from "./config.mjs";
+import { requiresAgreementEmailVerification } from './agreement-policy.mjs';
 import { pool, query, recordAudit } from "./db.mjs";
 import { sendEmail } from "./email.mjs";
 import {
@@ -12,6 +13,7 @@ import {
   buildPatientIntakeSubmission,
   loadPatientIntakeAgreement,
   savePatientIntakeAndNotify,
+  createPatientBookingLink,
   validatePatientIntakeSubmission,
 } from "./patient-intakes.mjs";
 import {
@@ -472,11 +474,17 @@ const handleBookingHelp = async (submission, response) => {
 };
 
 const handlePatientIntake = async (submission, agreement, request, response) => {
-  await savePatientIntakeAndNotify({
+  const saved = await savePatientIntakeAndNotify({
     submission,
     agreement,
     sourcePath: request.url,
   });
+  if (!requiresAgreementEmailVerification(agreement)) {
+    const bookingLink = await createPatientBookingLink({ recordId: saved.recordId, submission, agreement });
+    sendJson(response, 201, { ok: true, verification_required: false, booking_url: bookingLink.url,
+      message: 'Tus datos están listos. Podés continuar con la reserva.' });
+    return;
+  }
   sendJson(response, 202, {
     ok: true,
     message: "Revisá tu mail para confirmar la dirección y continuar.",
@@ -583,6 +591,10 @@ export const handleFormSubmission = async (request, response) => {
         { error: rateLimitRetryMessage(error.retryAfter) },
         { "Retry-After": String(error.retryAfter || 60) },
       );
+      return;
+    }
+    if (error.message === 'AGREEMENT_API_ACCESS_REQUIRED') {
+      sendJson(response, 403, { error: error.publicMessage });
       return;
     }
     const statusCode =

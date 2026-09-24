@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, rm, access } from "node:fs/promises";
+import { mkdtemp, rm, access, readFile } from "node:fs/promises";
+import vm from 'node:vm';
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +12,10 @@ import pg from "pg";
 import { encryptBotReport } from '../src/consultation-bot-report-storage.mjs';
 import { config } from '../src/config.mjs';
 import { hashPassword } from '../src/security.mjs';
+import { patientCommunicationsSql } from '../src/agreement-policy.mjs';
+import { consultationStatusSql } from '../src/consultation-status.mjs';
+import { escapeHtml } from '../src/http.mjs';
+import { googleCalendarTemplateUrl } from '../src/appointment-calendar.mjs';
 
 const { Pool } = pg;
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -271,6 +276,8 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     });
     assert.equal(agreement.status, 200);
     assert.equal(agreement.json.data.id, fixture.primaryAgreementId);
+    assert.equal(agreement.json.data.email_verification_required, false);
+    assert.equal(agreement.json.data.email_verification_responsibility, 'integrator');
     assert.deepEqual(agreement.json.data.capabilities, [
       "availability",
       "hold",
@@ -402,6 +409,12 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     assert.match(created.json.data.id, /^apt_[a-f0-9]{32}$/);
     assert.equal(created.json.data.external_id, createPayload.external_id);
     assert.equal(created.json.data.status, "confirmed");
+    assert.equal(created.json.data.consultation_required, false);
+    assert.equal(created.json.data.consultation_status, 'not_applicable');
+    assert.match(created.json.data.links.manage_url, /\/turnos\/#manage=[A-Za-z0-9_-]{43}$/);
+    assert.match(created.json.data.links.waiting_room_url, /view=videollamada#manage=/);
+    assert.ok(Date.parse(created.json.data.links.expires_at) > Date.now());
+    assert.equal(created.json.data.links.questionnaire_url, undefined);
     assert.equal(created.json.data.payment.status, "paid");
     assert.equal(created.json.data.payment.reference, createPayload.payment_reference);
     assert.equal(created.json.data.settlement.amount, 25000);
@@ -419,6 +432,23 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     assert.equal(replay.status, 201);
     assert.equal(replay.headers.get("idempotent-replayed"), "true");
     assert.equal(replay.json.data.id, publicAppointmentId);
+    assert.deepEqual(replay.json, created.json);
+    const stored = (await pool.query("SELECT response_body FROM agreement_api_idempotency WHERE idempotency_key='create-main-001'")).rows[0].response_body;
+    assert.equal(stored.data.links, undefined);
+    assert.match(stored.data.links_encrypted, /^v1\./);
+    assert.ok(!JSON.stringify(stored).includes(created.json.data.links.manage_url));
+
+    const rawToken = new URL(created.json.data.links.manage_url).hash.slice('#manage='.length);
+    const appointment = (await pool.query('SELECT id FROM appointments WHERE agreement_api_public_id=$1', [publicAppointmentId])).rows[0];
+    const access = (await pool.query('SELECT id FROM patient_appointment_access_links WHERE token_hash=$1', [await sha256(rawToken)])).rows[0];
+    assert.ok(access, 'Returned token really grants this appointment access');
+    const session = randomBytes(32).toString('base64url');
+    await pool.query("INSERT INTO patient_appointment_sessions (token_hash,access_link_id,appointment_id,expires_at) VALUES ($1,$2,$3,NOW()+INTERVAL '1 day')", [await sha256(session), access.id, appointment.id]);
+    const headers = { Cookie: `${config.patientAppointmentSessionCookieName}=${session}` };
+    const managed = await (await fetch(`${baseUrl}/api/booking/manage/appointment`, { headers })).json();
+    assert.equal(managed.appointment.consultation_status, 'not_applicable');
+    assert.equal(managed.appointment.triage_url, '');
+    assert.equal((await fetch(`${baseUrl}/api/booking/manage/consultation`, { headers, redirect: 'manual' })).status, 409);
 
     const count = await pool.query(
       `SELECT COUNT(*)::int AS count FROM appointments WHERE agreement_api_external_id = $1`,
@@ -641,6 +671,8 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
 
   await t.test('patient buttons and professional reports reflect durable questionnaire completion', async () => {
     const row = (await pool.query('SELECT * FROM appointments WHERE agreement_api_external_id = $1', [createPayload.external_id])).rows[0];
+    // Emulate a historical Web booking; new API bookings have no questionnaire.
+    await pool.query('UPDATE appointments SET consultation_required = TRUE WHERE id = $1', [row.id]);
     const token = randomBytes(32).toString('base64url');
     const link = (await pool.query("INSERT INTO patient_appointment_access_links (token_hash, appointment_id, expires_at) VALUES ($1,$2,NOW()+INTERVAL '1 day') RETURNING id", [await sha256(token), row.id])).rows[0];
     const sessionToken = randomBytes(32).toString('base64url');
@@ -977,6 +1009,8 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     assert.equal(agreement.direct_treatment, true);
     assert.equal(agreement.medical_order_required, true);
     assert.equal(agreement.treatment_service_id, Number(service.id));
+    assert.equal(agreement.access_mode, 'web');
+    assert.equal(agreement.email_verification_required, true);
     for (const professionalId of fixture.professionalIds) {
       await pool.query('INSERT INTO professional_services (professional_id,service_id) VALUES ($1,$2)', [professionalId, service.id]);
       await pool.query('INSERT INTO professional_agreements (professional_id,agreement_id) VALUES ($1,$2)', [professionalId, agreement.id]);
@@ -1168,7 +1202,7 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     assert.deepEqual(data.settlement, { amount: 0, currency: 'ARS', billable: false });
     assert.deepEqual(data.medical_order, { required: true, received: true });
     assert.equal(data.patient.identifier, 'LEG-123');
-    assert.equal(data.consultation_status, 'pending');
+    assert.equal(data.consultation_status, 'not_applicable');
     assert.equal(data.agreement_type, 'Nomina');
     const replay = await upload(payload, 'nomina-create-001');
     assert.equal(replay.headers.get('idempotent-replayed'), 'true');
@@ -1267,5 +1301,89 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     );
     assert.equal(idempotency.rows.length, 3);
     assert.ok(idempotency.rows.every((row) => row.count === 1));
+  });
+
+  await t.test('API policy persists, preserves web assets and never skips internal ReHub or professional notices', async () => {
+    const row = (await pool.query("SELECT * FROM appointments WHERE agreement_id=$1 AND status='confirmed' AND consultation_required=FALSE LIMIT 1", [fixture.primaryAgreementId])).rows[0];
+    assert.ok(row);
+    const login = await fetch(`${baseUrl}/api/admin/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: baseUrl }, body: JSON.stringify({ email: 'report-admin@example.test', password: 'Local-admin-report-test-2026!' }) });
+    const loginData = await login.json();
+    const adminHeaders = { Cookie: login.headers.get('set-cookie').split(';')[0], Origin: baseUrl, 'X-CSRF-Token': loginData.csrf_token };
+    await pool.query("UPDATE agreements SET logo_path='test-preserved-logo.png', pdf_path='test-preserved.pdf', payment_evaluation_url='https://example.test/pay' WHERE id=$1", [row.agreement_id]);
+    const form = new FormData();
+    for (const [key,value] of Object.entries({ name: 'API Test Principal', slug: 'api-test-principal', type: 'Pago', access_mode: 'api', communication_sender: 'integrator', cobranded: 'true', email_verification_required: 'true', remove_pdf: 'true', payment_evaluation_url: 'https://example.test/ignored' })) form.set(key,value);
+    const saved = await fetch(`${baseUrl}/api/admin/agreements/${row.agreement_id}`, { method: 'PUT', headers: adminHeaders, body: form });
+    assert.equal(saved.status, 200, await saved.clone().text());
+    const agreement = (await saved.json()).agreement;
+    assert.equal(agreement.access_mode, 'api');
+    assert.equal(agreement.communication_sender, 'integrator');
+    assert.equal(agreement.email_verification_required, false);
+    assert.equal(agreement.cobranded, true);
+    assert.equal(agreement.logo_path, 'test-preserved-logo.png');
+    assert.equal(agreement.pdf_path, 'test-preserved.pdf');
+    assert.equal(agreement.payment_evaluation_url, 'https://example.test/pay');
+    assert.equal(agreement.api_available, true);
+    const refusedIntake = await fetch(`${baseUrl}/api/booking/intake`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: baseUrl }, body: JSON.stringify({ agreement_slug: agreement.slug, nombre: 'Persona', apellido: 'Prueba', email: 'policy-intake@example.test', telefono: '1155550000' }) });
+    assert.equal(refusedIntake.status, 403, 'API email-verification bypass must not expose unauthenticated Web booking');
+
+    const roomToken = randomBytes(32).toString('base64url');
+    const roomLink = (await pool.query("INSERT INTO patient_appointment_access_links (token_hash,appointment_id,expires_at) VALUES ($1,$2,NOW()+INTERVAL '1 day') RETURNING id", [await sha256(roomToken), row.id])).rows[0];
+    await pool.query("INSERT INTO patient_appointment_sessions (token_hash,access_link_id,appointment_id,expires_at) VALUES ($1,$2,$3,NOW()+INTERVAL '1 day')", [await sha256(roomToken), roomLink.id, row.id]);
+    const brandedRoom = await (await fetch(`${baseUrl}/api/booking/manage/appointment`, { headers: { Cookie: `${config.patientAppointmentSessionCookieName}=${roomToken}` } })).json();
+    assert.equal(brandedRoom.appointment.agreement.cobranded, true);
+    assert.equal(brandedRoom.appointment.agreement.logo_url, '/uploads/test-preserved-logo.png');
+    assert.equal(brandedRoom.appointment.consultation_status, 'not_applicable');
+
+    const source = await readFile(new URL('../src/appointment-notifications.mjs', import.meta.url), 'utf8');
+    const messages = [], assigned = [];
+    const context = {
+      config, escapeHtml, googleCalendarTemplateUrl, patientCommunicationsSql, consultationStatusSql,
+      query: pool.query.bind(pool), recordAudit: async () => {},
+      readAppointmentConsultationStatus: async () => 'not_applicable',
+      createPatientAppointmentAccessLink: async () => ({ url: 'https://example.test/manage', meet_url: 'https://example.test/sala', bot_url: '' }),
+      createProfessionalAccessLink: async () => ({ url: 'https://example.test/profesional' }),
+      isReHubConfigured: () => true,
+      ensureAppointmentTriage: async id => {
+        assigned.push(id);
+        await pool.query('UPDATE appointments SET triage_url=$2 WHERE id=$1', [id,'https://patient.rehub.cloud/internal-test']);
+        return { url: 'https://patient.rehub.cloud/internal-test' };
+      },
+      syncAppointmentToGoogleCalendar: async () => ({ status: 'not_connected' }),
+      sendEmail: async message => { messages.push(message); return { id: 'synthetic' }; },
+    };
+    vm.runInNewContext(source.replace(/^import\s+[\s\S]*?from\s+['"][^'"]+['"];\s*/gm, '').replace(/\bexport /g, '') + '\nglobalThis.actions = { notifyConfirmedAppointment, notifyPatientAppointmentFollowup, notifyPatientForPendingPayment, notifyPatientForCancellation, notifyPatientTriageReminder };', context);
+    await pool.query('UPDATE appointments SET patient_notified_at=NULL, professional_notified_at=NULL WHERE id=$1', [row.id]);
+    const result = await context.actions.notifyConfirmedAppointment(row.id);
+    assert.equal(result.patient.skipped, true);
+    assert.equal(result.professional.ok, true, result.professional.error);
+    assert.deepEqual(assigned, [row.id]);
+    assert.ok(messages.length === 1 && messages[0].to !== row.patient_email);
+    assert.equal((await pool.query('SELECT triage_url FROM appointments WHERE id=$1',[row.id])).rows[0].triage_url, 'https://patient.rehub.cloud/internal-test');
+    await assert.rejects(context.actions.notifyPatientTriageReminder(row.id, row.professional_id), /TRIAGE_REMINDER_NOT_AVAILABLE/);
+    // Exercise each patient claim against the real database; no provider calls.
+    await pool.query("UPDATE appointments SET appointment_date=(NOW() AT TIME ZONE $2 + INTERVAL '1 hour')::date, start_time=(NOW() AT TIME ZONE $2 + INTERVAL '1 hour')::time, end_time=(NOW() AT TIME ZONE $2 + INTERVAL '2 hours')::time, patient_followup_notified_at=NULL WHERE id=$1", [row.id, config.googleCalendarTimeZone]);
+    assert.equal((await context.actions.notifyPatientAppointmentFollowup(row.id)).skipped, true);
+    await pool.query("UPDATE appointments SET status='pending_payment', pending_payment_notified_at=NULL WHERE id=$1", [row.id]);
+    assert.equal((await context.actions.notifyPatientForPendingPayment(row.id)).skipped, true);
+    await pool.query("UPDATE appointments SET status='cancelled', patient_cancellation_notified_at=NULL WHERE id=$1", [row.id]);
+    assert.equal((await context.actions.notifyPatientForCancellation(row.id)).skipped, true);
+    assert.equal(messages.length, 1);
+    await pool.query("UPDATE appointments SET status='confirmed' WHERE id=$1", [row.id]);
+    await pool.query("UPDATE agreements SET communication_sender='reku' WHERE id=$1", [row.agreement_id]);
+    await context.actions.notifyConfirmedAppointment(row.id);
+    const patientMail = messages.find(message => message.to === row.patient_email);
+    assert.ok(patientMail);
+    assert.doesNotMatch(patientMail.html, /Completar cuestionario|Cuestionario previo/);
+    await assert.rejects(context.actions.notifyPatientTriageReminder(row.id, row.professional_id), /TRIAGE_REMINDER_NOT_AVAILABLE/);
+  });
+
+  await t.test('Web agreement can explicitly skip email verification without an API bypass', async () => {
+    await pool.query("UPDATE agreements SET access_mode='web', communication_sender='reku', email_verification_required=FALSE WHERE id=$1", [fixture.isolatedAgreementId]);
+    const result = await fetch(`${baseUrl}/api/booking/intake`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: baseUrl }, body: JSON.stringify({ agreement_slug: 'api-test-aislado', nombre: 'Persona', apellido: 'Prueba', email: 'web-no-verification@example.test', telefono: '1155552222' }) });
+    assert.equal(result.status, 201, await result.clone().text());
+    const payload = await result.json();
+    assert.equal(payload.verification_required, false);
+    assert.ok(payload.booking_expires_at);
+    assert.match(result.headers.get('set-cookie'), /reku_booking_access=/);
   });
 });

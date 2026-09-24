@@ -22,6 +22,21 @@ import { consumeRateLimit } from "./rate-limit.mjs";
 import { parseMultipartForm } from "./uploads.mjs";
 import { validateClinicalDocument, saveClinicalDocument, removeClinicalDocuments } from "./appointment-documents.mjs";
 import { consultationStatusSql } from "./consultation-status.mjs";
+import { createPatientAppointmentAccessLink } from './patient-appointment-links.mjs';
+import { encryptSecret, decryptSecret } from './secret-envelope.mjs';
+
+const idempotentResponse = (body, credentialId, key, encrypt = false) => {
+  const options = { material: config.settingsEncryptionKey, context: `partner-links:${credentialId}:${key}` };
+  if (encrypt && body.data?.links) {
+    const { links, ...data } = body.data;
+    return { ...body, data: { ...data, links_encrypted: encryptSecret(JSON.stringify(links), options) } };
+  }
+  if (!encrypt && body.data?.links_encrypted) {
+    const { links_encrypted, ...data } = body.data;
+    return { ...body, data: { ...data, links: JSON.parse(decryptSecret(links_encrypted, options)) } };
+  }
+  return body;
+};
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -302,7 +317,8 @@ const requireCredential = async (request) => {
         agreement.type AS agreement_type,
         agreement.cobranded AS agreement_cobranded,
         agreement.direct_treatment, agreement.treatment_service_id,
-        agreement.medical_order_required, agreement.identifier_label
+        agreement.medical_order_required, agreement.identifier_label,
+        agreement.access_mode, agreement.communication_sender, agreement.email_verification_required
       FROM agreement_api_credentials credential
       INNER JOIN agreements agreement ON agreement.id = credential.agreement_id
       WHERE credential.token_hash = $1
@@ -381,7 +397,7 @@ const lookupIdempotentResult = async ({ request, credential, payload }) => {
   return {
     replay: true,
     statusCode: Number(existing.response_status),
-    body: existing.response_body,
+    body: idempotentResponse(existing.response_body, credential.id, identity.key),
     appointmentId: existing.appointment_id ? Number(existing.appointment_id) : null,
   };
 };
@@ -429,7 +445,7 @@ const runIdempotent = async ({ request, credential, payload, execute }) => {
       return {
         replay: true,
         statusCode: Number(existing.rows[0].response_status),
-        body: existing.rows[0].response_body,
+        body: idempotentResponse(existing.rows[0].response_body, credential.id, key),
         appointmentId: existing.rows[0].appointment_id
           ? Number(existing.rows[0].appointment_id)
           : null,
@@ -465,7 +481,7 @@ const runIdempotent = async ({ request, credential, payload, execute }) => {
       [
         inserted.rows[0].id,
         result.statusCode,
-        JSON.stringify(result.body),
+        JSON.stringify(idempotentResponse(result.body, credential.id, key, true)),
         result.appointmentId || null,
       ],
     );
@@ -517,7 +533,8 @@ const mapPartnerAppointment = (row) => ({
   external_id: row.agreement_api_external_id,
   status: row.status,
   agreement_type: row.agreement_type_snapshot,
-  consultation_status: row.consultation_status || "pending",
+  consultation_required: row.consultation_required !== false,
+  consultation_status: row.consultation_required === false ? "not_applicable" : row.consultation_status || "pending",
   medical_order: { required: Boolean(row.medical_order_required), received: Boolean(row.medical_order_received) },
   payment: {
     status: row.payment_status === "agreement_api_paid" ? "paid" : row.payment_status,
@@ -1057,14 +1074,14 @@ const createAppointment = async (request, credential, payload, response, request
               amount, payment_status, payment_reference, payment_provider, payment_detail,
               status, booking_channel, agreement_api_credential_id,
               agreement_api_external_id, agreement_api_public_id, agreement_api_created_at,
-              patient_identifier, medical_order_required
+              patient_identifier, medical_order_required, consultation_required
             )
             VALUES (
               $1, $2, $3, $4::date, $5::time, $6::time,
               $7, $8, $9,
               $10, $11, $12, $20, $13,
               $14, $21, $15, $22, $16::jsonb,
-              'confirmed', 'agreement_api', $17, $18, $19, NOW(), $23, $24
+              'confirmed', 'agreement_api', $17, $18, $19, NOW(), $23, $24, FALSE
             )
             RETURNING *
           `,
@@ -1128,9 +1145,16 @@ const createAppointment = async (request, credential, payload, response, request
           `,
           [hold.id, appointment.id],
         );
+        const accessLink = await createPatientAppointmentAccessLink({
+          appointmentId: appointment.id, execute: client.query.bind(client),
+        });
         return {
           statusCode: 201,
-          body: { data: mapPartnerAppointment(appointment) },
+          body: { data: { ...mapPartnerAppointment(appointment), links: {
+            manage_url: accessLink.url,
+            waiting_room_url: accessLink.meet_url,
+            expires_at: accessLink.expires_at,
+          } } },
           appointmentId: Number(appointment.id),
         };
       },
@@ -1704,6 +1728,10 @@ export const handleAgreementApi = async (request, response, url) => {
             treatment_service_id: credential.treatment_service_id ? Number(credential.treatment_service_id) : null,
             medical_order_required: credential.medical_order_required,
             identifier_label: credential.identifier_label || "",
+            access_mode: credential.access_mode,
+            communication_sender: credential.communication_sender,
+            email_verification_required: false,
+            email_verification_responsibility: 'integrator',
             timezone: config.googleCalendarTimeZone,
             capabilities: ["availability", "hold", "create", "list", "reschedule", "cancel"],
           },
