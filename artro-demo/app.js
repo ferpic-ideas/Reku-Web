@@ -26,7 +26,7 @@ async function api(path, { method = 'GET', body, key, internal = false } = {}) {
   if (!internal) trace(method, path, response.status);
   const json = await response.json();
   if (!response.ok) {
-    if (response.status === 401 && !internal) { $('#access-card').hidden = false; $('#booking-app').hidden = true; }
+    if (response.status === 401 && !internal) $('#step-content').innerHTML = '<button class="button outline" data-action="retry-boot">Reintentar conexión</button>';
     throw Object.assign(new Error(json.error?.message || 'No pudimos completar la solicitud.'), { status: response.status, code: json.error?.code });
   }
   return json;
@@ -132,9 +132,11 @@ function renderAppointments() {
 }
 
 async function boot() {
-  $('#access-card').hidden = true; $('#booking-app').hidden = false; $('#my-nav').hidden = false;
+  clearError(); $('#my-nav').hidden = false;
   $('#step-content').innerHTML = '<p class="loading">Conectando con Reku…</p>';
   try {
+    const session = await api('/session', { method: 'POST', internal: true });
+    state.csrf = session.csrf;
     state.agreement = (await api('/agreement')).data;
     state.services = (await api('/services')).data;
     $('#communication-note').textContent = state.agreement.access_mode === 'api' && state.agreement.communication_sender === 'integrator' ? 'Comunicaciones: a cargo del integrador. Reku no enviará mails al paciente.' : 'Comunicaciones: a cargo de Reku. Los mails habituales pueden llegar al correo que uses en la reserva.';
@@ -142,13 +144,6 @@ async function boot() {
     await refreshAppointments();
   } catch (error) { showError(error); $('#step-content').innerHTML = '<button class="button outline" data-action="retry-boot">Reintentar conexión</button>'; }
 }
-
-$('#login-form').addEventListener('submit', async event => {
-  event.preventDefault(); const button = event.target.querySelector('button'); button.disabled = true; $('#login-error').textContent = '';
-  try { const result = await api('/login', { method: 'POST', body: { password: $('#access-password').value }, internal: true }); state.csrf = result.csrf; $('#access-password').value = ''; await boot(); }
-  catch (error) { $('#login-error').textContent = error.message; }
-  finally { button.disabled = false; }
-});
 
 $('#logout').addEventListener('click', () => action(async () => {
   await api('/logout', { method: 'POST', body: {}, internal: true }); window.location.reload();
@@ -228,4 +223,4 @@ function tick() {
   if ($('#confirm-booking')) $('#confirm-booking').disabled = seconds === 0;
 }
 setInterval(tick, 1000);
-api('/session', { internal: true }).then(result => { state.csrf = result.csrf; return boot(); }).catch(() => {});
+action(boot);

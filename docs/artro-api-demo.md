@@ -57,16 +57,21 @@ key a JavaScript, WordPress público, HTML, localStorage o parámetros de URL.
 
 ### Seguridad de la demo
 
-Acceso con clave independiente de la API, hash scrypt, límites de intentos,
-cookie HttpOnly/Secure/SameSite=Strict con vigencia de 8 horas, comprobación de
-Origin y CSRF. El token de la API y las respuestas guardadas (incluidos enlaces
+Acceso libre, sin clave de entrada. La página inicia o recupera automáticamente
+una sesión anónima con `POST /test/api/session`, validando Origin y el encabezado
+propio de la demo. Recargar conserva la misma sesión y sus turnos. Usa una cookie
+HttpOnly/Secure/SameSite=Strict con vigencia de 8 horas y CSRF en las escrituras.
+La creación de sesiones tiene límites por IP y globales; las escrituras tienen
+límites por sesión, por IP y globales para que abrir otra sesión no reinicie el
+presupuesto de operaciones. El token de la API y las respuestas guardadas (incluidos enlaces
 privados) están cifrados con `SETTINGS_ENCRYPTION_KEY`. Cada sesión puede consultar
 y modificar únicamente sus propios holds/turnos; no se publica el listado global
-de pacientes de Artro. Cerrar la sesión borra su asociación en la demo, **no cancela
+de pacientes de Artro. Reiniciar la demo borra su asociación de sesión, **no cancela
 los turnos**. Las sesiones vencidas se depuran al iniciar nuevas sesiones.
 
-La clave es compartida sólo para pruebas. No representa autenticación real de un
-paciente ni debe reutilizarse como mecanismo de identificación en producción.
+La sesión anónima no representa autenticación real de un paciente ni debe
+reutilizarse como mecanismo de identificación en producción. Cualquier visitante
+puede crear turnos de prueba; esta apertura es intencional durante la beta.
 
 ## Habilitación y apagado
 
@@ -77,17 +82,18 @@ node scripts/configure-artro-demo.mjs --enable
 ```
 
 El script sólo acepta el acuerdo `artro`, crea una credencial dedicada, cifra el
-token en `app_settings.artro_api_demo` y genera la clave de entrada en
-`PRIVATE_UPLOAD_ROOT/artro-demo-access.txt` (modo 0600). No imprime secretos y no
+token en `app_settings.artro_api_demo`. No genera contraseñas de acceso ni
+imprime secretos y no
 cambia la configuración del acuerdo. Se niega a rotar una demo ya habilitada.
 
-Para apagarla, revocar en el admin la credencial **Demo protegida reku.io/test**;
+Para apagarla, revocar en el admin la credencial **Demo reku.io/test** (en la
+instalación original figura como **Demo protegida reku.io/test**);
 el BFF comprueba su vigencia en cada solicitud. También puede ponerse `enabled`
 en `false` en esa configuración. No rotar `SETTINGS_ENCRYPTION_KEY` para apagarla.
 
 ## Qué debe reemplazar Artro para producción
 
-1. Clave compartida y datos editables → sesión autenticada de su usuario y email
+1. Sesión anónima y datos editables → sesión autenticada de su usuario y email
    validado por ellos. Comprobar autorización en su backend en cada operación.
 2. Referencia simulada → validación server-to-server del pago o cobertura real.
 3. Asociación por sesión demo → asociación persistente del turno al usuario.

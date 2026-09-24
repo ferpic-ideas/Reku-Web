@@ -1378,7 +1378,7 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     await assert.rejects(context.actions.notifyPatientTriageReminder(row.id, row.professional_id), /TRIAGE_REMINDER_NOT_AVAILABLE/);
   });
 
-  await t.test('protected Artro demo uses real API and isolates sessions through create, replay, reschedule and cancel', async () => {
+  await t.test('public Artro demo uses real API and isolates sessions through create, replay, reschedule and cancel', async () => {
     await testArtroDemo({ pool, baseUrl, fixture });
   });
 

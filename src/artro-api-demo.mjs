@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { config } from './config.mjs';
 import { one, query } from './db.mjs';
 import { getClientIp, parseCookies, readBody, sendJson } from './http.mjs';
-import { hashToken, verifyPassword } from './security.mjs';
+import { hashToken } from './security.mjs';
 import { encryptSecret, decryptSecret } from './secret-envelope.mjs';
 import { consumeRateLimit } from './rate-limit.mjs';
 import { parseMultipartForm } from './uploads.mjs';
@@ -48,7 +48,7 @@ const readJson = async request => {
 const loadSettings = async () => {
   const row = await one("SELECT value FROM app_settings WHERE key = 'artro_api_demo'");
   const value = row?.value;
-  if (!value?.enabled || !value.password_hash || !value.token_encrypted) throw failure(503, 'La demo no está habilitada.');
+  if (!value?.enabled || !value.token_encrypted) throw failure(503, 'La demo no está habilitada.');
   const credential = await one(`SELECT c.id FROM agreement_api_credentials c
     JOIN agreements a ON a.id = c.agreement_id
     WHERE c.id = $1 AND c.active AND c.revoked_at IS NULL AND a.slug = 'artro' AND a.deleted_at IS NULL`, [value.credential_id]);
@@ -99,14 +99,17 @@ export const handleArtroDemo = async (request, response, url) => {
       throw failure(403, 'No pudimos validar el origen de la solicitud.');
     }
     const settings = await loadSettings();
-    const gateVersion = hashToken(settings.password_hash);
-    if (path === '/login' && request.method === 'POST') {
-      await consumeRateLimit({ scope: 'artro-demo.login.ip', key: getClientIp(request), limit: 10, windowSeconds: 900 });
-      await consumeRateLimit({ scope: 'artro-demo.login.global', key: 'global', limit: 100, windowSeconds: 900 });
-      const body = await readJson(request);
-      if (typeof body.password !== 'string' || body.password.length > 200 || !await verifyPassword(body.password, settings.password_hash)) {
-        throw failure(401, 'La clave de acceso no es correcta.');
-      }
+    // Preserve existing demo sessions on upgrade. The legacy hash is only a
+    // session generation marker now; nobody needs to provide a password.
+    const gateVersion = hashToken(settings.password_hash || settings.token);
+    const token = parseCookies(request)[cookieName] || '';
+    const sessionHash = hashToken(token);
+    const session = token && await one('SELECT csrf FROM artro_demo_sessions WHERE token_hash = $1 AND gate_version = $2 AND expires_at > NOW()', [sessionHash, gateVersion]);
+    if (path === '/session' && request.method === 'POST') {
+      // Reloading the page must not orphan appointments from this browser.
+      if (session) { sendJson(response, 200, { csrf: session.csrf }); return; }
+      await consumeRateLimit({ scope: 'artro-demo.session.ip', key: getClientIp(request), limit: 10, windowSeconds: 900 });
+      await consumeRateLimit({ scope: 'artro-demo.session.global', key: 'global', limit: 100, windowSeconds: 900 });
       const token = randomBytes(32).toString('base64url');
       const csrf = randomBytes(32).toString('base64url');
       await query('DELETE FROM artro_demo_sessions WHERE expires_at < NOW()');
@@ -114,10 +117,7 @@ export const handleArtroDemo = async (request, response, url) => {
       sendJson(response, 200, { csrf }, { 'Set-Cookie': demoCookie(token) });
       return;
     }
-    const token = parseCookies(request)[cookieName] || '';
-    const sessionHash = hashToken(token);
-    const session = token && await one('SELECT csrf FROM artro_demo_sessions WHERE token_hash = $1 AND gate_version = $2 AND expires_at > NOW()', [sessionHash, gateVersion]);
-    if (!session) throw failure(401, 'Ingresá con la clave de acceso de la demo.');
+    if (!session) throw failure(401, 'La sesión de prueba venció. Reintentá la conexión para comenzar una nueva.');
     if (mutation && request.headers['x-csrf-token'] !== session.csrf) throw failure(403, 'La sesión no es válida. Volvé a ingresar.');
     if (path === '/session' && request.method === 'GET') { sendJson(response, 200, { csrf: session.csrf }); return; }
     if (path === '/logout' && request.method === 'POST') {
@@ -126,6 +126,11 @@ export const handleArtroDemo = async (request, response, url) => {
     }
     if (!demoRoute(request.method, path)) throw failure(404, 'Endpoint no disponible en esta demo.');
     await consumeRateLimit({ scope: `artro-demo.${mutation ? 'write' : 'read'}`, key: sessionHash, limit: mutation ? 25 : 100, windowSeconds: 60 });
+    if (mutation) {
+      // Opening another anonymous session must not reset the write limits.
+      await consumeRateLimit({ scope: 'artro-demo.write.ip', key: getClientIp(request), limit: 60, windowSeconds: 60 });
+      await consumeRateLimit({ scope: 'artro-demo.write.global', key: 'global', limit: 200, windowSeconds: 60 });
+    }
     let saved;
     const appointmentId = path.match(/\/(apt_[a-f0-9]{32})(?:\/cancel)?$/)?.[1];
     if (appointmentId) saved = await ownedObject(sessionHash, appointmentId, 'appointment');

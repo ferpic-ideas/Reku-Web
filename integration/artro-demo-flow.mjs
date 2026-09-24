@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
-import { hashPassword } from '../src/security.mjs';
 import { encryptSecret } from '../src/secret-envelope.mjs';
 
 export async function testArtroDemo({ pool, baseUrl, fixture }) {
@@ -17,17 +16,20 @@ export async function testArtroDemo({ pool, baseUrl, fixture }) {
   await pool.query('INSERT INTO professional_agreements (professional_id,agreement_id) VALUES ($1,$2)', [fixture.professionalIds[0],agreement.id]);
   const token = `rku_ag_${randomBytes(32).toString('base64url')}`;
   const credential = (await pool.query("INSERT INTO agreement_api_credentials (agreement_id,name,token_hash,token_prefix) VALUES ($1,'demo',$2,$3) RETURNING id", [agreement.id,createHash('sha256').update(token).digest('hex'),token.slice(0,18)])).rows[0];
-  await pool.query("INSERT INTO app_settings (key,value) VALUES ('artro_api_demo',$1)", [{enabled:true,credential_id:credential.id,password_hash:await hashPassword('synthetic-demo-gate'),token_encrypted:encryptSecret(token,{material:'api-test-settings-key-with-at-least-32-characters',context:'artro-api-demo:credential'})}]);
+  await pool.query("INSERT INTO app_settings (key,value) VALUES ('artro_api_demo',$1)", [{enabled:true,credential_id:credential.id,token_encrypted:encryptSecret(token,{material:'api-test-settings-key-with-at-least-32-characters',context:'artro-api-demo:credential'})}]);
   assert.equal((await request('/agreement')).status,401);
-  assert.equal((await request('/login',{method:'POST',body:{password:'wrong'}})).status,401);
-  assert.equal((await request('/login',{method:'POST',body:{password:'synthetic-demo-gate'},headers:{Origin:'https://evil.test'}})).status,403);
-  const login = async () => {
-    const r = await request('/login',{method:'POST',body:{password:'synthetic-demo-gate'}});
+  assert.equal((await request('/session',{method:'POST',headers:{Origin:'https://evil.test'}})).status,403);
+  assert.equal((await request('/session',{method:'POST',headers:{Origin:''}})).status,403);
+  assert.equal((await request('/session',{method:'POST',headers:{'X-Demo-Request':''}})).status,403);
+  const startSession = async () => {
+    const r = await request('/session',{method:'POST'});
     assert.equal(r.status,200); assert.match(r.headers.get('set-cookie'),/HttpOnly; SameSite=Strict/);
     assert.doesNotMatch(JSON.stringify(r.json),/rku_ag_/);
     return {cookie:r.headers.get('set-cookie').split(';')[0],csrf:r.json.csrf};
   };
-  const session = await login(), other = await login();
+  const session = await startSession(), other = await startSession();
+  assert.notEqual(session.cookie,other.cookie);
+  assert.equal((await request('/login',{session,method:'POST',body:{password:'unused'}})).status,404);
   assert.equal((await request('/session',{session})).status,200);
   assert.equal((await request('/agreement',{session})).json.data.slug,'artro');
   assert.equal((await request('/services',{session})).status,200);
@@ -52,6 +54,10 @@ export async function testArtroDemo({ pool, baseUrl, fixture }) {
   const replay = await request('/appointments',{session,method:'POST',body:payload,key});
   assert.equal(replay.json.data.id,id); assert.deepEqual(replay.json.data.links,created.json.data.links);
   const mine = await request('/appointments',{session}); assert.equal(mine.json.data.length,1);
+  const resumed = await request('/session',{session,method:'POST',headers:{'X-CSRF-Token':''}});
+  assert.equal(resumed.status,200); assert.equal(resumed.json.csrf,session.csrf);
+  assert.equal(resumed.headers.get('set-cookie'),null);
+  assert.equal((await request('/appointments',{session})).json.data[0].id,id);
   assert.equal((await request('/appointments',{session:other})).json.data.length,0);
   assert.equal((await request(`/appointments/${id}`,{session:other})).status,404);
   assert.equal((await request(`/appointments/${id}`,{session:other,method:'PATCH',body:{date}})).status,404);
@@ -87,6 +93,33 @@ export async function testArtroDemo({ pool, baseUrl, fixture }) {
   assert.equal((await request(`/appointments/${recovered.json.data.id}/cancel`,{session,method:'POST',body:{}})).status,200);
   assert.equal((await request('/logout',{session,method:'POST',body:{}})).status,200);
   assert.equal((await request('/session',{session})).status,401);
+  // Anonymous sessions cannot bypass the IP write budget, but reads still work.
+  const fresh = await startSession();
+  await pool.query("UPDATE public_rate_limits SET hit_count=61 WHERE scope='artro-demo.write.ip'");
+  for (const current of [other,fresh]) {
+    const limited = await request('/holds',{session:current,method:'POST',body:{}});
+    assert.equal(limited.status,429); assert.ok(Number(limited.headers.get('retry-after')) > 0);
+  }
+  assert.equal((await request('/agreement',{session:fresh})).status,200);
+  await pool.query("DELETE FROM public_rate_limits WHERE scope='artro-demo.write.ip'");
+  await pool.query("UPDATE public_rate_limits SET hit_count=11 WHERE scope='artro-demo.session.ip'");
+  assert.equal((await request('/session',{method:'POST'})).status,429);
+  assert.equal((await request('/session',{method:'POST',session:fresh})).status,200);
+  await pool.query("DELETE FROM public_rate_limits WHERE scope='artro-demo.session.ip'");
+  // Expired cookies produce a new isolated session without asking for a password.
+  await pool.query('UPDATE artro_demo_sessions SET expires_at=NOW()-INTERVAL \'1 minute\' WHERE token_hash=$1',[createHash('sha256').update(fresh.cookie.split('=')[1]).digest('hex')]);
+  assert.equal((await request('/session',{session:fresh})).status,401);
+  const renewed = await request('/session',{method:'POST',session:fresh});
+  assert.equal(renewed.status,200); assert.notEqual(renewed.json.csrf,fresh.csrf);
+  // Upgrading the previously protected installation must preserve its sessions.
+  const legacyToken = randomBytes(32).toString('base64url');
+  const legacyMarker = 'synthetic-legacy-session-generation';
+  await pool.query("UPDATE app_settings SET value=value || jsonb_build_object('password_hash',$1::text) WHERE key='artro_api_demo'",[legacyMarker]);
+  await pool.query("INSERT INTO artro_demo_sessions (token_hash,gate_version,csrf,expires_at) VALUES ($1,$2,'legacy-csrf',NOW()+INTERVAL '1 hour')",[createHash('sha256').update(legacyToken).digest('hex'),createHash('sha256').update(legacyMarker).digest('hex')]);
+  const legacy = {cookie:`reku_artro_demo=${legacyToken}`,csrf:'legacy-csrf'};
+  const preserved = await request('/session',{method:'POST',session:legacy});
+  assert.equal(preserved.status,200); assert.equal(preserved.json.csrf,legacy.csrf);
+  assert.equal(preserved.headers.get('set-cookie'),null);
   await pool.query('UPDATE agreement_api_credentials SET active=FALSE WHERE id=$1',[credential.id]);
   assert.equal((await request('/session',{session:other})).status,503);
 }
