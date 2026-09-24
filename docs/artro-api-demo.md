@@ -43,6 +43,49 @@ guardar `manage_url`, `waiting_room_url` y `expires_at` de la respuesta de creac
 GET/PATCH no vuelven a emitir esos enlaces. El panel técnico muestra método,
 endpoint y estado, sin secretos ni cuerpos con datos de pacientes.
 
+## Confirmaciones y recordatorios del integrador
+
+Configurar **Acceso: API** y **Comunicación: Integrador**
+(`access_mode=api`, `communication_sender=integrator`) en el acuerdo. En ese modo,
+el integrador envía confirmaciones, recordatorios, reprogramaciones y cancelaciones
+al paciente; Reku no duplica esos correos. Se mantienen los avisos al profesional
+y los correos de seguridad del portal.
+
+1. Guardar la respuesta de `POST /appointments` en el backend: `data.id`,
+   `data.external_id`, `data.patient`, `data.service`, `data.professional` y
+   `data.schedule` (`date`, `start_time`, `end_time`, `timezone`). Con esos datos se
+   arma el mail y se programa el recordatorio en la zona horaria del turno.
+2. Guardar `data.links.manage_url`, `data.links.waiting_room_url` y
+   `data.links.expires_at`, asociados al turno y al usuario validado. Usarlos para
+   “Gestionar mi turno” e “Ingresar a la videollamada”. Protegerlos como accesos
+   privados: nunca registrarlos en logs ni analytics. GET, PATCH y el listado no
+   los devuelven; el replay de creación conserva los enlaces y el vencimiento
+   originales, no los renueva.
+3. Antes de enviar un recordatorio, consultar `GET /appointments/{id}` y enviarlo
+   sólo si `status=confirmed` y el turno sigue siendo futuro. Si se reprogramó,
+   actualizar el horario y la programación; si se canceló, cancelar el recordatorio.
+   Registrar los envíos para evitar duplicados.
+4. **Todavía no hay webhooks.** Consultar periódicamente el detalle de los turnos
+   guardados o `GET /appointments` con paginación para detectar cambios desde Reku.
+   Comparar `status`, `schedule`, `professional` y `updated_at`. Un replay de
+   creación no refleja el estado actual.
+
+**Limitación actual: renovación de enlaces pendiente.** Reprogramar con PATCH no
+renueva ni devuelve los enlaces originales. Si la nueva fecha queda después de
+`data.links.expires_at`, los enlaces pueden vencer antes de la consulta. Hoy no hay
+un endpoint de renovación: no enviar enlaces vencidos ni prometer acceso para esa
+nueva fecha sin resolverlo con Reku. Repetir el POST original con la misma
+`Idempotency-Key` tampoco renueva el vencimiento.
+
+Esta demo **no implementa un servicio de mails ni un programador de recordatorios
+del integrador**. Si el acuerdo tiene Comunicación: Reku, los mails recibidos son
+los habituales de Reku. El integrador debe implementar sus propios envíos y guardar
+datos y enlaces de forma persistente, no sólo durante la sesión de prueba. No
+enviar recordatorios del bot: las nuevas reservas por API no tienen cuestionario.
+
+La misma información se publica en `/api/docs/#comunicaciones-integrador` y en
+`/test`, dentro de “Para el equipo técnico”.
+
 ## Código del ejemplo
 
 - `artro-demo/index.html`, `styles.css`, `app.js`: interfaz sin frameworks.

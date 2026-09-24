@@ -64,6 +64,7 @@
     "/appointments": {
       "get": {
         "summary": "Listar turnos del acuerdo",
+        "description": "Lista paginada para consultar el estado actual y detectar cambios desde Reku. Todavía no hay webhooks: consultar periódicamente los turnos guardados o este listado y comparar status, schedule, professional y updated_at. Antes de cada recordatorio comprobar que el turno siga confirmed y sea futuro. No devuelve enlaces privados.",
         "parameters": [
           { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
           { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
@@ -110,7 +111,7 @@
       },
       "patch": {
         "summary": "Modificar o reprogramar un turno",
-        "description": "No permite cambiar email ni identificador del paciente (409 patient_identity_not_editable); cancelar y crear otra reserva. Si se envía patient se envía el objeto completo. Conserva tipo económico y obligatoriedad de orden del turno original. En modo directo sólo permite el tratamiento configurado; conserva profesional salvo cambio explícito a otro habilitado. No admite archivos en PATCH.",
+        "description": "No permite cambiar email ni identificador del paciente (409 patient_identity_not_editable); cancelar y crear otra reserva. Si se envía patient se envía el objeto completo. Conserva tipo económico y obligatoriedad de orden del turno original. En modo directo sólo permite el tratamiento configurado; conserva profesional salvo cambio explícito a otro habilitado. No admite archivos en PATCH. No renueva ni devuelve los enlaces originales. Limitación actual: si la nueva fecha es posterior a links.expires_at, los enlaces pueden vencer antes de la consulta y todavía no hay un endpoint de renovación. Resolverlo con Reku antes de prometer acceso para esa nueva fecha.",
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateAppointment" } } } },
         "responses": { "200": { "description": "Turno actualizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppointmentResponse" } } } }, "409": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/ValidationError" } }
@@ -145,7 +146,7 @@
           "slug": { "type": "string", "description": "Identificador del acuerdo; también se utiliza como subdominio, sin configurar otro prefijo." },
           "type": { "type": "string", "enum": ["Pago", "Nomina"] },
           "access_mode": { "type": "string", "enum": ["web", "api"], "description": "Modo del acuerdo configurado en Admin. Las credenciales anteriores conservan validez hasta su revocación." },
-          "communication_sender": { "type": "string", "enum": ["reku", "integrator"], "description": "En API, integrator desactiva los correos al paciente de confirmación, recordatorios, reprogramación y cancelación. No afecta avisos al profesional." },
+          "communication_sender": { "type": "string", "enum": ["reku", "integrator"], "description": "En API, integrator desactiva los correos al paciente de confirmación, recordatorios, reprogramación y cancelación: el integrador debe implementar el envío y su programación, sin duplicar correos de Reku. No afecta avisos al profesional ni correos de seguridad del portal. Guardar datos y links del POST /appointments; consultar el estado actual antes de cada recordatorio. Todavía no hay webhooks." },
           "email_verification_required": { "type": "boolean", "const": false, "description": "La API no envía verificación de titularidad del email." },
           "email_verification_responsibility": { "type": "string", "const": "integrator" },
           "direct_treatment": { "type": "boolean" },
@@ -230,9 +231,9 @@
               "links": { "$ref": "#/components/schemas/PatientLinks" },
               "medical_order": { "type": "object", "properties": { "required": { "type": "boolean" }, "received": { "type": "boolean", "description": "Archivo recibido, no implica aprobación clínica." } } },
               "patient": { "$ref": "#/components/schemas/Patient" },
-              "schedule": { "type": "object" },
-              "service": { "type": "object" },
-              "professional": { "type": "object" },
+              "schedule": { "type": "object", "description": "Horario para mostrar en la confirmación y programar recordatorios en la zona horaria indicada.", "properties": { "date": { "type": "string", "format": "date" }, "start_time": { "type": "string", "description": "Hora local de inicio, HH:mm." }, "end_time": { "type": "string", "description": "Hora local de fin, HH:mm." }, "timezone": { "type": "string", "description": "Zona horaria IANA del turno, por ejemplo America/Argentina/Buenos_Aires." } } },
+              "service": { "type": "object", "properties": { "id": { "type": "integer" }, "name": { "type": "string" }, "duration_minutes": { "type": "integer" } } },
+              "professional": { "type": "object", "properties": { "id": { "type": "integer" }, "name": { "type": "string" } } },
               "payment": { "type": "object", "properties": { "status": { "type": "string", "enum": ["paid", "nomina"] }, "provider": { "type": "string", "enum": ["agreement", "nomina"] }, "reference": { "type": "string" } } },
               "settlement": { "type": "object", "properties": { "amount": { "type": "number" }, "currency": { "type": "string", "const": "ARS" }, "billable": { "type": "boolean", "description": "Sólo confirmed de Pago. Nomina siempre false y amount=0." } } },
               "cancellation": { "type": ["object", "null"], "properties": { "reason": { "type": "string" }, "cancelled_at": { "type": ["string", "null"], "format": "date-time" } } },
@@ -244,7 +245,7 @@
       },
       "PatientLinks": {
         "type": "object",
-        "description": "Sólo en POST /appointments y su replay idempotente; GET/PATCH/listado no generan ni devuelven estos enlaces. Guardarlos de forma privada y compartirlos únicamente con el paciente validado. No hay enlace a cuestionario. No registrarlos en logs ni analytics. La sala aplica su horario de acceso.",
+        "description": "Sólo en POST /appointments y su replay idempotente; GET/PATCH/listado no generan ni devuelven estos enlaces. Guardarlos de forma privada en el backend para confirmaciones y recordatorios, asociados al turno y al usuario validado. No hay enlace a cuestionario. No registrarlos en logs ni analytics. La sala aplica su horario de acceso. Reprogramar no renueva el vencimiento original: si la nueva fecha queda después de expires_at, los enlaces pueden vencer antes de la consulta. Todavía no hay un endpoint de renovación; no enviar enlaces vencidos.",
         "required": ["manage_url", "waiting_room_url", "expires_at"],
         "properties": {
           "manage_url": { "type": "string", "format": "uri" },

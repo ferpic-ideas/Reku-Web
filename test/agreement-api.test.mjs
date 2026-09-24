@@ -104,6 +104,34 @@ test("public documentation and Admin expose the complete agreement API workflow"
   assert.match(admin, /No se volverá a mostrar completo/i);
 });
 
+test("integration guides and demo explain communication ownership and current link limitations", async () => {
+  const [guide, demo, internal, specText] = await Promise.all([
+    readFile(new URL('../integraciones/api/index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../artro-demo/index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../docs/artro-api-demo.md', import.meta.url), 'utf8'),
+    readFile(new URL('../integraciones/api/openapi.json', import.meta.url), 'utf8'),
+  ]);
+  const developerInfo = demo.match(/<details class="developer-panel"[\s\S]*?<\/details>/)?.[0];
+  assert.ok(developerInfo, 'Communication guidance belongs inside the developer panel');
+  for (const source of [guide, developerInfo, internal]) {
+    for (const field of ['communication_sender=integrator', 'data.links.manage_url', 'data.links.waiting_room_url', 'data.links.expires_at', 'GET /appointments/{id}', 'status=confirmed', 'timezone']) {
+      assert.ok(source.includes(field), `Missing documented field: ${field}`);
+    }
+    assert.match(source, /no hay webhooks/i);
+    assert.match(source, /renovación de enlaces pendiente/i);
+    assert.match(source, /no hay\s+un endpoint de renovación/i);
+    assert.match(source, /no implementa un servicio de mails ni un programador de recordatorios/i);
+  }
+  const spec = JSON.parse(specText);
+  const response = spec.components.schemas.AppointmentResponse.properties.data.properties;
+  for (const field of ['date', 'start_time', 'end_time', 'timezone']) assert.ok(response.schedule.properties[field]);
+  assert.ok(response.service.properties.name);
+  assert.ok(response.professional.properties.name);
+  assert.match(spec.paths['/appointments'].get.description, /no hay webhooks/i);
+  assert.match(spec.paths['/appointments/{appointmentId}'].patch.description, /no hay un endpoint de renovación/i);
+  assert.match(spec.components.schemas.PatientLinks.description, /no enviar enlaces vencidos/i);
+});
+
 test("OpenAPI describes Nómina, agreement settings, orders and questionnaire status", async () => {
   const spec = JSON.parse(await readFile(new URL('../integraciones/api/openapi.json', import.meta.url), 'utf8'));
   assert.equal(spec.info.version, '1.3.0');
