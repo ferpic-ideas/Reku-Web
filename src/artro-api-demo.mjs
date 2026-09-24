@@ -57,8 +57,10 @@ const loadSettings = async () => {
 };
 
 const upstream = async (settings, path, { method = 'GET', payload, file, key } = {}) => {
-  // Fixed loopback destination, no arbitrary URL/headers or redirect following.
-  const headers = { Authorization: `Bearer ${settings.token}`, Host: new URL(config.appPublicUrl).host };
+  // Fixed server-configured Reku destination, never a URL supplied by the browser.
+  // Use the canonical origin: Node fetch may ignore a Host override on loopback,
+  // and production intentionally redirects non-canonical requests.
+  const headers = { Authorization: `Bearer ${settings.token}` };
   if (key) headers['Idempotency-Key'] = key;
   let body;
   if (file) {
@@ -69,7 +71,7 @@ const upstream = async (settings, path, { method = 'GET', payload, file, key } =
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(payload);
   }
-  const response = await fetch(`http://127.0.0.1:${config.port}/api/partners/v1${path}`, {
+  const response = await fetch(`${config.appPublicUrl}/api/partners/v1${path}`, {
     method, headers, body, redirect: 'error', signal: AbortSignal.timeout(60_000),
   });
   const json = await response.json();
