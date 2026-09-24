@@ -11,6 +11,7 @@ import {
   handleAgreementApi,
 } from "./src/agreement-api.mjs";
 import { handleProfessionalApi } from "./src/professional-api.mjs";
+import { handleArtroDemo } from "./src/artro-api-demo.mjs";
 import {
   assertSafeStartup,
   config,
@@ -193,6 +194,11 @@ const server = createServer(async (request, response) => {
       if (!handled) {
         sendJson(response, 404, { error: "Endpoint no encontrado." });
       }
+      return;
+    }
+
+    if (pathname.startsWith('/test/api/')) {
+      await handleArtroDemo(request, response, requestUrl);
       return;
     }
 

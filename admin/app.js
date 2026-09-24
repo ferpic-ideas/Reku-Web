@@ -2613,21 +2613,6 @@
     return `
       <div class="agreement-form-layout">
       <div class="grid-two agreement-form-row">
-        <label>Acceso
-          <select name="access_mode" id="agreement-access-mode">
-            <option value="web" ${item.access_mode !== 'api' ? 'selected' : ''}>Web Reku</option>
-            <option value="api" ${item.access_mode === 'api' ? 'selected' : ''}>API</option>
-          </select>
-        </label>
-        <label data-api-only ${item.access_mode !== 'api' ? 'hidden' : ''}>Comunicación
-          <select name="communication_sender">
-            <option value="reku" ${item.communication_sender !== 'integrator' ? 'selected' : ''}>Reku</option>
-            <option value="integrator" ${item.communication_sender === 'integrator' ? 'selected' : ''}>Integrador</option>
-          </select>
-          <span class="field-help">Confirmaciones, recordatorios, cambios y cancelaciones al paciente. La verificación del email queda a cargo del integrador.</span>
-        </label>
-      </div>
-      <div class="grid-two agreement-form-row">
         <label>
           Nombre
           <input name="name" value="${escapeHtml(item.name)}" required />
@@ -2655,11 +2640,26 @@
           <span class="field-help">Se usa también como subdominio: ypf → ypf.reku.io. Si lo dejás vacío se genera desde el nombre. Cambiarlo modifica la dirección del acuerdo.</span>
           ${item.subdomain_prefix && item.subdomain_prefix !== item.slug ? `<span class="field-help">El subdominio anterior es ${escapeHtml(item.subdomain_prefix)}.reku.io. Al guardar se unificará con el slug.</span>` : ''}
         </label>
-        <label data-nomina-identifier ${item.type !== 'Nomina' ? 'hidden' : ''}>
-          Tipo de identificador
-          <input name="identifier_label" value="${escapeHtml(item.identifier_label || '')}" placeholder="DNI, número de cliente, legajo" maxlength="80" ${item.type !== 'Nomina' ? 'disabled' : ''} />
-          <span class="field-help">Este nombre se mostrará al paciente al pedirle el identificador de la nómina.</span>
-        </label>
+        <div class="agreement-form-stack">
+          <label>Acceso
+            <select name="access_mode" id="agreement-access-mode">
+              <option value="web" ${item.access_mode !== 'api' ? 'selected' : ''}>Web Reku</option>
+              <option value="api" ${item.access_mode === 'api' ? 'selected' : ''}>API</option>
+            </select>
+          </label>
+          <label data-api-only ${item.access_mode !== 'api' ? 'hidden' : ''}>Comunicación
+            <select name="communication_sender">
+              <option value="reku" ${item.communication_sender !== 'integrator' ? 'selected' : ''}>Reku</option>
+              <option value="integrator" ${item.communication_sender === 'integrator' ? 'selected' : ''}>Integrador</option>
+            </select>
+            <span class="field-help">Confirmaciones, recordatorios, cambios y cancelaciones al paciente. La verificación del email queda a cargo del integrador.</span>
+          </label>
+          <label data-nomina-identifier ${item.type !== 'Nomina' ? 'hidden' : ''}>
+            Tipo de identificador
+            <input name="identifier_label" value="${escapeHtml(item.identifier_label || '')}" placeholder="DNI, número de cliente, legajo" maxlength="80" ${item.type !== 'Nomina' ? 'disabled' : ''} />
+            <span class="field-help">Este nombre se mostrará al paciente al pedirle el identificador de la nómina.</span>
+          </label>
+        </div>
       </div>
       <div class="grid-two agreement-form-row">
         <div class="agreement-form-stack">

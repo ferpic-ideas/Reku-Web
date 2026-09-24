@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+  <title>Artro Digital · Demo de integración con Reku</title>
+  <link rel="stylesheet" href="/test/styles.css"><script type="module" src="/test/app.js"></script>
+</head>
+<body>
+  <div class="demo-ribbon"><span class="live-dot"></span> ENTORNO DE DEMOSTRACIÓN <span>Diseño de ejemplo · turnos reales de prueba en Reku</span></div>
+  <header class="site-header wrap">
+    <a href="#inicio" aria-label="Artro Digital, inicio"><img class="brand" src="https://artro.com.ar/wp-content/uploads/2026/08/logo-artro-digital.svg" alt="Artro Digital" referrerpolicy="no-referrer"></a>
+    <nav aria-label="Principal"><a href="#como-funciona">Cómo funciona</a><a href="#mis-turnos" id="my-nav" hidden>Mis turnos</a><a class="nav-cta" href="#reserva">Reservar un turno <span aria-hidden="true">↗</span></a></nav>
+  </header>
+  <main>
+    <section class="hero wrap" id="inicio">
+      <div class="hero-copy"><p class="eyebrow">ARTRO DIGITAL / REHABILITACIÓN ONLINE</p>
+        <h1>Seguí en movimiento.<br><em>Estés donde estés.</em></h1>
+        <p class="hero-description">Un espacio para encontrarte con tu profesional, desde donde te resulte más cómodo. Elegí tu turno y conectate a tu consulta online.</p>
+        <a href="#reserva" class="button light">Elegir mi turno <span aria-hidden="true">↗</span></a>
+        <div class="powered">Reservas y videollamadas con <img src="/images/logo-reku.svg" alt="Reku"></div>
+      </div>
+      <div class="hero-visual"><img src="https://artro.com.ar/wp-content/uploads/2026/08/pantalla.jpg" alt="Ejemplo de la experiencia digital de Artro desde casa" referrerpolicy="no-referrer"><div class="visual-caption"><span class="live-dot"></span> Tu consulta, más cerca.</div></div>
+    </section>
+    <div class="surface">
+      <section class="how wrap" id="como-funciona" aria-label="Cómo funciona">
+        <div><span class="step-number">01</span><p><strong>Elegí tu práctica</strong><br>Conocé las opciones disponibles.</p></div>
+        <div><span class="step-number">02</span><p><strong>Encontrá tu horario</strong><br>La agenda se consulta en tiempo real.</p></div>
+        <div><span class="step-number">03</span><p><strong>Conectate a tu consulta</strong><br>Ingresá desde tu sala de espera.</p></div>
+      </section>
+      <section class="booking-section wrap" id="reserva">
+        <div class="section-heading"><div><p class="eyebrow">TU PRÓXIMO PASO</p><h2>Reservá tu turno online.</h2></div><span class="api-badge">Conectado a la API de Reku</span></div>
+        <div class="access-card" id="access-card">
+          <div><span class="small-label">DEMO PRIVADA PARA EL EQUIPO ARTRO</span><h3>Probemos la experiencia.</h3><p>Este ejemplo parte de una cuenta ya registrada y un email validado por el integrador. No hay un alta ni una verificación de correo en este recorrido.</p><p class="muted">La clave sólo protege esta demo; no es una credencial de la API.</p></div>
+          <form id="login-form"><label for="access-password">Clave de acceso</label><input id="access-password" name="password" type="password" autocomplete="current-password" required maxlength="200"><button class="button primary" type="submit">Ingresar a la demo <span aria-hidden="true">→</span></button><p id="login-error" class="error" role="alert"></p></form>
+        </div>
+        <div id="booking-app" hidden>
+          <div class="account-bar"><div><span class="account-icon" aria-hidden="true">✓</span><span><strong>Cuenta de prueba registrada</strong><small>Email validado por el integrador · supuesto de esta demo</small></span></div><button id="logout" class="text-button" type="button">Cerrar sesión</button></div>
+          <div class="booking-layout"><div class="booking-card">
+            <ol class="progress" aria-label="Pasos de la reserva"><li id="progress-1">1 <span>Práctica</span></li><li id="progress-2">2 <span>Día y horario</span></li><li id="progress-3">3 <span>Confirmación</span></li></ol>
+            <p id="flow-error" class="error" role="alert" tabindex="-1" hidden></p>
+            <div id="step-content" aria-live="polite"></div>
+          </div><aside class="booking-aside"><span class="small-label">ASÍ FUNCIONA ESTA DEMO</span><h3>Tu sitio, conectado a Reku.</h3><p>Esta pantalla representa el sitio del integrador. La disponibilidad y las reservas vienen de la API real de Reku.</p><div class="aside-rule"></div><p><strong>Sin cuestionario.</strong><br>En el flujo API no se presenta el bot al paciente.</p><p><strong>Sin cobros.</strong><br>El pago externo se simula. Los turnos de prueba sí se guardan en la agenda de Reku.</p><p id="communication-note"></p><a href="/api/docs/" target="_blank" rel="noopener">Ver documentación de la API ↗</a></aside></div>
+          <section id="mis-turnos" class="appointments-section"><div class="section-heading"><div><p class="eyebrow">EN ESTA SESIÓN DE PRUEBA</p><h2>Mis turnos</h2></div><button id="refresh-appointments" type="button" class="button outline small">Actualizar</button></div><p class="muted">Sólo se muestran los turnos creados en esta sesión. Al cerrarla, conservá los enlaces de confirmación para volver a ingresar.</p><div id="appointments"></div></section>
+          <details class="developer-panel"><summary>Para el equipo técnico <span>Ver llamadas a la API</span></summary><div class="developer-body"><p>El navegador llama a <code>/test/api</code>. Un backend intermedio autentica la sesión y llama a <code>/api/partners/v1</code> con la credencial privada de Artro. Las operaciones de escritura usan <code>Idempotency-Key</code>.</p><p>El login y el pago están simulados. En una integración final, el backend debe obtener la identidad del usuario autenticado y validar el pago antes de confirmar.</p><ol id="api-log"></ol><a href="/api/docs/" target="_blank" rel="noopener">Guía completa y contrato OpenAPI ↗</a></div></details>
+        </div>
+      </section>
+      <footer class="wrap"><span>Artro Digital <span class="muted">×</span> Reku</span><p>Ejemplo de integración · No es el sitio oficial de Artro.</p></footer>
+    </div>
+  </main>
+</body>
+</html>

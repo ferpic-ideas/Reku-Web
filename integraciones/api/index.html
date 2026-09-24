@@ -66,6 +66,7 @@
             <div><span class="section-kicker">Empezá acá</span><h2>Inicio rápido</h2></div>
           </div>
           <p class="section-intro">La API es server-to-server. El token debe permanecer en tu backend y nunca incluirse en JavaScript público, una app móvil ni una URL.</p>
+          <div class="callout"><strong>Demo de integración Artro</strong><p><a href="/test" target="_blank" rel="noopener">Probar el recorrido completo ↗</a> (acceso protegido). Es un ejemplo con la API real de Reku: la cuenta registrada, el email validado y el pago externo se simulan; los turnos sí se crean en Reku. No realiza cobros ni modifica el sitio de Artro. Incluye agenda, orden médica, confirmación, sala de espera, reprogramación, cancelación y un panel de llamadas a la API. En producción reemplazá los datos editables por tu sesión autenticada y validá el pago en tu backend.</p></div>
           <p>Primero consultá <code>GET /agreement</code>: devuelve <code>type</code> (Pago o Nomina), <code>slug</code> (también subdominio), <code>direct_treatment</code>, <code>treatment_service_id</code>, <code>medical_order_required</code> e <code>identifier_label</code>. Ambos tipos permiten gestionar credenciales desde Admin → Acuerdos → API.</p>
           <p>Los ejemplos de abajo muestran Pago sin orden obligatoria. Para Nómina y carga de órdenes, consultá las variantes del flujo más abajo.</p>
           <h3>Acceso, correo y comunicación</h3>

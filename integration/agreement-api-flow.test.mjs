@@ -16,6 +16,7 @@ import { patientCommunicationsSql } from '../src/agreement-policy.mjs';
 import { consultationStatusSql } from '../src/consultation-status.mjs';
 import { escapeHtml } from '../src/http.mjs';
 import { googleCalendarTemplateUrl } from '../src/appointment-calendar.mjs';
+import { testArtroDemo } from './artro-demo-flow.mjs';
 
 const { Pool } = pg;
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -1375,6 +1376,10 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     assert.ok(patientMail);
     assert.doesNotMatch(patientMail.html, /Completar cuestionario|Cuestionario previo/);
     await assert.rejects(context.actions.notifyPatientTriageReminder(row.id, row.professional_id), /TRIAGE_REMINDER_NOT_AVAILABLE/);
+  });
+
+  await t.test('protected Artro demo uses real API and isolates sessions through create, replay, reschedule and cancel', async () => {
+    await testArtroDemo({ pool, baseUrl, fixture });
   });
 
   await t.test('Web agreement can explicitly skip email verification without an API bypass', async () => {

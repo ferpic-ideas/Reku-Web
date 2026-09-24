@@ -197,6 +197,11 @@ const publicFiles = new Map(
 
 const publicMounts = [
   {
+    prefix: '/test/',
+    directory: join(root, 'artro-demo'),
+    extensions: new Set(['.html', '.css', '.js']),
+  },
+  {
     prefix: "/bot/",
     directory: join(root, "bot"),
     extensions: new Set([".html", ".css", ".js"]),
@@ -270,6 +275,7 @@ const publicUploadFolders = new Map([
 ]);
 
 export const resolveStaticRequestPath = (pathname) => {
+  if (pathname === '/test' || pathname === '/test/') return '/test/index.html';
   if (pathname === "/bot" || pathname === "/bot/") return "/bot/index.html";
   if (pathname === "/") return "/index.html";
 
@@ -444,6 +450,7 @@ export const serveStatic = async (
 
   try {
     const isPrivateRoute =
+      pathname.startsWith('/test/') ||
       pathname.startsWith("/bot/") ||
       pathname.startsWith("/admin") ||
       pathname.startsWith("/profesional") ||
