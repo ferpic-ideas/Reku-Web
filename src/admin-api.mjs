@@ -1995,6 +1995,16 @@ const replaceProfessionalRelations = async (
 
 const professionalPayloadFromMultipart = async (request) => {
   const { fields, files } = await parseMultipartForm(request);
+  // An explicit empty list clears the selection; malformed data must never clear it.
+  for (const key of ["agreement_ids", "availability"]) {
+    try {
+      if (!Array.isArray(JSON.parse(fields[key]))) throw new Error("not-an-array");
+    } catch {
+      const error = new Error("PROFESSIONAL_SELECTION_INVALID");
+      error.statusCode = 422;
+      throw error;
+    }
+  }
   const name = String(fields.name || "").trim();
   const email = String(fields.email || "").trim().toLowerCase();
   const licenseNumber = String(fields.license_number || "").trim().slice(0, 120);
@@ -2022,16 +2032,6 @@ const professionalPayloadFromMultipart = async (request) => {
   }
   if (!serviceIds.length) {
     const error = new Error("PROFESSIONAL_SERVICE_REQUIRED");
-    error.statusCode = 422;
-    throw error;
-  }
-  if (!agreementIds.length) {
-    const error = new Error("PROFESSIONAL_AGREEMENT_REQUIRED");
-    error.statusCode = 422;
-    throw error;
-  }
-  if (!availability.length) {
-    const error = new Error("PROFESSIONAL_AVAILABILITY_REQUIRED");
     error.statusCode = 422;
     throw error;
   }
@@ -3613,12 +3613,8 @@ export const handleAdminApi = async (request, response, url) => {
       sendJson(response, 422, { error: "Seleccioná al menos un servicio." });
       return true;
     }
-    if (error.message === "PROFESSIONAL_AGREEMENT_REQUIRED") {
-      sendJson(response, 422, { error: "Seleccioná al menos un acuerdo." });
-      return true;
-    }
-    if (error.message === "PROFESSIONAL_AVAILABILITY_REQUIRED") {
-      sendJson(response, 422, { error: "Cargá al menos un día y horario de atención." });
+    if (error.message === "PROFESSIONAL_SELECTION_INVALID") {
+      sendJson(response, 422, { error: "No se pudieron leer los acuerdos o los horarios. Revisá la selección e intentá nuevamente." });
       return true;
     }
     if (error.message === "PROFESSIONAL_PASSWORD_REQUIRED") {

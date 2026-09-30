@@ -1911,6 +1911,7 @@
           ${agreementsForProfessional(item) || '<p class="muted">Primero cargá acuerdos.</p>'}
         </div>
         ${renderAvailabilityEditor(item)}
+        <div id="professional-form-error" class="status-box error span-two" role="alert" tabindex="-1" hidden></div>
         <div class="form-actions span-two">
           <button type="button" class="secondary-button" data-action="close-dialog">Cancelar</button>
           <button type="submit" class="primary-button">Guardar profesional</button>
@@ -4710,6 +4711,12 @@
   async function handleProfessionalSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
+    if (form.dataset.submitting === 'true') return;
+    const feedback = form.querySelector('#professional-form-error');
+    const submit = form.querySelector('button[type="submit"]');
+    const submitLabel = submit.textContent;
+    feedback.hidden = true;
+    feedback.textContent = '';
     const data = new FormData(form);
     data.set(
       'service_ids',
@@ -4728,6 +4735,9 @@
       : '/api/admin/professionals';
     const method = state.editingProfessionalId ? 'PUT' : 'POST';
 
+    form.dataset.submitting = 'true';
+    submit.disabled = true;
+    submit.textContent = 'Guardando…';
     try {
       await api(path, { method, body: data });
       state.editingProfessionalId = null;
@@ -4735,7 +4745,18 @@
       await loadData();
       setStatus('Profesional guardado.', 'ok');
     } catch (error) {
-      setStatus(error.message, 'error');
+      if (form.isConnected) {
+        feedback.textContent = error.message;
+        feedback.hidden = false;
+        feedback.focus();
+        feedback.scrollIntoView({ block: 'nearest' });
+      } else if (state.user) {
+        setStatus(error.message, 'error');
+      }
+    } finally {
+      delete form.dataset.submitting;
+      submit.disabled = false;
+      submit.textContent = submitLabel;
     }
   }
 
