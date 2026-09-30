@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#635bff" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Reku Profesional" />
+    <title>Activar notificaciones | Reku</title>
+    <link rel="icon" href="/favicon-32x32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/profesional/icon-192.png" />
+    <link rel="manifest" href="/profesional/activation.webmanifest" />
+    <link rel="stylesheet" href="/profesional/activation.css?v=2" />
+    <script src="/profesional/activation.js?v=2" defer></script>
+  </head>
+  <body>
+    <main class="activation-card">
+      <img class="brand" src="/images/logo-reku.svg" alt="Reku" />
+      <span class="eyebrow">Avisos de pacientes</span>
+      <h1 id="activation-title">Activar notificaciones</h1>
+      <p id="activation-description">Estamos preparando la activación en este dispositivo.</p>
+      <p id="activation-name" class="professional-name" hidden></p>
+      <section id="install-guide" hidden>
+        <h2>Un paso previo en iPhone</h2>
+        <ol>
+          <li id="install-browser-hint">En Safari o Chrome, tocá <strong>Compartir → Agregar a inicio</strong>.</li>
+          <li>Si aparece <strong>Abrir como app web</strong>, dejalo activado.</li>
+          <li>Abrí Reku desde el ícono que acabás de agregar.</li>
+          <li>Tocá <strong>Permitir notificaciones</strong> y aceptá el permiso.</li>
+        </ol>
+        <p>El enlace conserva tu activación. No necesitás iniciar sesión.</p>
+        <div class="safari-fallback">
+          <p>Si no aparece “Agregar a inicio”, copiá el enlace y pegalo en Safari.</p>
+          <button id="copy-activation-link" class="secondary-button" type="button">Copiar enlace para Safari</button>
+          <label id="manual-copy-label" hidden>Enlace personal
+            <input id="manual-copy-link" type="text" readonly aria-label="Enlace personal para copiar a Safari" />
+          </label>
+          <p id="copy-link-message" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+      <p id="activation-message" role="status" aria-live="polite"></p>
+      <button id="activate-button" type="button" hidden>Permitir notificaciones</button>
+      <p id="activation-success" class="success" hidden>Listo. Este dispositivo te avisará cuando un paciente esté esperando.</p>
+      <a class="portal-link" href="/profesional/">Ir al portal profesional</a>
+    </main>
+  </body>
+</html>

@@ -188,6 +188,11 @@ export const revokeProfessionalAccess = async (professionalId) =>
       `,
       [professionalId],
     );
+    await client.query(`
+      UPDATE professional_push_activation_links
+      SET revoked_at = COALESCE(revoked_at, NOW())
+      WHERE professional_id = $1 AND revoked_at IS NULL
+    `, [professionalId]);
     return {
       revoked_links: links.rowCount,
       revoked_sessions: sessions.rowCount,

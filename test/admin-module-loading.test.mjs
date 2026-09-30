@@ -37,6 +37,7 @@ test("admin loads only the active module data and reuses fresh references", asyn
     "nomina",
     "services",
     "professionals",
+    "schedules",
     "blocks",
     "booking-test",
     "appointments",
@@ -229,6 +230,13 @@ test("admin loads only the active module data and reuses fresh references", asyn
   assert.deepEqual(await clickModule("professionals"), [
     "/api/admin/professionals",
   ]);
+  assert.deepEqual(new Set(await clickModule("schedules")), new Set([
+    "/api/admin/professionals",
+    "/api/admin/schedule-blocks?page=1&page_size=500",
+  ]));
+  assert.match(html, /<h1>Horarios<\/h1>/);
+  assert.ok(html.indexOf('data-module="professionals"') < html.indexOf('data-module="schedules"'));
+  assert.ok(html.indexOf('data-module="schedules"') < html.indexOf('data-module="blocks"'));
   assert.deepEqual(await clickModule("blocks"), [
     "/api/admin/schedule-blocks?page=1&page_size=500",
   ]);

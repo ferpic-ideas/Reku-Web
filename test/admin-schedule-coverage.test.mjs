@@ -1,0 +1,161 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+import vm from 'node:vm';
+
+const source = await readFile(new URL('../admin/app.js', import.meta.url), 'utf8');
+const flush = async () => {
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+};
+const range = (start_time, end_time, day_of_week = 1) => ({ start_time, end_time, day_of_week });
+const professional = (id, availability, extra = {}) => ({ id, name: `Fisio ${id}`, active: true, availability, ...extra });
+const block = (professional_id, start_time, end_time, block_date = '2026-09-28') => ({ professional_id, start_time, end_time, block_date });
+
+async function openCoverage({ professionals = [], pages = [[]], fail = false, now = '2026-09-30T15:00:00Z' } = {}) {
+  let html = '';
+  const handlers = new Map();
+  const requests = [];
+  const app = {
+    set innerHTML(value) { html = value; handlers.clear(); },
+    get innerHTML() { return html; },
+  };
+  const element = (key, dataset = {}) => ({
+    dataset,
+    addEventListener(event, handler) { handlers.set(`${key}:${event}`, handler); },
+  });
+  const document = {
+    getElementById(id) {
+      if (id === 'app') return app;
+      return html.includes(`id="${id}"`) ? element(id) : null;
+    },
+    querySelector() { return null; },
+    querySelectorAll(selector) {
+      if (selector !== '[data-action]') return [];
+      return [...html.matchAll(/data-action="([^"]+)"/g)].map(([, action]) => element(action, { action }));
+    },
+    addEventListener() {},
+  };
+  class Clock extends Date {
+    constructor(...args) { super(...(args.length ? args : [now])); }
+    static now() { return new Date(now).getTime(); }
+  }
+  const location = { origin: 'http://localhost', pathname: '/admin/horarios', search: '' };
+  let shouldFail = fail;
+  const fetch = async (path) => {
+    requests.push(path);
+    let payload;
+    if (path === '/api/admin/auth/me') payload = { user: { email: 'admin@example.test', permissions: ['*'] } };
+    else if (path === '/api/admin/professionals') payload = { professionals };
+    else if (path.startsWith('/api/admin/schedule-blocks?')) {
+      if (shouldFail) throw new Error('Error de conexión');
+      const page = Number(new URL(path, location.origin).searchParams.get('page'));
+      payload = { schedule_blocks: pages[page - 1], pagination: { has_more: page < pages.length } };
+    } else throw new Error(`Unexpected request: ${path}`);
+    return { ok: true, status: 200, json: async () => payload };
+  };
+  vm.runInNewContext(source, {
+    document, fetch, Date: Clock, Intl, FormData, URL, URLSearchParams, console,
+    Element: class {}, HTMLAnchorElement: class {},
+    window: { location, history: {}, addEventListener() {} },
+  });
+  await flush();
+  return {
+    get html() { return html; },
+    requests,
+    setFailure(value) { shouldFail = value; },
+    async action(action) {
+      await handlers.get(`${action}:click`)({ currentTarget: { dataset: { action } } });
+      await flush();
+    },
+    async date(value) {
+      handlers.get('coverage-week:change')({ target: { value } });
+      await flush();
+    },
+    cell(date, time) {
+      const match = html.match(new RegExp(`<td class="coverage-cell (covered|uncovered)" data-date="${date}" data-time="${time}"[^>]*>([^<]+)</td>`));
+      assert.ok(match, `Missing cell ${date} ${time}`);
+      return { status: match[1], count: match[2] === '–' ? 0 : Number(match[2]) };
+    },
+  };
+}
+
+test('coverage counts active professionals and subtracts dated blocks from every page', async () => {
+  const ui = await openCoverage({
+    professionals: [
+      professional(1, [range('08:00', '10:00')]),
+      professional(2, [range('08:15', '09:45')]),
+      professional(3, [range('08:00', '20:00')], { active: false }),
+      professional(4, [range('08:00', '20:00')], { deleted_at: '2026-09-01' }),
+    ],
+    pages: [[block(1, '08:30', '09:00')], [block(2, '09:05', '09:10')]],
+  });
+  assert.deepEqual(ui.cell('2026-09-28', '08:00'), { status: 'covered', count: 1 });
+  assert.deepEqual(ui.cell('2026-09-28', '08:30'), { status: 'covered', count: 1 });
+  assert.deepEqual(ui.cell('2026-09-28', '09:00'), { status: 'covered', count: 1 });
+  assert.deepEqual(ui.cell('2026-09-28', '09:30'), { status: 'covered', count: 1 });
+  assert.deepEqual(ui.cell('2026-09-28', '10:00'), { status: 'uncovered', count: 0 });
+  assert.deepEqual(ui.cell('2026-09-29', '08:00'), { status: 'uncovered', count: 0 });
+  assert.ok(ui.requests.includes('/api/admin/schedule-blocks?page=2&page_size=500'));
+  assert.equal(ui.requests.some((path) => path.includes('/appointments')), false);
+  await ui.action('coverage-next');
+  assert.deepEqual(ui.cell('2026-10-05', '08:30'), { status: 'covered', count: 2 });
+  await ui.action('coverage-previous');
+  assert.equal(ui.cell('2026-09-28', '08:30').count, 1);
+});
+
+test('a partial block removes a full slot; exact boundaries leave adjacent slots intact', async () => {
+  const ui = await openCoverage({
+    professionals: [professional(1, [range('08:00', '10:00')])],
+    pages: [[block(1, '08:30', '09:00'), block(1, '09:40', '09:45')]],
+  });
+  assert.equal(ui.cell('2026-09-28', '08:00').count, 1);
+  assert.equal(ui.cell('2026-09-28', '08:30').count, 0);
+  assert.equal(ui.cell('2026-09-28', '09:00').count, 1);
+  assert.equal(ui.cell('2026-09-28', '09:30').count, 0);
+});
+
+test('adjacent ranges cover a full slot once; split shifts and partial slots retain their gaps', async () => {
+  const ui = await openCoverage({ professionals: [professional(1, [
+    range('08:15', '08:45'), range('08:45', '09:00'), range('10:00', '10:15'), range('10:20', '11:00'),
+  ], { name: '<Ana & José>' })] });
+  assert.equal(ui.cell('2026-09-28', '08:00').count, 0);
+  assert.equal(ui.cell('2026-09-28', '08:30').count, 1);
+  assert.equal(ui.cell('2026-09-28', '09:00').count, 0);
+  assert.equal(ui.cell('2026-09-28', '10:00').count, 0);
+  assert.equal(ui.cell('2026-09-28', '10:30').count, 1);
+  assert.match(ui.html, /&lt;Ana &amp; José&gt;/);
+});
+
+test('week selection includes weekends, handles year changes, and defaults to Argentina date', async () => {
+  const ui = await openCoverage({
+    now: '2026-09-28T01:00:00Z', // Still Sunday in Argentina.
+    professionals: [professional(1, [range('07:10', '21:10', 7)])],
+  });
+  assert.match(ui.html, /value="2026-09-21"/);
+  assert.equal(ui.cell('2026-09-27', '07:00').count, 0);
+  assert.equal(ui.cell('2026-09-27', '07:30').count, 1);
+  assert.equal(ui.cell('2026-09-27', '21:00').count, 0);
+  await ui.date('2027-01-01');
+  assert.match(ui.html, /value="2026-12-28"/);
+  assert.equal(ui.cell('2027-01-03', '08:00').count, 1);
+  await ui.date('');
+  assert.match(ui.html, /value="2026-12-28"/);
+  await ui.action('coverage-today');
+  assert.match(ui.html, /value="2026-09-21"/);
+});
+
+test('empty schedules render uncovered slots; failed requests never render false coverage and can retry', async () => {
+  const empty = await openCoverage();
+  assert.match(empty.html, /No hay horarios de profesionales activos/);
+  assert.equal((empty.html.match(/class="coverage-cell uncovered"/g) || []).length, 24 * 7);
+  const failed = await openCoverage({ fail: true });
+  assert.match(failed.html, /No se pudo cargar la cobertura: Error de conexión/);
+  assert.doesNotMatch(failed.html, /class="coverage-cell/);
+  failed.setFailure(false);
+  await failed.action('refresh');
+  assert.equal(failed.cell('2026-09-28', '08:00').count, 0);
+  failed.setFailure(true);
+  await failed.action('refresh');
+  assert.doesNotMatch(failed.html, /class="coverage-cell/);
+});

@@ -34,6 +34,9 @@
     settlementMonth: new Date().toISOString().slice(0, 7),
     settlementLoading: false,
     scheduleBlocks: [],
+    scheduleCoverage: null,
+    scheduleCoverageError: '',
+    scheduleWeek: '',
     auditEvents: [],
     mercadoPagoSettings: null,
     testBookingUrl: '',
@@ -73,7 +76,8 @@
     { id: 'nomina', label: 'Nóminas', icon: 'nomina' },
     { id: 'services', label: 'Servicios', icon: 'services' },
     { id: 'professionals', label: 'Profesionales', icon: 'professionals' },
-    { id: 'blocks', label: 'Bloquear horario', icon: 'blocks' },
+    { id: 'schedules', label: 'Horarios', icon: 'schedules' },
+    { id: 'blocks', label: 'Bloqueos', icon: 'blocks' },
     { id: 'booking-test', label: 'Probar Agenda', icon: 'booking-test' },
     { type: 'divider' },
     { id: 'appointments', label: 'Turnos', icon: 'appointments' },
@@ -88,6 +92,7 @@
     nomina: '/admin/nominas',
     services: '/admin/servicios',
     professionals: '/admin/profesionales',
+    schedules: '/admin/horarios',
     blocks: '/admin/bloquear-horario',
     'booking-test': '/admin/probar-agenda',
     appointments: '/admin/turnos',
@@ -109,6 +114,7 @@
     nomina: 'nomina.read',
     services: 'services.read',
     professionals: 'professionals.read',
+    schedules: 'professionals.read',
     blocks: 'schedule_blocks.read',
     'booking-test': 'booking_links.create',
     appointments: 'appointments.read',
@@ -126,6 +132,7 @@
     nomina: ['agreements', 'nomina'],
     services: ['services'],
     professionals: ['agreements', 'services', 'professionals'],
+    schedules: ['schedule_coverage'],
     blocks: ['professionals', 'schedule_blocks'],
     'booking-test': ['agreements'],
     appointments: ['appointments', 'professionals'],
@@ -182,6 +189,10 @@
     professionals: `
       <circle cx="12" cy="8" r="4" />
       <path d="M4 21a8 8 0 0 1 16 0" />
+    `,
+    schedules: `
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M3 9h18M9 9v12M15 9v12M3 15h18" />
     `,
     blocks: `
       <path d="M8 2v4" />
@@ -260,7 +271,8 @@
     );
 
   const canAccessModule = (moduleId) =>
-    !modulePermissions[moduleId] || can(modulePermissions[moduleId]);
+    (!modulePermissions[moduleId] || can(modulePermissions[moduleId])) &&
+    (moduleId !== 'schedules' || can('schedule_blocks.read'));
 
   const applyModuleFiltersFromSearch = (moduleId, search = window.location.search) => {
     if (moduleId === 'contacts') {
@@ -668,6 +680,22 @@
         : { schedule_blocks: [] };
       state.scheduleBlocks = payload.schedule_blocks || [];
     },
+    schedule_coverage: async () => {
+      state.scheduleCoverage = null;
+      state.scheduleCoverageError = '';
+      try {
+        const [professionals, blocks] = await Promise.all([
+          api('/api/admin/professionals'),
+          apiAll('/api/admin/schedule-blocks', 'schedule_blocks'),
+        ]);
+        state.scheduleCoverage = {
+          professionals: professionals.professionals || [],
+          blocks: blocks.schedule_blocks || [],
+        };
+      } catch (error) {
+        state.scheduleCoverageError = error.message;
+      }
+    },
     users: async () => {
       const payload = can('users.read')
         ? await api('/api/admin/users')
@@ -717,7 +745,7 @@
       return;
     }
 
-    app.className = 'app-shell';
+    app.className = `app-shell${state.active === 'schedules' ? ' schedules-shell' : ''}`;
     app.innerHTML = `
       <aside class="sidebar">
         <div class="side-brand">
@@ -889,6 +917,7 @@
     if (state.active === 'nomina') return renderNomina();
     if (state.active === 'services') return renderServices();
     if (state.active === 'professionals') return renderProfessionals();
+    if (state.active === 'schedules') return renderScheduleCoverage();
     if (state.active === 'appointments') return renderAppointments();
     if (state.active === 'settlements') return renderSettlements();
     if (state.active === 'blocks') return renderScheduleBlocks();
@@ -1881,6 +1910,124 @@
           <button type="submit" class="primary-button">Guardar profesional</button>
         </div>
       </div>
+    `;
+  }
+
+  const coverageToday = () => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+
+  const coverageDateOffset = (date, days) => {
+    const value = new Date(`${date}T12:00:00Z`);
+    value.setUTCDate(value.getUTCDate() + days);
+    return value.toISOString().slice(0, 10);
+  };
+
+  const coverageMonday = (date) => {
+    const day = new Date(`${date}T12:00:00Z`).getUTCDay() || 7;
+    return coverageDateOffset(date, 1 - day);
+  };
+
+  const coverageMinutes = (time) => {
+    const [hour, minute] = String(time).split(':').map(Number);
+    return hour * 60 + minute;
+  };
+
+  const coverageTime = (minutes) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+  function buildScheduleCoverage({ professionals, blocks }, week) {
+    const active = professionals.filter((professional) => professional.active && !professional.deleted_at);
+    const ranges = active.flatMap((professional) => professional.availability || []);
+    // Show the working day, extending it for any configured hours outside 08–20.
+    const start = Math.floor(Math.min(8 * 60, ...ranges.map((range) => coverageMinutes(range.start_time))) / 30) * 30;
+    const end = Math.ceil(Math.max(20 * 60, ...ranges.map((range) => coverageMinutes(range.end_time))) / 30) * 30;
+    const days = dayLabels.map((day, index) => ({ ...day, date: coverageDateOffset(week, index) }));
+    const blocksByDay = new Map();
+    for (const block of blocks) {
+      const key = `${block.professional_id}/${block.block_date}`;
+      if (!blocksByDay.has(key)) blocksByDay.set(key, []);
+      blocksByDay.get(key).push({ start: coverageMinutes(block.start_time), end: coverageMinutes(block.end_time) });
+    }
+    const schedules = active.map((professional) => ({
+      ...professional,
+      days: days.map((day) => (professional.availability || [])
+        .filter((range) => Number(range.day_of_week) === day.id)
+        .map((range) => ({ start: coverageMinutes(range.start_time), end: coverageMinutes(range.end_time) }))
+        .sort((a, b) => a.start - b.start)),
+    }));
+    const rows = [];
+    for (let minute = start; minute < end; minute += 30) {
+      const slotEnd = minute + 30;
+      rows.push({
+        start: coverageTime(minute), end: coverageTime(slotEnd),
+        cells: days.map((day, index) => schedules.filter((professional) => {
+          // Adjacent ranges may jointly cover a slot, but any gap leaves it uncovered.
+          let coveredUntil = minute;
+          for (const range of professional.days[index]) {
+            if (range.start > coveredUntil) break;
+            coveredUntil = Math.max(coveredUntil, range.end);
+            if (coveredUntil >= slotEnd) break;
+          }
+          if (coveredUntil < slotEnd) return false;
+          return !(blocksByDay.get(`${professional.id}/${day.date}`) || [])
+            .some((block) => block.start < slotEnd && block.end > minute);
+        })),
+      });
+    }
+    return { days, rows, hasSchedules: ranges.length > 0 };
+  }
+
+  function renderScheduleCoverage() {
+    if (!state.scheduleCoverage) {
+      return `<section class="panel"><p role="alert">${escapeHtml(state.scheduleCoverageError
+        ? `No se pudo cargar la cobertura: ${state.scheduleCoverageError}`
+        : 'Cargando cobertura…')}</p><button class="secondary-button" data-action="refresh">Reintentar</button></section>`;
+    }
+    if (!state.scheduleWeek) state.scheduleWeek = coverageMonday(coverageToday());
+    const { days, rows, hasSchedules } = buildScheduleCoverage(state.scheduleCoverage, state.scheduleWeek);
+    const dateLabel = (date) => new Intl.DateTimeFormat('es-AR', {
+      day: '2-digit', month: '2-digit', timeZone: 'UTC',
+    }).format(new Date(`${date}T12:00:00Z`));
+    const covered = rows.reduce((total, row) => total + row.cells.filter((cell) => cell.length).length, 0);
+    return `
+      <section class="panel coverage-panel" aria-label="Cobertura semanal de profesionales">
+        <div class="coverage-toolbar">
+          <div class="coverage-week-controls">
+            <button class="icon-button" data-action="coverage-previous" aria-label="Semana anterior" title="Semana anterior">‹</button>
+            <label class="coverage-week-label">Semana del
+              <input id="coverage-week" type="date" value="${state.scheduleWeek}" aria-label="Elegir una fecha de la semana" />
+            </label>
+            <button class="icon-button" data-action="coverage-next" aria-label="Semana siguiente" title="Semana siguiente">›</button>
+            <button class="secondary-button" data-action="coverage-today">Esta semana</button>
+          </div>
+          <span class="coverage-summary">${covered} de ${rows.length * 7} franjas cubiertas</span>
+        </div>
+        <div class="coverage-legend">
+          <span><i class="coverage-swatch covered" aria-hidden="true"></i> Con fisio</span>
+          <span><i class="coverage-swatch uncovered" aria-hidden="true"></i> Sin cobertura</span>
+          <span class="coverage-legend-note">El número indica cuántos fisios cubren la media hora completa.</span>
+        </div>
+        <div class="coverage-grid-wrap" style="--coverage-rows: ${rows.length}">
+          <table class="coverage-grid" aria-label="Cobertura del ${dateLabel(days[0].date)} al ${dateLabel(days[6].date)}" aria-describedby="coverage-note">
+            <thead><tr><th scope="col">Hora</th>${days.map((day) => `
+              <th scope="col"${day.date === coverageToday() ? ' class="coverage-current-day"' : ''}><span class="coverage-day-name">${day.label}</span><span class="coverage-day-short" aria-hidden="true">${day.label.slice(0, 3)}</span><small>${dateLabel(day.date)}</small></th>
+            `).join('')}</tr></thead>
+            <tbody>${rows.map((row) => `<tr>
+              <th scope="row" title="${row.start}–${row.end}">${row.start}</th>
+              ${row.cells.map((professionals, index) => {
+                const description = `${days[index].label} ${dateLabel(days[index].date)}, ${row.start}–${row.end}: ${professionals.length
+                  ? `${professionals.length} ${professionals.length === 1 ? 'fisio' : 'fisios'} · ${professionals.map((professional) => professional.name).join(', ')}`
+                  : 'Sin cobertura'}`;
+                return `<td class="coverage-cell ${professionals.length ? 'covered' : 'uncovered'}" data-date="${days[index].date}" data-time="${row.start}" title="${escapeHtml(description)}" aria-label="${escapeHtml(description)}">${professionals.length || '–'}</td>`;
+              }).join('')}
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+        <p class="coverage-note" id="coverage-note">${hasSchedules ? '' : 'No hay horarios de profesionales activos. '}
+          Horarios de Argentina · ${rows[0].start}–${rows.at(-1).end} · Bloqueos descontados. Los turnos reservados cuentan como cobertura.
+        </p>
+      </section>
     `;
   }
 
@@ -3479,6 +3626,16 @@
 
     bindActionElements();
 
+    document.getElementById('coverage-week')?.addEventListener('change', (event) => {
+      const value = event.target.value;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+      const parsed = new Date(`${value}T12:00:00Z`);
+      if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return;
+      state.scheduleWeek = coverageMonday(value);
+      clearStatus();
+      render();
+    });
+
     document.getElementById('agreement-form')?.addEventListener('submit', handleAgreementSubmit);
     document
       .getElementById('agreement-api-credential-form')
@@ -3821,7 +3978,18 @@
       if (action === 'refresh') {
         state.userMenuOpen = false;
         await loadActiveModuleData(state.active);
-        setStatus('Datos actualizados.', 'ok');
+        if (state.active === 'schedules') {
+          clearStatus();
+          render();
+        } else setStatus('Datos actualizados.', 'ok');
+        return;
+      }
+      if (['coverage-previous', 'coverage-next', 'coverage-today'].includes(action)) {
+        state.scheduleWeek = action === 'coverage-today'
+          ? coverageMonday(coverageToday())
+          : coverageDateOffset(state.scheduleWeek, action === 'coverage-next' ? 7 : -7);
+        clearStatus();
+        render();
         return;
       }
       if (action === 'logout') {

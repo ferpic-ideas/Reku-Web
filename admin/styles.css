@@ -943,6 +943,178 @@ button:disabled {
   border-radius: 8px;
 }
 
+.schedules-shell .content {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.schedules-shell .topbar {
+  flex-shrink: 0;
+}
+
+.schedules-shell .sidebar {
+  overflow-y: auto;
+}
+
+.coverage-panel {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 16px;
+}
+
+.coverage-toolbar,
+.coverage-week-controls,
+.coverage-legend,
+.coverage-legend > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.coverage-toolbar {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.coverage-week-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.coverage-week-label input {
+  width: 150px;
+}
+
+.coverage-week-controls .icon-button {
+  width: 34px;
+  padding: 0;
+  font-size: 24px;
+}
+
+.coverage-summary,
+.coverage-legend,
+.coverage-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.coverage-summary {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.coverage-legend {
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.coverage-legend > span {
+  gap: 6px;
+}
+
+.coverage-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgb(0 0 0 / 8%);
+}
+
+.coverage-grid-wrap {
+  min-height: 0;
+  container-type: size;
+}
+
+table.coverage-grid {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 3px 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.coverage-grid th,
+.coverage-grid td {
+  padding: 0 3px;
+  border: 0;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1;
+  text-transform: none;
+}
+
+.coverage-grid thead th {
+  height: 38px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.coverage-grid th:first-child {
+  width: 52px;
+}
+
+.coverage-grid tbody th {
+  color: var(--muted);
+  font-weight: 500;
+  background: transparent;
+}
+
+.coverage-grid tbody th,
+.coverage-grid tbody td {
+  font-size: clamp(6px, calc((100cqh - 42px) / var(--coverage-rows) - 2px), var(--coverage-font-size, 11px));
+}
+
+.coverage-grid small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 11px;
+}
+
+.coverage-grid .coverage-current-day {
+  box-shadow: inset 0 -2px 0 var(--accent);
+  background: var(--accent-soft);
+}
+
+.coverage-day-short {
+  display: none;
+}
+
+.coverage-cell {
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.coverage-swatch.covered,
+.coverage-grid .covered,
+.coverage-grid tr:hover .covered {
+  color: #216046;
+  background: #daf1e3;
+}
+
+.coverage-swatch.uncovered,
+.coverage-grid .uncovered,
+.coverage-grid tr:hover .uncovered {
+  color: #9c4949;
+  background: #fbe1e1;
+}
+
+.coverage-grid .coverage-cell:hover {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.coverage-note {
+  margin: 0;
+  line-height: 1.4;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -1598,6 +1770,44 @@ code {
 }
 
 @media (max-width: 980px) {
+  .schedules-shell {
+    height: 100dvh;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .schedules-shell .sidebar {
+    min-width: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+  }
+
+  .schedules-shell .side-brand img {
+    width: 64px;
+  }
+
+  .schedules-shell .side-nav {
+    display: flex;
+    min-width: 0;
+  }
+
+  .schedules-shell .nav-button {
+    white-space: nowrap;
+  }
+
+  .schedules-shell .nav-divider,
+  .schedules-shell .sidebar-foot {
+    display: none;
+  }
+
+  .schedules-shell .content {
+    height: auto;
+    min-height: 0;
+    gap: 10px;
+    padding: 12px;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
   }
@@ -1680,6 +1890,87 @@ code {
 }
 
 @media (max-width: 560px) {
+  .schedules-shell .topbar {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .schedules-shell .topbar h1 {
+    font-size: 20px;
+  }
+
+  .schedules-shell .topbar-actions,
+  .schedules-shell .user-menu {
+    width: auto;
+    min-width: 0;
+  }
+
+  .schedules-shell .user-menu-trigger {
+    max-width: 145px;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+
+  .schedules-shell .user-menu-popover {
+    left: auto;
+  }
+
+  .coverage-panel {
+    padding: 8px;
+    gap: 8px;
+    --coverage-font-size: 10px;
+  }
+
+  .coverage-week-controls {
+    width: 100%;
+    gap: 5px;
+  }
+
+  .coverage-week-label {
+    font-size: 0;
+    gap: 0;
+  }
+
+  .coverage-week-label input {
+    width: 132px;
+    padding: 0 4px;
+    font-size: 13px;
+  }
+
+  .coverage-week-controls .secondary-button {
+    width: auto;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .coverage-legend .coverage-legend-note,
+  .coverage-day-name {
+    display: none;
+  }
+
+  .coverage-day-short {
+    display: inline;
+  }
+
+  .coverage-grid th:first-child {
+    width: 38px;
+  }
+
+  .coverage-grid th,
+  .coverage-grid td,
+  .coverage-grid small,
+  .coverage-note {
+    font-size: 10px;
+  }
+
+  table.coverage-grid {
+    border-spacing: 2px;
+  }
+
   .login-shell,
   .content {
     padding: 14px;

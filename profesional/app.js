@@ -308,6 +308,14 @@
     'PushManager' in window &&
     'Notification' in window;
 
+  const pushPermissionError = (permission) => permission === 'denied'
+    ? isIosDevice()
+      ? 'Las notificaciones están bloqueadas. Abrí Ajustes → Notificaciones → Reku (o el nombre de tu ícono) y habilitá Permitir notificaciones. Después volvé y tocá Volver a comprobar.'
+      : /android/i.test(navigator.userAgent || '')
+        ? 'Las notificaciones están bloqueadas. En Chrome, tocá el ícono a la izquierda de la dirección → Permisos → Notificaciones → Permitir. Después volvé y tocá Volver a comprobar.'
+        : 'Las notificaciones están bloqueadas. Habilitalas en los permisos de este sitio y después tocá Volver a comprobar.'
+    : 'El navegador no concedió el permiso. Volvé a tocar Activar en este teléfono y elegí Permitir cuando aparezca el aviso.';
+
   const waitWithTimeout = (promise, timeoutMs, message) => {
     let timeoutId;
     return Promise.race([
@@ -803,10 +811,12 @@
     let description = 'Recibí un aviso inmediato cuando un paciente esté esperando para entrar a la videollamada.';
     if (push.current_device_active) {
       description = 'Las notificaciones están activas en este dispositivo.';
+    } else if (iosNeedsInstall) {
+      description = 'Para recibir avisos en iPhone, agregá Reku a inicio desde Safari o Chrome y abrilo desde el nuevo ícono.';
     } else if (!push.supported && mobile) {
       description = 'Este navegador no admite notificaciones Web Push. Probá con Safari actualizado en iPhone o Chrome en Android.';
     } else if (permissionDenied) {
-      description = 'Las notificaciones están bloqueadas en este dispositivo. Habilitalas desde la configuración del sitio o del teléfono y volvé a intentar.';
+      description = pushPermissionError('denied');
     }
     return `
       <section class="panel push-panel ${attention ? 'push-panel-attention' : ''}" id="push-notifications-panel">
@@ -819,8 +829,8 @@
           </div>
           <div class="push-primary-actions">
             ${
-              mobile && !push.current_device_active && push.supported && !permissionDenied
-                ? `<button id="push-enable-button" class="primary-button" type="button" ${push.busy ? 'disabled' : ''}>${iosNeedsInstall ? 'Ver cómo activarlas' : 'Activar en este teléfono'}</button>`
+              mobile && !push.current_device_active && (push.supported || iosNeedsInstall)
+                ? `<button id="push-enable-button" class="primary-button" type="button" ${push.busy ? 'disabled' : ''}>${iosNeedsInstall ? 'Ver cómo activarlas' : permissionDenied ? 'Volver a comprobar' : 'Activar en este teléfono'}</button>`
                 : ''
             }
             ${
@@ -837,8 +847,9 @@
             ? `<div class="push-install-guide">
                 <strong>Activación en iPhone</strong>
                 <ol>
-                  <li>Abrí esta página en Safari.</li>
+                  <li>Abrí esta página en Safari o Chrome.</li>
                   <li>Tocá Compartir y luego “Agregar a inicio”.</li>
+                  <li>Si aparece “Abrir como app web”, dejalo activado.</li>
                   <li>Abrí Reku desde el ícono nuevo de la pantalla de inicio.</li>
                   <li>Volvé a tocar “Activar en este teléfono” y aceptá el permiso.</li>
                 </ol>
@@ -2030,6 +2041,7 @@
   };
 
   async function handlePushEnable() {
+    if (state.push.busy) return;
     if (isIosDevice() && !isStandaloneApp()) {
       state.push.show_install_guide = true;
       state.push.message = 'Primero agregá Reku a la pantalla de inicio siguiendo estos pasos.';
@@ -2039,19 +2051,20 @@
     }
     state.push.busy = true;
     state.push.message = '';
-    render();
     try {
-      const registration = await ensurePushServiceWorker();
-      if (!registration) throw new Error('Este navegador no admite notificaciones.');
-      const permission = await Notification.requestPermission();
+      if (!pushSupported()) throw new Error('Este navegador no admite notificaciones.');
+      // Keep the permission request in the original click, before waiting for the worker.
+      const permissionRequest = Notification.permission === 'default'
+        ? Notification.requestPermission()
+        : Promise.resolve(Notification.permission);
+      render();
+      const permission = await permissionRequest;
       state.push.permission = permission;
       if (permission !== 'granted') {
-        throw new Error(
-          permission === 'denied'
-            ? 'El permiso quedó bloqueado. Habilitalo desde la configuración del sitio o del teléfono.'
-            : 'Necesitamos tu permiso para enviarte avisos.',
-        );
+        throw new Error(pushPermissionError(permission));
       }
+      const registration = await ensurePushServiceWorker();
+      if (!registration) throw new Error('Este navegador no admite notificaciones.');
       let subscription = await registration.pushManager.getSubscription();
       if (subscription && !state.push.current_device_active) {
         await subscription.unsubscribe();

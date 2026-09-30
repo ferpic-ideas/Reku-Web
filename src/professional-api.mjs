@@ -48,6 +48,8 @@ import {
   sendPushToProfessional,
 } from "./web-push.mjs";
 import { sendProfessionalPushActivationEmail } from "./professional-push-notifications.mjs";
+import { activatePushFromLink, getPushActivation, requirePushActivationOrigin } from './professional-push-activation.mjs';
+import { consumeRateLimit } from './rate-limit.mjs';
 import {
   permissionsForUser,
   requireProfessionalApiPermission,
@@ -1226,6 +1228,27 @@ export const handleProfessionalApi = async (request, response, url) => {
   const pathname = url.pathname;
 
   try {
+    if (['/api/professional/notifications/push/activation', '/api/professional/notifications/push/activation/subscribe'].includes(pathname)) {
+      if (request.method !== 'POST') {
+        sendJson(response, 405, { error: 'Método no permitido.' }, { Allow: 'POST' });
+        return true;
+      }
+      requirePushActivationOrigin(request);
+      await consumeRateLimit({ scope: 'professional.push.activation', key: getClientIp(request), limit: 60, windowSeconds: 900 });
+      const payload = await parseJsonBody(request);
+      if (pathname.endsWith('/subscribe')) {
+        sendJson(response, 200, await activatePushFromLink({
+          token: payload.token,
+          subscription: payload.subscription,
+          deviceLabel: payload.device_label,
+          deviceKind: payload.device_kind,
+          userAgent: request.headers['user-agent'] || '',
+        }));
+      } else {
+        sendJson(response, 200, await getPushActivation({ token: payload.token, subscription: payload.subscription }));
+      }
+      return true;
+    }
     if (
       pathname === "/api/professional/invitations/accept" &&
       request.method === "POST"
@@ -1608,6 +1631,18 @@ export const handleProfessionalApi = async (request, response, url) => {
     }
     if (error.message === "CSRF_REQUIRED") {
       sendJson(response, 403, { error: "La sesión no pudo validar la operación." });
+      return true;
+    }
+    if (error.message === 'PUSH_ACTIVATION_INVALID') {
+      sendJson(response, 401, { error: 'Este enlace venció o ya no es válido. Solicitá un nuevo enlace de activación desde el portal.' });
+      return true;
+    }
+    if (error.message === 'PUSH_ACTIVATION_USED') {
+      sendJson(response, 409, { error: 'Este enlace ya se usó para activar un dispositivo. Solicitá otro para activar uno nuevo.' });
+      return true;
+    }
+    if (error.message === 'PUSH_ACTIVATION_ORIGIN_INVALID') {
+      sendJson(response, 403, { error: 'Abrí el enlace de activación desde Reku.' });
       return true;
     }
     if (error.message === "PUSH_NOT_CONFIGURED") {

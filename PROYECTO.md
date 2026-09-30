@@ -143,6 +143,13 @@ Funciones actuales:
 - Las cuentas profesionales se administran desde Profesionales, no desde el alta
   genérica de Usuarios.
 - Bloqueo de horarios por profesional.
+- Horarios (`/admin/horarios`), debajo de Profesionales: grilla semanal de cobertura
+  en franjas de 30 minutos, con navegación por semana y fechas de Argentina.
+  Verde claro indica al menos un profesional activo que cubre la franja completa;
+  rojo claro indica ninguno. Descuenta bloqueos puntuales, incluso parciales, y
+  mantiene los turnos reservados como cobertura. Muestra 08–20 y extiende el rango
+  si hay horarios configurados fuera de esa franja. Requiere lectura de
+  profesionales y bloqueos; reutiliza las APIs existentes sin modificar datos.
 - Probar agenda con link firmado de 48h.
 - Configuración de Mercado Pago y auditoría sólo para usuarios autorizados.
 - Permisos de API declarados en una matriz default-deny. El rol `user` es de sólo

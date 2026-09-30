@@ -70,8 +70,8 @@ const mapDevice = (row) => ({
   last_success_at: row.last_success_at,
 });
 
-export const getProfessionalPushStatus = async (professionalId) => {
-  const result = await query(
+export const getProfessionalPushStatus = async (professionalId, { queryImpl = query } = {}) => {
+  const result = await queryImpl(
     `
       SELECT id, device_label, device_kind, created_at, last_seen_at, last_success_at
       FROM professional_push_subscriptions
@@ -98,7 +98,7 @@ export const saveProfessionalPushSubscription = async ({
   deviceLabel,
   deviceKind,
   userAgent,
-}) => {
+}, { queryImpl = query, auditImpl = recordAudit } = {}) => {
   if (!isWebPushConfigured()) {
     const error = new Error("PUSH_NOT_CONFIGURED");
     error.statusCode = 503;
@@ -106,7 +106,7 @@ export const saveProfessionalPushSubscription = async ({
   }
   const normalized = normalizePushSubscription(subscription);
   const kind = normalizeDeviceKind(deviceKind);
-  const result = await query(
+  const result = await queryImpl(
     `
       INSERT INTO professional_push_subscriptions (
         professional_id,
@@ -151,7 +151,7 @@ export const saveProfessionalPushSubscription = async ({
     error.statusCode = 409;
     throw error;
   }
-  await recordAudit("professional.push.subscription_saved", {
+  await auditImpl("professional.push.subscription_saved", {
     actorUserId: userId,
     detail: {
       professional_id: Number(professionalId),
@@ -159,7 +159,7 @@ export const saveProfessionalPushSubscription = async ({
       device_kind: kind,
     },
   });
-  return getProfessionalPushStatus(professionalId);
+  return getProfessionalPushStatus(professionalId, { queryImpl });
 };
 
 export const disableProfessionalPushSubscription = async ({
