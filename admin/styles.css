@@ -944,7 +944,7 @@ button:disabled {
 }
 
 .schedules-shell .content {
-  height: 100dvh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -958,7 +958,8 @@ button:disabled {
 }
 
 .coverage-panel {
-  flex: 1;
+  flex: none;
+  height: calc(100dvh - 104px);
   min-height: 0;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 10px;
@@ -1147,6 +1148,73 @@ table.coverage-grid {
 .coverage-note {
   margin: 0;
   line-height: 1.4;
+}
+
+.coverage-hours-panel {
+  flex: none;
+  min-width: 0;
+  gap: 14px;
+  padding: 16px;
+}
+
+.coverage-hours-heading h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.coverage-hours-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+table.coverage-hours-table {
+  min-width: 780px;
+  font-variant-numeric: tabular-nums;
+}
+
+.coverage-hours-table th,
+.coverage-hours-table td {
+  padding: 12px 8px;
+  font-size: 12px;
+  text-align: center;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.coverage-hours-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 180px;
+  min-width: 150px;
+  max-width: 220px;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.coverage-hours-table tbody th {
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.coverage-hours-table small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.coverage-hours-table .coverage-hours-total {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.coverage-hours-zero {
+  color: var(--muted);
 }
 
 table {
@@ -1805,8 +1873,7 @@ code {
 
 @media (max-width: 980px) {
   .schedules-shell {
-    height: 100dvh;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
   }
 
   .schedules-shell .sidebar {
@@ -1840,6 +1907,10 @@ code {
     min-height: 0;
     gap: 10px;
     padding: 12px;
+  }
+
+  .coverage-panel {
+    height: calc(100dvh - 134px);
   }
 
   .app-shell {
@@ -1957,6 +2028,10 @@ code {
     padding: 8px;
     gap: 8px;
     --coverage-font-size: 10px;
+  }
+
+  .coverage-hours-panel {
+    padding: 10px;
   }
 
   .coverage-week-controls {

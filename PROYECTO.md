@@ -152,8 +152,11 @@ Funciones actuales:
   mantiene los turnos reservados como cobertura. Muestra 08–20 y extiende el rango
   si hay horarios configurados fuera de esa franja entre los profesionales incluidos.
   El tooltip aparece inmediatamente y muestra sólo sus nombres, uno por línea.
-  Requiere lectura de
-  profesionales y bloqueos; reutiliza las APIs existentes sin modificar datos.
+  Debajo, un resumen muestra las horas disponibles por profesional y día, con total
+  semanal y orden de mayor a menor. Respeta semana y acuerdo, une horarios
+  superpuestos y resta los minutos exactos de bloqueo sin duplicarlos; los turnos
+  reservados siguen incluidos. Requiere lectura de profesionales y bloqueos;
+  reutiliza las APIs existentes sin modificar datos.
 - Probar agenda con link firmado de 48h.
 - Configuración de Mercado Pago y auditoría sólo para usuarios autorizados.
 - Permisos de API declarados en una matriz default-deny. El rol `user` es de sólo

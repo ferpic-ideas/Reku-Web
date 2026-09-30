@@ -83,6 +83,12 @@ async function openCoverage({
       handlers.get('coverage-agreement:change')({ target: { value } });
       await flush();
     },
+    hours() {
+      return [...html.matchAll(/<tr data-hours-professional="([^"]+)">([\s\S]*?)<\/tr>/g)].map(([, id, row]) => {
+        const values = [...row.matchAll(/<td[^>]*>([^<]+)<\/td>/g)].map(([, value]) => value);
+        return { id, days: values.slice(0, 7), total: values[7] };
+      });
+    },
     cell(date, time) {
       const match = html.match(new RegExp(`<td class="coverage-cell (covered|uncovered)" data-date="${date}" data-time="${time}"[^>]*>([^<]+)</td>`));
       assert.ok(match, `Missing cell ${date} ${time}`);
@@ -168,6 +174,59 @@ test('coverage uses custom name-only tooltips with escaped names and no native c
   assert.match(ui.html, /data-professional-names="\[&quot;Ana &lt;\\&quot;&amp;&gt;&quot;,&quot;Zoe&quot;\]" tabindex="0"/);
   assert.doesNotMatch(ui.html, /<td class="coverage-cell[^>]* title=/);
   assert.doesNotMatch(ui.html, /<td class="coverage-cell uncovered"[^>]*data-professional-names=/);
+});
+
+test('professional hours merge overlapping schedules and subtract exact blocked minutes only once', async () => {
+  const ui = await openCoverage({
+    professionals: [
+      professional(1, [range('08:00', '10:00'), range('09:00', '11:00'), range('11:00', '12:00'),
+        range('14:00', '15:00'), range('09:15', '10:00', 2), range('23:00', '23:30', 7)]),
+      professional(2, [range('08:00', '13:00')]),
+      professional(3, []),
+      professional(4, [range('08:00', '20:00')], { active: false }),
+      professional(5, [range('08:00', '20:00')], { deleted_at: '2026-09-01' }),
+      professional(6, [range('08:00', '20:00')], { agreements: [] }),
+    ],
+    pages: [[
+      block(1, '07:00', '08:15'), block(1, '09:00', '09:30'), block(1, '09:15', '10:00'),
+      block(1, '11:45', '14:15'), block(1, '16:00', '17:00'),
+    ], [
+      block(1, '09:30', '09:40', '2026-09-29'), block(1, '23:15', '23:20', '2026-10-04'),
+      block(2, '00:00', '23:59', '2026-10-05'),
+    ]],
+  });
+  assert.deepEqual(ui.hours(), [
+    { id: '2', days: ['5 h', '0 h', '0 h', '0 h', '0 h', '0 h', '0 h'], total: '5 h' },
+    { id: '1', days: ['3 h 15 min', '0 h 35 min', '0 h', '0 h', '0 h', '0 h', '0 h 25 min'], total: '4 h 15 min' },
+    { id: '3', days: Array(7).fill('0 h'), total: '0 h' },
+  ]);
+  await ui.action('coverage-next');
+  assert.deepEqual(ui.hours()[0], {
+    id: '1', days: ['5 h', '0 h 45 min', '0 h', '0 h', '0 h', '0 h', '0 h 30 min'], total: '6 h 15 min',
+  });
+  assert.equal(ui.hours().find((row) => row.id === '2').total, '0 h');
+});
+
+test('professional hour totals follow the agreement filter and break ties alphabetically', async () => {
+  const ui = await openCoverage({
+    agreements: [agreement(1), agreement(2), agreement(3)],
+    professionals: [
+      professional(1, [range('08:00', '10:00')], { name: 'Zoe' }),
+      professional(2, [range('08:00', '10:00', 2)], { name: 'Ana', agreements: [agreement(2)] }),
+      professional(3, [range('08:00', '09:30', 6)], { name: '<Camila & José>', agreements: [agreement(1), agreement(2)] }),
+    ],
+  });
+  assert.deepEqual(ui.hours().map((row) => row.id), ['2', '1', '3']);
+  assert.equal(ui.hours()[2].days[5], '1 h 30 min');
+  assert.equal(ui.hours()[2].total, '1 h 30 min');
+  assert.match(ui.html, /<th scope="row">&lt;Camila &amp; José&gt;<\/th>/);
+  await ui.agreement('1');
+  assert.deepEqual(ui.hours().map((row) => row.id), ['1', '3']);
+  await ui.agreement('2');
+  assert.deepEqual(ui.hours().map((row) => row.id), ['2', '3']);
+  await ui.agreement('3');
+  assert.deepEqual(ui.hours(), []);
+  assert.match(ui.html, /No hay profesionales activos para los acuerdos seleccionados/);
 });
 
 test('a partial block removes a full slot; exact boundaries leave adjacent slots intact', async () => {

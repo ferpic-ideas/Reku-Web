@@ -1942,6 +1942,25 @@
   const coverageTime = (minutes) =>
     `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
+  function mergeCoverageRanges(ranges) {
+    const merged = [];
+    for (const range of ranges.filter((range) => range.end > range.start).slice().sort((a, b) => a.start - b.start)) {
+      const previous = merged.at(-1);
+      if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
+      else merged.push({ ...range });
+    }
+    return merged;
+  }
+
+  function coverageAvailableMinutes(ranges, blocks) {
+    const mergedBlocks = mergeCoverageRanges(blocks);
+    return mergeCoverageRanges(ranges).reduce((total, range) => total + range.end - range.start
+      - mergedBlocks.reduce((blocked, block) => blocked
+        + Math.max(0, Math.min(range.end, block.end) - Math.max(range.start, block.start)), 0), 0);
+  }
+
+  const coverageHours = (minutes) => `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ''}`;
+
   function buildScheduleCoverage({ professionals, blocks }, week, agreementId) {
     const active = professionals.filter((professional) => professional.active && !professional.deleted_at
       && (professional.agreements || []).some((agreement) => !agreementId || String(agreement.id) === agreementId));
@@ -1982,7 +2001,16 @@
         })),
       });
     }
-    return { days, rows, hasSchedules: ranges.length > 0 };
+    const professionalHours = schedules.map((professional) => {
+      const minutes = days.map((day, index) => coverageAvailableMinutes(
+        professional.days[index], blocksByDay.get(`${professional.id}/${day.date}`) || [],
+      ));
+      return {
+        id: professional.id, name: professional.name, minutes,
+        total: minutes.reduce((total, day) => total + day, 0),
+      };
+    }).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'es'));
+    return { days, rows, professionalHours, hasSchedules: ranges.length > 0 };
   }
 
   function renderScheduleCoverage() {
@@ -2000,7 +2028,7 @@
     if (!agreements.some((agreement) => String(agreement.id) === state.scheduleAgreementFilter)) {
       state.scheduleAgreementFilter = '';
     }
-    const { days, rows, hasSchedules } = buildScheduleCoverage(
+    const { days, rows, professionalHours, hasSchedules } = buildScheduleCoverage(
       state.scheduleCoverage, state.scheduleWeek, state.scheduleAgreementFilter,
     );
     const dateLabel = (date) => new Intl.DateTimeFormat('es-AR', {
@@ -2052,6 +2080,26 @@
           Horarios de Argentina · ${rows[0].start}–${rows.at(-1).end} · Bloqueos descontados. Los turnos reservados cuentan como cobertura.
         </p>
         <div id="coverage-tooltip" class="coverage-tooltip" role="tooltip" hidden></div>
+      </section>
+      <section class="panel coverage-hours-panel" aria-labelledby="coverage-hours-heading">
+        <div class="coverage-hours-heading">
+          <h2 id="coverage-hours-heading">Resumen por profesional</h2>
+          <p id="coverage-hours-note">Semana del ${dateLabel(days[0].date)} al ${dateLabel(days[6].date)} · Horas disponibles, con bloqueos descontados.</p>
+        </div>
+        <div class="table-wrap coverage-hours-wrap" role="region" aria-label="Horas por profesional" tabindex="0">
+          <table class="coverage-hours-table" aria-labelledby="coverage-hours-heading" aria-describedby="coverage-hours-note">
+            <thead><tr>
+              <th scope="col">Profesional</th>
+              ${days.map((day) => `<th scope="col">${day.label}<small>${dateLabel(day.date)}</small></th>`).join('')}
+              <th scope="col" class="coverage-hours-total" aria-sort="descending">Total</th>
+            </tr></thead>
+            <tbody>${professionalHours.length ? professionalHours.map((professional) => `<tr data-hours-professional="${escapeHtml(professional.id)}">
+              <th scope="row">${escapeHtml(professional.name)}</th>
+              ${professional.minutes.map((minutes) => `<td${minutes ? '' : ' class="coverage-hours-zero"'}>${coverageHours(minutes)}</td>`).join('')}
+              <td class="coverage-hours-total">${coverageHours(professional.total)}</td>
+            </tr>`).join('') : '<tr><td colspan="9">No hay profesionales activos para los acuerdos seleccionados.</td></tr>'}</tbody>
+          </table>
+        </div>
       </section>
     `;
   }
