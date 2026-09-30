@@ -9,10 +9,16 @@ const flush = async () => {
   await new Promise((resolve) => setImmediate(resolve));
 };
 const range = (start_time, end_time, day_of_week = 1) => ({ start_time, end_time, day_of_week });
-const professional = (id, availability, extra = {}) => ({ id, name: `Fisio ${id}`, active: true, availability, ...extra });
+const agreement = (id, name = `Acuerdo ${id}`) => ({ id, name });
+const professional = (id, availability, extra = {}) => ({
+  id, name: `Fisio ${id}`, active: true, agreements: [agreement(1)], availability, ...extra,
+});
 const block = (professional_id, start_time, end_time, block_date = '2026-09-28') => ({ professional_id, start_time, end_time, block_date });
 
-async function openCoverage({ professionals = [], pages = [[]], fail = false, now = '2026-09-30T15:00:00Z' } = {}) {
+async function openCoverage({
+  professionals = [], agreements = [agreement(1)], permissions = ['*'], pages = [[]],
+  fail = false, now = '2026-09-30T15:00:00Z',
+} = {}) {
   let html = '';
   const handlers = new Map();
   const requests = [];
@@ -45,8 +51,9 @@ async function openCoverage({ professionals = [], pages = [[]], fail = false, no
   const fetch = async (path) => {
     requests.push(path);
     let payload;
-    if (path === '/api/admin/auth/me') payload = { user: { email: 'admin@example.test', permissions: ['*'] } };
+    if (path === '/api/admin/auth/me') payload = { user: { email: 'admin@example.test', permissions } };
     else if (path === '/api/admin/professionals') payload = { professionals };
+    else if (path === '/api/admin/agreements') payload = { agreements };
     else if (path.startsWith('/api/admin/schedule-blocks?')) {
       if (shouldFail) throw new Error('Error de conexión');
       const page = Number(new URL(path, location.origin).searchParams.get('page'));
@@ -70,6 +77,10 @@ async function openCoverage({ professionals = [], pages = [[]], fail = false, no
     },
     async date(value) {
       handlers.get('coverage-week:change')({ target: { value } });
+      await flush();
+    },
+    async agreement(value) {
+      handlers.get('coverage-agreement:change')({ target: { value } });
       await flush();
     },
     cell(date, time) {
@@ -102,6 +113,61 @@ test('coverage counts active professionals and subtracts dated blocks from every
   assert.deepEqual(ui.cell('2026-10-05', '08:30'), { status: 'covered', count: 2 });
   await ui.action('coverage-previous');
   assert.equal(ui.cell('2026-09-28', '08:30').count, 1);
+});
+
+test('agreement filtering excludes unassociated professionals and counts multiple associations only once', async () => {
+  const ui = await openCoverage({
+    agreements: [agreement(1), agreement(2, '<Acuerdo & dos>'), agreement(3)],
+    professionals: [
+      professional(1, [range('08:00', '10:00')]),
+      professional(2, [range('08:00', '10:00')], { agreements: [agreement(2)] }),
+      professional(3, [range('08:00', '10:00')], { agreements: [agreement(1), agreement(2)] }),
+      ...[[], null, undefined].map((agreements, index) => professional(4 + index, [range('00:00', '23:30')], { agreements })),
+    ],
+    pages: [[block(3, '08:30', '09:00')]],
+  });
+  assert.match(ui.html, /<option value="">Todos<\/option>/);
+  assert.match(ui.html, /&lt;Acuerdo &amp; dos&gt;/);
+  assert.equal(ui.cell('2026-09-28', '08:00').count, 3);
+  assert.equal(ui.cell('2026-09-28', '08:30').count, 2);
+  assert.doesNotMatch(ui.html, /data-time="00:00"|data-time="20:00"/);
+  const requests = ui.requests.length;
+  await ui.agreement('1');
+  assert.equal(ui.cell('2026-09-28', '08:00').count, 2);
+  assert.equal(ui.cell('2026-09-28', '08:30').count, 1);
+  await ui.agreement('2');
+  assert.equal(ui.cell('2026-09-28', '08:00').count, 2);
+  assert.equal(ui.cell('2026-09-28', '08:30').count, 1);
+  await ui.action('coverage-next');
+  assert.match(ui.html, /<option value="2" selected>/);
+  assert.equal(ui.cell('2026-10-05', '08:30').count, 2);
+  await ui.agreement('3');
+  assert.equal(ui.cell('2026-10-05', '08:00').count, 0);
+  await ui.agreement('');
+  assert.equal(ui.cell('2026-10-05', '08:00').count, 3);
+  assert.equal(ui.requests.length, requests);
+});
+
+test('coverage can filter associated agreements without requiring agreement catalog permissions', async () => {
+  const ui = await openCoverage({
+    permissions: ['professionals.read', 'schedule_blocks.read'],
+    professionals: [professional(1, [range('08:00', '10:00')], { agreements: [agreement(7, 'Convenio visible')] })],
+  });
+  assert.equal(ui.requests.includes('/api/admin/agreements'), false);
+  assert.match(ui.html, /<option value="7">Convenio visible<\/option>/);
+  await ui.agreement('7');
+  assert.equal(ui.cell('2026-09-28', '08:00').count, 1);
+});
+
+test('coverage uses custom name-only tooltips with escaped names and no native cell titles', async () => {
+  const ui = await openCoverage({ professionals: [
+    professional(1, [range('08:00', '10:00')], { name: 'Zoe' }),
+    professional(2, [range('08:00', '10:00')], { name: 'Ana <"&>' }),
+  ] });
+  assert.match(ui.html, /id="coverage-tooltip"[^>]*role="tooltip" hidden/);
+  assert.match(ui.html, /data-professional-names="\[&quot;Ana &lt;\\&quot;&amp;&gt;&quot;,&quot;Zoe&quot;\]" tabindex="0"/);
+  assert.doesNotMatch(ui.html, /<td class="coverage-cell[^>]* title=/);
+  assert.doesNotMatch(ui.html, /<td class="coverage-cell uncovered"[^>]*data-professional-names=/);
 });
 
 test('a partial block removes a full slot; exact boundaries leave adjacent slots intact', async () => {

@@ -9,6 +9,7 @@
     return `${publicBaseUrl}/turnos/?form=${encodeURIComponent(agreement.slug || '')}`;
   };
   let csrfToken = '';
+  let dismissCoverageTooltip = () => {};
   const state = {
     user: null,
     loading: true,
@@ -37,6 +38,7 @@
     scheduleCoverage: null,
     scheduleCoverageError: '',
     scheduleWeek: '',
+    scheduleAgreementFilter: '',
     auditEvents: [],
     mercadoPagoSettings: null,
     testBookingUrl: '',
@@ -684,13 +686,15 @@
       state.scheduleCoverage = null;
       state.scheduleCoverageError = '';
       try {
-        const [professionals, blocks] = await Promise.all([
+        const [professionals, blocks, agreements] = await Promise.all([
           api('/api/admin/professionals'),
           apiAll('/api/admin/schedule-blocks', 'schedule_blocks'),
+          can('agreements.read') ? api('/api/admin/agreements') : { agreements: [] },
         ]);
         state.scheduleCoverage = {
           professionals: professionals.professionals || [],
           blocks: blocks.schedule_blocks || [],
+          agreements: agreements.agreements || [],
         };
       } catch (error) {
         state.scheduleCoverageError = error.message;
@@ -732,6 +736,8 @@
   }
 
   function render() {
+    dismissCoverageTooltip();
+    dismissCoverageTooltip = () => {};
     if (state.loading) {
       app.className = 'app-loading';
       app.textContent = 'Cargando admin...';
@@ -1936,8 +1942,9 @@
   const coverageTime = (minutes) =>
     `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
-  function buildScheduleCoverage({ professionals, blocks }, week) {
-    const active = professionals.filter((professional) => professional.active && !professional.deleted_at);
+  function buildScheduleCoverage({ professionals, blocks }, week, agreementId) {
+    const active = professionals.filter((professional) => professional.active && !professional.deleted_at
+      && (professional.agreements || []).some((agreement) => !agreementId || String(agreement.id) === agreementId));
     const ranges = active.flatMap((professional) => professional.availability || []);
     // Show the working day, extending it for any configured hours outside 08–20.
     const start = Math.floor(Math.min(8 * 60, ...ranges.map((range) => coverageMinutes(range.start_time))) / 30) * 30;
@@ -1985,7 +1992,17 @@
         : 'Cargando cobertura…')}</p><button class="secondary-button" data-action="refresh">Reintentar</button></section>`;
     }
     if (!state.scheduleWeek) state.scheduleWeek = coverageMonday(coverageToday());
-    const { days, rows, hasSchedules } = buildScheduleCoverage(state.scheduleCoverage, state.scheduleWeek);
+    const agreements = [...new Map([
+      ...state.scheduleCoverage.professionals.flatMap((professional) => professional.agreements || []),
+      ...state.scheduleCoverage.agreements,
+    ].map((agreement) => [String(agreement.id), agreement])).values()]
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    if (!agreements.some((agreement) => String(agreement.id) === state.scheduleAgreementFilter)) {
+      state.scheduleAgreementFilter = '';
+    }
+    const { days, rows, hasSchedules } = buildScheduleCoverage(
+      state.scheduleCoverage, state.scheduleWeek, state.scheduleAgreementFilter,
+    );
     const dateLabel = (date) => new Intl.DateTimeFormat('es-AR', {
       day: '2-digit', month: '2-digit', timeZone: 'UTC',
     }).format(new Date(`${date}T12:00:00Z`));
@@ -2001,6 +2018,12 @@
             <button class="icon-button" data-action="coverage-next" aria-label="Semana siguiente" title="Semana siguiente">›</button>
             <button class="secondary-button" data-action="coverage-today">Esta semana</button>
           </div>
+          <label class="coverage-agreement-label">Acuerdo
+            <select id="coverage-agreement">
+              <option value="">Todos</option>
+              ${agreements.map((agreement) => `<option value="${escapeHtml(agreement.id)}"${String(agreement.id) === state.scheduleAgreementFilter ? ' selected' : ''}>${escapeHtml(agreement.name)}</option>`).join('')}
+            </select>
+          </label>
           <span class="coverage-summary">${covered} de ${rows.length * 7} franjas cubiertas</span>
         </div>
         <div class="coverage-legend">
@@ -2009,7 +2032,7 @@
           <span class="coverage-legend-note">El número indica cuántos fisios cubren la media hora completa.</span>
         </div>
         <div class="coverage-grid-wrap" style="--coverage-rows: ${rows.length}">
-          <table class="coverage-grid" aria-label="Cobertura del ${dateLabel(days[0].date)} al ${dateLabel(days[6].date)}" aria-describedby="coverage-note">
+          <table id="coverage-grid" class="coverage-grid" aria-label="Cobertura del ${dateLabel(days[0].date)} al ${dateLabel(days[6].date)}" aria-describedby="coverage-note">
             <thead><tr><th scope="col">Hora</th>${days.map((day) => `
               <th scope="col"${day.date === coverageToday() ? ' class="coverage-current-day"' : ''}><span class="coverage-day-name">${day.label}</span><span class="coverage-day-short" aria-hidden="true">${day.label.slice(0, 3)}</span><small>${dateLabel(day.date)}</small></th>
             `).join('')}</tr></thead>
@@ -2019,16 +2042,70 @@
                 const description = `${days[index].label} ${dateLabel(days[index].date)}, ${row.start}–${row.end}: ${professionals.length
                   ? `${professionals.length} ${professionals.length === 1 ? 'fisio' : 'fisios'} · ${professionals.map((professional) => professional.name).join(', ')}`
                   : 'Sin cobertura'}`;
-                return `<td class="coverage-cell ${professionals.length ? 'covered' : 'uncovered'}" data-date="${days[index].date}" data-time="${row.start}" title="${escapeHtml(description)}" aria-label="${escapeHtml(description)}">${professionals.length || '–'}</td>`;
+                const names = professionals.map((professional) => professional.name).sort((a, b) => a.localeCompare(b, 'es'));
+                return `<td class="coverage-cell ${professionals.length ? 'covered' : 'uncovered'}" data-date="${days[index].date}" data-time="${row.start}"${names.length ? ` data-professional-names="${escapeHtml(JSON.stringify(names))}" tabindex="0"` : ''} aria-label="${escapeHtml(description)}">${professionals.length || '–'}</td>`;
               }).join('')}
             </tr>`).join('')}</tbody>
           </table>
         </div>
-        <p class="coverage-note" id="coverage-note">${hasSchedules ? '' : 'No hay horarios de profesionales activos. '}
+        <p class="coverage-note" id="coverage-note">${hasSchedules ? '' : 'No hay horarios de profesionales activos para los acuerdos seleccionados. '}
           Horarios de Argentina · ${rows[0].start}–${rows.at(-1).end} · Bloqueos descontados. Los turnos reservados cuentan como cobertura.
         </p>
+        <div id="coverage-tooltip" class="coverage-tooltip" role="tooltip" hidden></div>
       </section>
     `;
+  }
+
+  function bindCoverageTooltip() {
+    const grid = document.getElementById('coverage-grid');
+    const tooltip = document.getElementById('coverage-tooltip');
+    if (!grid || !tooltip) return;
+    let activeCell = null;
+    let hideTimer = null;
+    const cancelHide = () => {
+      if (hideTimer !== null) window.clearTimeout(hideTimer);
+      hideTimer = null;
+    };
+    const hide = () => {
+      cancelHide();
+      activeCell?.removeAttribute('aria-describedby');
+      activeCell = null;
+      tooltip.hidden = true;
+    };
+    const show = (event) => {
+      const cell = event.target.closest('[data-professional-names]');
+      if (!cell || !grid.contains(cell)) return hide();
+      cancelHide();
+      if (cell === activeCell && !tooltip.hidden) return;
+      activeCell?.removeAttribute('aria-describedby');
+      activeCell = cell;
+      tooltip.replaceChildren(...JSON.parse(cell.dataset.professionalNames).map((name) => {
+        const line = document.createElement('div');
+        line.textContent = name;
+        return line;
+      }));
+      cell.setAttribute('aria-describedby', 'coverage-tooltip');
+      tooltip.hidden = false;
+      const rect = cell.getBoundingClientRect();
+      const width = tooltip.offsetWidth;
+      const height = tooltip.offsetHeight;
+      const left = Math.max(8, Math.min(rect.left + (rect.width - width) / 2, window.innerWidth - width - 8));
+      const top = rect.top >= height + 16 ? rect.top - height - 8 : rect.bottom + 8;
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`;
+    };
+    grid.addEventListener('pointerover', show);
+    grid.addEventListener('focusin', show);
+    grid.addEventListener('click', show);
+    grid.addEventListener('pointerout', (event) => {
+      if (event.pointerType === 'touch' || activeCell?.contains(event.relatedTarget) || tooltip.contains(event.relatedTarget)) return;
+      cancelHide();
+      hideTimer = window.setTimeout(hide, 100);
+    });
+    grid.addEventListener('focusout', hide);
+    tooltip.addEventListener('pointerenter', cancelHide);
+    tooltip.addEventListener('pointerleave', hide);
+    dismissCoverageTooltip = hide;
   }
 
   function renderProfessionals() {
@@ -3625,6 +3702,13 @@
     });
 
     bindActionElements();
+    bindCoverageTooltip();
+
+    document.getElementById('coverage-agreement')?.addEventListener('change', (event) => {
+      state.scheduleAgreementFilter = event.target.value;
+      clearStatus();
+      render();
+    });
 
     document.getElementById('coverage-week')?.addEventListener('change', (event) => {
       const value = event.target.value;
@@ -4963,12 +5047,21 @@
   }
 
   document.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element) || !event.target.closest('#coverage-grid, #coverage-tooltip')) dismissCoverageTooltip();
     if (!state.userMenuOpen) return;
     const target = event.target;
     if (target instanceof Element && target.closest('.user-menu')) return;
     state.userMenuOpen = false;
     render();
   });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') dismissCoverageTooltip();
+  });
+  document.addEventListener('scroll', (event) => {
+    if (!(event.target instanceof Element) || !event.target.closest('#coverage-tooltip')) dismissCoverageTooltip();
+  }, true);
+  window.addEventListener('resize', () => dismissCoverageTooltip());
 
   window.addEventListener('popstate', () => {
     navigateToModule(moduleFromPath(), { replace: true, search: window.location.search }).catch((error) => {

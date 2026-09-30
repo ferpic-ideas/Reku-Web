@@ -145,10 +145,14 @@ Funciones actuales:
 - Bloqueo de horarios por profesional.
 - Horarios (`/admin/horarios`), debajo de Profesionales: grilla semanal de cobertura
   en franjas de 30 minutos, con navegación por semana y fechas de Argentina.
+  Permite filtrar por acuerdo, con Todos por defecto. Sólo cuenta profesionales
+  asociados a algún acuerdo; al filtrar, sólo los asociados al acuerdo elegido.
   Verde claro indica al menos un profesional activo que cubre la franja completa;
   rojo claro indica ninguno. Descuenta bloqueos puntuales, incluso parciales, y
   mantiene los turnos reservados como cobertura. Muestra 08–20 y extiende el rango
-  si hay horarios configurados fuera de esa franja. Requiere lectura de
+  si hay horarios configurados fuera de esa franja entre los profesionales incluidos.
+  El tooltip aparece inmediatamente y muestra sólo sus nombres, uno por línea.
+  Requiere lectura de
   profesionales y bloqueos; reutiliza las APIs existentes sin modificar datos.
 - Probar agenda con link firmado de 48h.
 - Configuración de Mercado Pago y auditoría sólo para usuarios autorizados.
