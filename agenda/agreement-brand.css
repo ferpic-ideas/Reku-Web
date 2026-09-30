@@ -1,0 +1,77 @@
+/* YPF Obra Social: manual 13.11.23. All overrides require an explicit agreement theme. */
+@font-face { font-family: 'YPF DIN'; src: url('/turnos/brands/ypf-os/din-light.woff2') format('woff2'); font-weight: 300; font-display: swap; }
+@font-face { font-family: 'YPF DIN'; src: url('/turnos/brands/ypf-os/din-regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'YPF DIN'; src: url('/turnos/brands/ypf-os/din-medium.woff2') format('woff2'); font-weight: 500 900; font-display: swap; }
+:root[data-agreement-theme='ypf-os'] {
+  --navy: #001464; --accent: #0451e4; --accent-soft: #eef4ff; --teal: #0451e4;
+  --mint: #4ae5c2; --soft: #f5f7fb; --muted: #53617b; --border: #d8e1ef;
+  font-family: 'YPF DIN', Arial, sans-serif;
+}
+[data-agreement-theme='ypf-os'] body { background: var(--soft); font-family: 'YPF DIN', Arial, sans-serif; }
+[data-agreement-theme='ypf-os'] button,
+[data-agreement-theme='ypf-os'] input,
+[data-agreement-theme='ypf-os'] select,
+[data-agreement-theme='ypf-os'] textarea { font-family: inherit; }
+[data-agreement-theme='ypf-os'] .booking-header { gap: 18px; }
+[data-agreement-theme='ypf-os'] .booking-title.cobranded {
+  display: grid; grid-template-columns: 1fr auto; gap: 20px 24px;
+  padding: 28px 30px 24px; background: #fff; border-radius: 18px;
+  border-top: 6px solid var(--accent); border-bottom: 4px solid var(--mint);
+}
+[data-agreement-theme='ypf-os'] .booking-brand-lockup.cobranded {
+  border: 0; border-radius: 0; padding: 12px 0; background: transparent;
+}
+[data-agreement-theme='ypf-os'] .booking-brand-lockup .agreement-brand-logo {
+  display: block; width: 250px; min-width: 144px; max-width: 100%; height: auto;
+}
+[data-agreement-theme='ypf-os'] .booking-title h1 { grid-row: 2; grid-column: 1 / -1; font-size: 30px; font-weight: 500; }
+.agreement-provider { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #53617b; }
+.agreement-provider img { width: 64px; height: auto; }
+[data-agreement-theme='ypf-os'] .agreement-provider { grid-row: 1; grid-column: 2; }
+[data-agreement-theme='ypf-os'] :is(h1,h2,h3,.primary-button,.secondary-button,.field-label) { font-weight: 500; }
+[data-agreement-theme='ypf-os'] .booking-help-button { background: #fff; color: var(--navy); border-color: var(--border); font-weight: 500; }
+[data-agreement-theme='ypf-os'] .booking-help-button span { background: var(--mint); color: var(--navy); }
+[data-agreement-theme='ypf-os'] :is(input,textarea,select):focus { border-color: var(--accent); outline-color: var(--accent); }
+[data-agreement-theme='ypf-os'] .step.done span { background: var(--mint); border-color: var(--mint); color: var(--navy); }
+[data-agreement-theme='ypf-os'] .step.done span { color: var(--navy); }
+[data-agreement-theme='ypf-os'] .primary-button:hover { background: var(--navy); }
+/* The bot's existing unbranded and other agreement layouts stay intact. */
+.bot-provider { display: contents; }
+.provider-caption { display: none; }
+[data-agreement-theme='ypf-os'] .brand-header { background: #fff; border-top: 6px solid var(--accent); border-bottom: 4px solid var(--mint); border-radius: 18px; padding: 24px 28px; margin-bottom: 28px; }
+[data-agreement-theme='ypf-os'] .brand-lockup { width: 100%; justify-content: space-between; gap: 28px; }
+[data-agreement-theme='ypf-os'] #agreement-logo { width: 250px; min-width: 144px; max-width: 100%; max-height: none; height: auto; padding: 12px 0; border: 0; border-radius: 0; }
+[data-agreement-theme='ypf-os'] .bot-provider { display: flex; align-items: center; gap: 10px; }
+[data-agreement-theme='ypf-os'] .provider-caption { display: inline; color: var(--muted); font-size: 13px; }
+[data-agreement-theme='ypf-os'] #reku-logo { width: 64px; height: auto; }
+[data-agreement-theme='ypf-os'] .primary { background: var(--accent); }
+[data-agreement-theme='ypf-os'] .primary:hover { background: var(--navy); }
+[data-agreement-theme='ypf-os'] .eyebrow { color: var(--accent); }
+[data-agreement-theme='ypf-os'] .steps .step > span { background: var(--mint); color: var(--navy); }
+[data-agreement-theme='ypf-os'] :is(.start-panel,.result) { border-color: var(--border); background: #fff; }
+[data-agreement-theme='ypf-os'] .bubble { border-color: var(--border); }
+[data-agreement-theme='ypf-os'] .bubble.user { background: var(--accent-soft); }
+@media (max-width: 600px) {
+  [data-agreement-theme='ypf-os'] .booking-title.cobranded { padding: 18px 20px; gap: 12px 16px; }
+  [data-agreement-theme='ypf-os'] .booking-brand-lockup .agreement-brand-logo { width: 200px; }
+  [data-agreement-theme='ypf-os'] .agreement-provider { grid-column: 1 / -1; grid-row: 3; }
+  [data-agreement-theme='ypf-os'] .booking-title h1 { font-size: 28px; }
+  [data-agreement-theme='ypf-os'] .brand-header { padding: 18px 20px; }
+  [data-agreement-theme='ypf-os'] .brand-lockup { flex-wrap: wrap; gap: 12px; }
+  [data-agreement-theme='ypf-os'] #agreement-logo { width: 200px; }
+  [data-agreement-theme='ypf-os'] .bot-provider { width: 100%; }
+}
+
+[data-agreement-theme='ypf-os'] .assistant-avatar { background: var(--mint); color: var(--navy); }
+[data-agreement-theme='ypf-os'] .assistant-avatar span { color: var(--accent); }
+[data-agreement-theme='ypf-os'] :is(button,a,input,textarea):focus-visible { outline-color: var(--accent); }
+[data-agreement-theme='ypf-os'] .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+[data-agreement-theme='ypf-os'] .intro .start-panel { background: transparent; }
+[data-agreement-theme='ypf-os'] .steps .step { color: var(--muted); }
+[data-agreement-theme='ypf-os'] :is(.management-reschedule,.management-documents-panel,.management-meet-card,.meet-lobby-status:not(.ready):not(.waiting_professional)) { background: var(--accent-soft); border-color: var(--border); }
+[data-agreement-theme='ypf-os'] .meet-lobby-status-indicator { border-color: var(--border); border-top-color: var(--accent); }
+[data-agreement-theme='ypf-os'] :is(.management-documents-toggle,.management-actions .management-reschedule-button) { background: #fff; border-color: var(--border); color: var(--navy); }
+[data-agreement-theme='ypf-os'] :is(.secondary-button,.management-documents-toggle,.management-actions .management-reschedule-button):not(:disabled):is(:hover,:focus-visible) { background: var(--accent-soft); border-color: var(--accent); box-shadow: none; }
+[data-agreement-theme='ypf-os'] .uploaded-documents { color: var(--navy); }
+[data-agreement-theme='ypf-os'] .documents-submit-button { background: var(--mint); border-color: var(--mint); color: var(--navy); }

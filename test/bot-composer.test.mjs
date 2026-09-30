@@ -88,7 +88,7 @@ const setup = async ({ audioLevel = 0.02, search = '', hash = '', sessionOverrid
   const session = { status: 'collecting', version: 0, instanceId: 'test-instance', messages: [], brand: { slug: '' }, ...sessionOverrides };
   const response = (data, ok = true) => ({ ok, json: async () => data });
   vm.runInNewContext(await readFile(new URL('../bot/app.js', import.meta.url), 'utf8'), {
-    document: { getElementById: get, createElement: element, createTextNode: text => text, body: element() },
+    document: { documentElement: { dataset: {} }, getElementById: get, createElement: element, createTextNode: text => text, body: element() },
     location: { search, hash, pathname: '/bot', reload: () => reloads++ }, history: { replaceState: (_state, _title, url) => replacedHistory.push(url) }, window: { addEventListener: (event, fn) => { windowHandlers[event] = fn; }, AudioContext, MediaRecorder },
     navigator: { sendBeacon: (url, body) => { beacons.push({ url, body }); return true; }, mediaDevices: { getUserMedia: () => {
       const tracks = [{ stopped: false, stop() { this.stopped = true; } }];

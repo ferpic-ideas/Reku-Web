@@ -1,3 +1,4 @@
+import { agreementEmailHtml } from './agreement-brand.mjs';
 import { config } from "./config.mjs";
 import { escapeHtml } from "./http.mjs";
 
@@ -148,7 +149,7 @@ export const buildPatientVerificationEmail = ({
     ]
       .filter(Boolean)
       .join("\n"),
-    html: `
+    html: agreementEmailHtml(agreement, `
       <div style="font-family: Arial, sans-serif; line-height: 1.5;">
         <h1 style="font-size: 20px;">${escapeHtml(subject)}</h1>
         <p>${escapeHtml(intro)}</p>
@@ -160,7 +161,7 @@ export const buildPatientVerificationEmail = ({
             : ""
         }
       </div>
-    `,
+    `),
   };
 };
 

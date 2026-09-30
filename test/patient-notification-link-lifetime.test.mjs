@@ -1,3 +1,4 @@
+import { agreementEmailHtml, appointmentBrandSql, usesYpfBrand } from '../src/agreement-brand.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -14,7 +15,7 @@ for (const action of ['notifyPatientForAppointment', 'notifyPatientForPendingPay
     const appointment = { id: 1, appointment_date: '2026-10-01', start_time: '14:00', end_time: '14:30',
       patient_email: 'synthetic@example.test', professional_name: 'Profesional de prueba', service_name: 'Consulta', google_meet_url: 'https://meet.google.com/synthetic' };
     const context = {
-      config, escapeHtml, googleCalendarTemplateUrl, isGoogleCalendarEmail, patientCalendarActionUrl, patientCommunicationsSql,
+      agreementEmailHtml, appointmentBrandSql, usesYpfBrand, config, escapeHtml, googleCalendarTemplateUrl, isGoogleCalendarEmail, patientCalendarActionUrl, patientCommunicationsSql,
       query: async text => { sql.push(text); return { rows: /RETURNING/.test(text) ? [appointment] : [] }; },
       recordAudit: async event => audit.push(event),
       readAppointmentConsultationStatus: async () => 'pending',

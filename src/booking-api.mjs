@@ -309,6 +309,7 @@ const requireAccessLink = async (token) => {
         a.type AS current_agreement_type,
         a.subdomain_prefix AS current_agreement_subdomain_prefix,
         a.cobranded AS current_agreement_cobranded,
+        a.brand_theme AS current_agreement_brand_theme,
         a.direct_treatment,
         a.treatment_service_id,
         a.medical_order_required,
@@ -355,6 +356,7 @@ const requireAccessLink = async (token) => {
         "",
       subdomain_prefix: link.current_agreement_subdomain_prefix || "",
       cobranded: Boolean(link.current_agreement_cobranded),
+      brand_theme: link.current_agreement_brand_theme || "",
       direct_treatment: Boolean(link.direct_treatment),
       treatment_service_id: link.treatment_service_id ? Number(link.treatment_service_id) : null,
       medical_order_required: Boolean(link.medical_order_required),
@@ -411,6 +413,7 @@ const mapAgreement = (agreement) => ({
   slug: agreement.slug,
   subdomain_prefix: agreement.subdomain_prefix || "",
   cobranded: agreement.cobranded,
+  brand_theme: agreement.brand_theme || "",
   direct_treatment: Boolean(agreement.direct_treatment),
   treatment_service_id: agreement.treatment_service_id ? Number(agreement.treatment_service_id) : null,
   medical_order_required: Boolean(agreement.medical_order_required),
@@ -1457,6 +1460,7 @@ const mapManagedAppointment = async (row) => ({
         id: Number(row.agreement_id),
         name: row.agreement_name || "",
         cobranded: Boolean(row.agreement_cobranded),
+        brand_theme: row.agreement_brand_theme || "",
         logo_url:
           row.agreement_cobranded && row.agreement_logo_path
             ? `/uploads/${row.agreement_logo_path}`
@@ -1501,6 +1505,7 @@ const loadManagedAppointment = async (appointmentId) =>
         COALESCE(NULLIF(agreement.name, ''), appointment.agreement_name_snapshot) AS agreement_name,
         COALESCE(agreement.cobranded, appointment.agreement_cobranded_snapshot) AS agreement_cobranded,
         agreement.logo_path AS agreement_logo_path,
+        agreement.brand_theme AS agreement_brand_theme,
         service.name AS service_name,
         service.duration_minutes,
         professional.name AS professional_name,
@@ -2206,11 +2211,13 @@ const paymentReturnLinkContext = (row, id) => ({
   id: Number(id),
   agreement: {
     id: row.agreement_id ? Number(row.agreement_id) : null,
-    name: row.agreement_name_snapshot || "",
+    name: row.current_agreement_name || row.agreement_name_snapshot || "",
     slug: row.agreement_slug_snapshot || "",
     type: row.agreement_type_snapshot || "",
     subdomain_prefix: row.agreement_subdomain_prefix || "",
-    cobranded: Boolean(row.agreement_cobranded_snapshot),
+    cobranded: Boolean(row.current_agreement_cobranded ?? row.agreement_cobranded_snapshot),
+    brand_theme: row.agreement_brand_theme || "",
+    logo_url: row.agreement_logo_path ? `/uploads/${row.agreement_logo_path}` : "",
   },
 });
 
@@ -2305,6 +2312,10 @@ const refreshPaymentStatus = async (request, url, response) => {
         a.agreement_cobranded_snapshot,
         a.created_at,
         agreement.subdomain_prefix AS agreement_subdomain_prefix,
+        agreement.name AS current_agreement_name,
+        agreement.cobranded AS current_agreement_cobranded,
+        agreement.brand_theme AS agreement_brand_theme,
+        agreement.logo_path AS agreement_logo_path,
         s.name AS service_name,
         s.duration_minutes AS service_duration_minutes,
         s.cost_amount AS service_cost_amount,
@@ -2413,6 +2424,7 @@ const refreshPaymentStatus = async (request, url, response) => {
       appointment: appointmentFromRow(appointment),
       selection: appointmentSelectionFromRow(appointment, activeLink),
       payment_required: activeLink.agreement?.type !== "Nomina",
+      agreement: activeLink.agreement,
       payment_error: paymentError,
       payment: {
         provider: "mercadopago",

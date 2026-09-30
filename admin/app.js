@@ -2957,6 +2957,13 @@
             <input type="checkbox" name="cobranded" ${item.cobranded ? 'checked' : ''} />
             Cobranded
           </label>
+          <label>Identidad visual
+            <select name="brand_theme">
+              <option value="" ${!item.brand_theme ? 'selected' : ''}>Predeterminada</option>
+              <option value="ypf-os" ${item.brand_theme === 'ypf-os' ? 'selected' : ''}>YPF Obra Social</option>
+            </select>
+            <span class="field-help">Con Cobranded activo, aplica la identidad a las pantallas, mails e informes del paciente.</span>
+          </label>
           <label class="check-row" data-web-only>
             <input type="checkbox" name="email_verification_required" ${item.email_verification_required !== false ? 'checked' : ''} />
             Verificar email antes de reservar

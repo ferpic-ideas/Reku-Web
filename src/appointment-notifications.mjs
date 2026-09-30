@@ -1,3 +1,4 @@
+import { agreementEmailHtml, appointmentBrandSql, usesYpfBrand } from './agreement-brand.mjs';
 import { createProfessionalAccessLink } from "./professional-links.mjs";
 import { query, recordAudit } from "./db.mjs";
 import { consultationStatusSql, readAppointmentConsultationStatus } from './consultation-status.mjs';
@@ -34,6 +35,7 @@ const safeSubjectPart = (value) =>
 
 const patientConfirmationBrand = (appointment) => {
   const agreementName = appointmentAgreementName(appointment);
+  if (usesYpfBrand(appointment.agreement_brand)) return "YPF Obra Social · Reku";
   return appointment.agreement_cobranded && agreementName
     ? `${safeSubjectPart(agreementName)}+Reku`
     : "Reku";
@@ -220,7 +222,7 @@ export const patientConfirmationHtml = ({
   appointment,
   manageUrl = "",
   meetUrl = manageUrl,
-}) => `
+}) => agreementEmailHtml(appointment.agreement_brand, `
   <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
     <h1 style="font-size:24px;margin:0 0 16px">${isRescheduled(appointment) ? "Tu turno fue reprogramado" : "Tu turno quedó confirmado"}</h1>
     <p>${isRescheduled(appointment) ? "Actualizamos tu reserva." : "Confirmamos tu reserva."}</p>
@@ -249,7 +251,7 @@ export const patientConfirmationHtml = ({
     ${patientMeetHtml(appointment, meetUrl)}
     <p style="color:#64738a;font-size:13px">Te enviaremos un recordatorio aproximadamente 24 horas antes del turno.</p>
   </div>
-`;
+`);
 
 export const patientPendingPaymentText = ({ appointment, manageUrl = "" }) =>
   [
@@ -271,7 +273,7 @@ export const patientPendingPaymentText = ({ appointment, manageUrl = "" }) =>
     "La reserva del horario vence si el pago no se completa a tiempo.",
   ].filter(Boolean).join("\n");
 
-export const patientPendingPaymentHtml = ({ appointment, manageUrl = "" }) => `
+export const patientPendingPaymentHtml = ({ appointment, manageUrl = "" }) => agreementEmailHtml(appointment.agreement_brand, `
   <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
     <h1 style="font-size:24px;margin:0 0 16px">Tu reserva está pendiente de pago</h1>
     <div style="margin:20px 0;padding:18px;border:1px solid #f2d48a;border-radius:12px;background:#fff8e6">
@@ -288,7 +290,7 @@ export const patientPendingPaymentHtml = ({ appointment, manageUrl = "" }) => `
     ${manageUrl ? `<p><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#fff;color:#18213f;border:1px solid #ccd5e2;padding:11px 15px;border-radius:8px;text-decoration:none;font-weight:700">Gestionar o cancelar reserva</a></p>` : ""}
     <p style="color:#64738a;font-size:13px">La reserva del horario vence si el pago no se completa a tiempo.</p>
   </div>
-`;
+`);
 
 export const patientFollowupText = ({
   appointment,
@@ -324,7 +326,7 @@ export const patientFollowupHtml = ({
   appointment,
   manageUrl = "",
   meetUrl = manageUrl,
-}) => `
+}) => agreementEmailHtml(appointment.agreement_brand, `
   <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
     <h1 style="font-size:24px;margin:0 0 16px">Recordatorio de tu turno</h1>
     <p>Tu consulta con Reku es en aproximadamente 24 horas.</p>
@@ -348,7 +350,7 @@ export const patientFollowupHtml = ({
     ${patientMeetHtml(appointment, meetUrl)}
     ${patientActionsHtml(appointment, manageUrl)}
   </div>
-`;
+`);
 
 export const patientTriageReminderText = ({ appointment }) =>
   [
@@ -366,7 +368,7 @@ export const patientTriageReminderText = ({ appointment }) =>
     appointment.bot_url,
   ].join("\n");
 
-export const patientTriageReminderHtml = ({ appointment }) => `
+export const patientTriageReminderHtml = ({ appointment }) => agreementEmailHtml(appointment.agreement_brand, `
   <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
     <h1 style="font-size:24px;margin:0 0 16px">Completá tu cuestionario previo</h1>
     <p>Hola ${escapeHtml(appointment.patient_name || "")},</p>
@@ -382,7 +384,7 @@ export const patientTriageReminderHtml = ({ appointment }) => `
     </p>
     <p style="color:#64738a;font-size:13px">Si ya lo completaste, podés ignorar este mensaje.</p>
   </div>
-`;
+`);
 
 const patientCancellationText = ({ appointment }) =>
   [
@@ -405,7 +407,7 @@ const patientCancellationText = ({ appointment }) =>
     .filter(Boolean)
     .join("\n");
 
-const patientCancellationHtml = ({ appointment }) => `
+const patientCancellationHtml = ({ appointment }) => agreementEmailHtml(appointment.agreement_brand, `
   <div style="font-family:Arial,sans-serif;color:#18213f;line-height:1.5">
     <h1 style="font-size:24px;margin:0 0 16px">Tu turno fue cancelado</h1>
     <p>Te informamos que el siguiente turno en Reku fue cancelado.</p>
@@ -424,7 +426,7 @@ const patientCancellationHtml = ({ appointment }) => `
           : "No había un pago que reembolsar."
     }</p>
   </div>
-`;
+`);
 
 const claimAppointmentNotification = async (appointmentId) => {
   const result = await query(
@@ -484,6 +486,7 @@ const claimPatientConfirmation = async (appointmentId) => {
         AND NULLIF(a.patient_email, '') IS NOT NULL
       RETURNING
         a.id,
+        ${appointmentBrandSql('a')},
         to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
         to_char(a.start_time, 'HH24:MI') AS start_time,
         to_char(a.end_time, 'HH24:MI') AS end_time,
@@ -548,6 +551,7 @@ const claimPendingPaymentNotification = async (appointmentId) => {
         AND NULLIF(appointment.patient_email, '') IS NOT NULL
       RETURNING
         appointment.id,
+        ${appointmentBrandSql('appointment')},
         to_char(appointment.appointment_date, 'YYYY-MM-DD') AS appointment_date,
         to_char(appointment.start_time, 'HH24:MI') AS start_time,
         to_char(appointment.end_time, 'HH24:MI') AS end_time,
@@ -691,7 +695,7 @@ export const notifyPatientForPendingPayment = async (appointmentId) => {
     const result = await sendEmail({
       formName: "turno-pago-pendiente",
       to: appointment.patient_email,
-      subject: `Completá el pago de tu turno Reku - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`,
+      subject: `Completá el pago de tu turno ${patientConfirmationBrand(appointment)} - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`,
       text: patientPendingPaymentText({ appointment, manageUrl: manageLink.url }),
       html: patientPendingPaymentHtml({ appointment, manageUrl: manageLink.url }),
     });
@@ -738,6 +742,7 @@ const claimPatientFollowup = async (appointmentId) => {
         AND ((a.appointment_date + a.start_time) AT TIME ZONE $2) <= NOW() + INTERVAL '24 hours'
       RETURNING
         a.id,
+        ${appointmentBrandSql('a')},
         to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
         to_char(a.start_time, 'HH24:MI') AS start_time,
         to_char(a.end_time, 'HH24:MI') AS end_time,
@@ -778,7 +783,7 @@ export const notifyPatientAppointmentFollowup = async (appointmentId) => {
     const result = await sendEmail({
       formName: "recordatorio-turno-paciente",
       to: appointment.patient_email,
-      subject: `Recordatorio turno Reku - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`,
+      subject: `Recordatorio turno ${patientConfirmationBrand(appointment)} - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`,
       text: patientFollowupText({
         appointment,
         manageUrl: manageLink.url,
@@ -945,6 +950,7 @@ const claimManualTriageReminder = async (appointmentId, professionalId) => {
         )
       RETURNING
         appointment.id,
+        ${appointmentBrandSql('appointment')},
         to_char(appointment.appointment_date, 'YYYY-MM-DD') AS appointment_date,
         to_char(appointment.start_time, 'HH24:MI') AS start_time,
         to_char(appointment.end_time, 'HH24:MI') AS end_time,
@@ -1222,6 +1228,7 @@ export const notifyPatientForCancellation = async (appointmentId) => {
         AND NULLIF(a.patient_email, '') IS NOT NULL
       RETURNING
         a.id,
+        ${appointmentBrandSql('a')},
         to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
         to_char(a.start_time, 'HH24:MI') AS start_time,
         to_char(a.end_time, 'HH24:MI') AS end_time,
@@ -1240,7 +1247,7 @@ export const notifyPatientForCancellation = async (appointmentId) => {
     const email = await sendEmail({
       formName: "cancelacion-turno-paciente",
       to: appointment.patient_email,
-      subject: `Turno cancelado Reku - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`,
+      subject: `Turno cancelado ${patientConfirmationBrand(appointment)} - ${formatDate(appointment.appointment_date)} ${appointment.start_time}`,
       text: patientCancellationText({ appointment }),
       html: patientCancellationHtml({ appointment }),
     });

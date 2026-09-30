@@ -131,7 +131,7 @@ test("intake continues directly to services when email verification is disabled"
     String,
     URL,
     URLSearchParams,
-    document: {
+    document: { documentElement: { dataset: {} },
       getElementById() {
         return app;
       },

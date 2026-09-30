@@ -66,6 +66,7 @@
   const brandPage = (brand) => {
     const cobranded = brand.cobranded && /^\/uploads\/agreements\/[\w.-]+$/.test(brand.logo_url || '');
     document.body.classList.toggle('cobranded', Boolean(cobranded));
+    document.documentElement.dataset.agreementTheme = cobranded && brand.brand_theme === 'ypf-os' ? 'ypf-os' : '';
     $('agreement-logo').hidden = !cobranded;
     if (cobranded) { $('agreement-logo').src = '/api/bot/logo'; $('agreement-logo').alt = brand.name; }
     $('brand-caption').textContent = brand.slug ? `${brand.name} · Telerehabilitación con Reku` : 'Reku · Telerehabilitación con acompañamiento profesional';

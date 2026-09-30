@@ -18,7 +18,7 @@ const setup = async ({ direct = true, required = false, fail = false, emptyFirst
     }
   }
   const context = {
-    document: { getElementById: () => app },
+    document: { documentElement: { dataset: {} }, getElementById: () => app },
     window: { location: { search: '', hash: '' } },
     URLSearchParams, URL, FormData: MockFormData,
     fetch: async (path, options = {}) => {

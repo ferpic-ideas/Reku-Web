@@ -7,7 +7,7 @@ const setup = async (success = true) => {
   const source = await readFile(new URL('../agenda/app.js', import.meta.url), 'utf8');
   const app = { innerHTML: '', querySelector: () => null, querySelectorAll: () => [] };
   const context = {
-    document: { getElementById: () => app },
+    document: { documentElement: { dataset: {} }, getElementById: () => app },
     window: { location: { search: '', hash: '' } },
     URLSearchParams, URL, FormData,
     fetch: async () => ({ ok: success, json: async () => success

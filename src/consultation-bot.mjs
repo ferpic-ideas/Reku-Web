@@ -47,7 +47,7 @@ export const resolveBotBrand = async (request, { findAgreement = getAgreementByS
   const prefix = agreementPrefixForRequest(request);
   const agreement = prefix ? await findAgreement(prefix) : null;
   if (prefix && !agreement) throw fail("No encontramos ese acuerdo.", 404);
-  return agreement ? { name: agreement.name, slug: agreement.slug, cobranded: Boolean(agreement.cobranded), logo_url: agreement.cobranded ? agreement.logo_url : "" } : { name: "Reku", slug: "", cobranded: false, logo_url: "" };
+  return agreement ? { name: agreement.name, slug: agreement.slug, brand_theme: agreement.brand_theme || "", cobranded: Boolean(agreement.cobranded), logo_url: agreement.cobranded ? agreement.logo_url : "" } : { name: "Reku", slug: "", cobranded: false, logo_url: "" };
 };
 const context = request => resolveBotBrand(request);
 const sendReport = (response, pdf) => {

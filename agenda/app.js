@@ -465,6 +465,7 @@
       const payload = await api(`/api/booking/payment-status?${query.toString()}`);
       removePaymentReturnParams();
       state.appointment = payload.appointment;
+      if (payload.agreement) state.agreement = payload.agreement;
       state.paymentRequired = payload.payment_required !== false;
       if (payload.selection) {
         state.service = payload.selection.service || null;
@@ -1062,6 +1063,12 @@
     }
   }
 
+  function renderProviderBrand(agreement) {
+    return agreement.brand_theme === 'ypf-os'
+      ? '<div class="agreement-provider"><span>Servicio brindado por</span><img src="/images/logo-reku.svg" alt="Reku" /></div>'
+      : '<img class="reku-brand-logo cobranded-reku-logo" src="/images/logo-reku.svg" alt="Reku" />';
+  }
+
   function renderHeader() {
     if ([8, 9].includes(state.step)) {
       const agreement = state.management.appointment?.agreement || {};
@@ -1083,7 +1090,7 @@
                 ${agreementLogo}
               </div>
               <h1>${title}</h1>
-              <img class="reku-brand-logo cobranded-reku-logo" src="/images/logo-reku.svg" alt="Reku" />
+              ${renderProviderBrand(agreement)}
             </div>
           </header>
         `;
@@ -1137,7 +1144,7 @@
             ${agreementLogo ? '' : '<img class="reku-brand-logo" src="/images/logo-reku.svg" alt="Reku" />'}
           </div>
           <h1>Reserva tu turno</h1>
-          ${agreementLogo ? '<img class="reku-brand-logo cobranded-reku-logo" src="/images/logo-reku.svg" alt="Reku" />' : ''}
+          ${agreementLogo ? renderProviderBrand(agreement) : ''}
         </div>
         ${stepper}
         <div class="booking-help-row">
@@ -1956,6 +1963,8 @@
   }
 
   function render() {
+    const brand = ([8, 9].includes(state.step) ? state.management.appointment?.agreement : state.agreement) || {};
+    document.documentElement.dataset.agreementTheme = brand.cobranded && brand.brand_theme === 'ypf-os' ? 'ypf-os' : '';
     if (state.loading) {
       app.innerHTML = `${renderHeader()}<div class="empty-card">Cargando...</div>${renderBookingHelpModal()}`;
       bindEvents();

@@ -672,6 +672,7 @@ const mapAgreement = (row) => ({
   slug: row.slug,
   subdomain_prefix: row.subdomain_prefix || "",
   cobranded: Boolean(row.cobranded),
+  brand_theme: row.brand_theme || "",
   direct_treatment: Boolean(row.direct_treatment),
   treatment_service_id: row.treatment_service_id ? Number(row.treatment_service_id) : null,
   medical_order_required: Boolean(row.medical_order_required),
@@ -702,6 +703,10 @@ const agreementPayloadFromMultipart = async (request) => {
   // One editable value: the slug is also the DNS prefix. Keep the legacy
   // response/storage field for existing URL consumers, never trust a second input.
   const subdomainPrefix = validateAgreementSubdomainPrefix(slug);
+  const brandTheme = fields.brand_theme === undefined ? undefined : String(fields.brand_theme);
+  if (brandTheme !== undefined && !['', 'ypf-os'].includes(brandTheme)) {
+    throw Object.assign(new Error('AGREEMENT_BRAND_THEME_INVALID'), { statusCode: 422 });
+  }
   const type = fields.type === "Nomina" ? "Nomina" : "Pago";
   const accessMode = fields.access_mode || 'web';
   const communicationSender = accessMode === 'api' ? (fields.communication_sender || 'reku') : 'reku';
@@ -738,6 +743,7 @@ const agreementPayloadFromMultipart = async (request) => {
   return {
     fields: {
       name,
+      brand_theme: brandTheme,
       slug,
       subdomain_prefix: subdomainPrefix,
       cobranded: fields.cobranded === "true" || fields.cobranded === "on",
@@ -786,9 +792,9 @@ const createAgreement = async (request, response, user) => {
           direct_treatment,
           treatment_service_id,
           medical_order_required,
-          identifier_label, access_mode, communication_sender, email_verification_required
+          identifier_label, access_mode, communication_sender, email_verification_required, brand_theme
         )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING *
     `,
     [
@@ -808,6 +814,7 @@ const createAgreement = async (request, response, user) => {
       payload.fields.access_mode,
       payload.fields.communication_sender,
       payload.fields.email_verification_required,
+      payload.fields.brand_theme || "",
     ],
   );
   await recordAudit("agreement.created", {
@@ -865,6 +872,7 @@ const updateAgreement = async (request, response, user, id) => {
           access_mode = $15,
           communication_sender = $16,
           email_verification_required = $17,
+          brand_theme = $18,
           updated_at = NOW()
       WHERE id = $10
         AND deleted_at IS NULL
@@ -888,6 +896,7 @@ const updateAgreement = async (request, response, user, id) => {
       payload.fields.access_mode,
       payload.fields.communication_sender,
       payload.fields.email_verification_required,
+      payload.fields.brand_theme ?? current.brand_theme ?? "",
     ],
   );
   await recordAudit("agreement.updated", {
@@ -3124,6 +3133,7 @@ export const handlePublicAgreementApi = async (request, response, url) => {
       slug: agreement.slug,
       subdomain_prefix: agreement.subdomain_prefix || "",
       cobranded: agreement.cobranded,
+      brand_theme: agreement.brand_theme || "",
       type: agreement.type,
       logo_url: agreement.cobranded ? agreement.logo_url : "",
       pdf_url: agreement.pdf_url,
@@ -3733,6 +3743,10 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (error.message === "AGREEMENT_SUBDOMAIN_RESERVED") {
       sendJson(response, 422, { error: "Ese slug está reservado. Elegí otro." });
+      return true;
+    }
+    if (error.message === 'AGREEMENT_BRAND_THEME_INVALID') {
+      sendJson(response, 422, { error: 'Seleccioná una identidad visual válida.' });
       return true;
     }
     if (error.message === 'AGREEMENT_IDENTIFIER_LABEL_INVALID') {

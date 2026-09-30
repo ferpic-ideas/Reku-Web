@@ -1,3 +1,4 @@
+import { agreementEmailHtml, appointmentBrandSql, usesYpfBrand } from '../src/agreement-brand.mjs';
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm, access, readFile } from "node:fs/promises";
@@ -1312,7 +1313,7 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     const adminHeaders = { Cookie: login.headers.get('set-cookie').split(';')[0], Origin: baseUrl, 'X-CSRF-Token': loginData.csrf_token };
     await pool.query("UPDATE agreements SET logo_path='test-preserved-logo.png', pdf_path='test-preserved.pdf', payment_evaluation_url='https://example.test/pay' WHERE id=$1", [row.agreement_id]);
     const form = new FormData();
-    for (const [key,value] of Object.entries({ name: 'API Test Principal', slug: 'api-test-principal', type: 'Pago', access_mode: 'api', communication_sender: 'integrator', cobranded: 'true', email_verification_required: 'true', remove_pdf: 'true', payment_evaluation_url: 'https://example.test/ignored' })) form.set(key,value);
+    for (const [key,value] of Object.entries({ name: 'API Test Principal', slug: 'api-test-principal', type: 'Pago', access_mode: 'api', communication_sender: 'integrator', cobranded: 'true', brand_theme: 'ypf-os', email_verification_required: 'true', remove_pdf: 'true', payment_evaluation_url: 'https://example.test/ignored' })) form.set(key,value);
     const saved = await fetch(`${baseUrl}/api/admin/agreements/${row.agreement_id}`, { method: 'PUT', headers: adminHeaders, body: form });
     assert.equal(saved.status, 200, await saved.clone().text());
     const agreement = (await saved.json()).agreement;
@@ -1324,6 +1325,14 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     assert.equal(agreement.pdf_path, 'test-preserved.pdf');
     assert.equal(agreement.payment_evaluation_url, 'https://example.test/pay');
     assert.equal(agreement.api_available, true);
+    assert.equal(agreement.brand_theme, 'ypf-os');
+    // Older admin clients omit this field: keep the configured brand.
+    form.delete('brand_theme');
+    const preserved = await fetch(`${baseUrl}/api/admin/agreements/${row.agreement_id}`, { method: 'PUT', headers: adminHeaders, body: form });
+    assert.equal((await preserved.json()).agreement.brand_theme, 'ypf-os');
+    form.set('brand_theme', 'untrusted-css');
+    const invalidTheme = await fetch(`${baseUrl}/api/admin/agreements/${row.agreement_id}`, { method: 'PUT', headers: adminHeaders, body: form });
+    assert.equal(invalidTheme.status, 422);
     const refusedIntake = await fetch(`${baseUrl}/api/booking/intake`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: baseUrl }, body: JSON.stringify({ agreement_slug: agreement.slug, nombre: 'Persona', apellido: 'Prueba', email: 'policy-intake@example.test', telefono: '1155550000' }) });
     assert.equal(refusedIntake.status, 403, 'API email-verification bypass must not expose unauthenticated Web booking');
 
@@ -1332,13 +1341,14 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     await pool.query("INSERT INTO patient_appointment_sessions (token_hash,access_link_id,appointment_id,expires_at) VALUES ($1,$2,$3,NOW()+INTERVAL '1 day')", [await sha256(roomToken), roomLink.id, row.id]);
     const brandedRoom = await (await fetch(`${baseUrl}/api/booking/manage/appointment`, { headers: { Cookie: `${config.patientAppointmentSessionCookieName}=${roomToken}` } })).json();
     assert.equal(brandedRoom.appointment.agreement.cobranded, true);
+    assert.equal(brandedRoom.appointment.agreement.brand_theme, 'ypf-os');
     assert.equal(brandedRoom.appointment.agreement.logo_url, '/uploads/test-preserved-logo.png');
     assert.equal(brandedRoom.appointment.consultation_status, 'not_applicable');
 
     const source = await readFile(new URL('../src/appointment-notifications.mjs', import.meta.url), 'utf8');
     const messages = [], assigned = [];
     const context = {
-      config, escapeHtml, googleCalendarTemplateUrl, patientCommunicationsSql, consultationStatusSql,
+      agreementEmailHtml, appointmentBrandSql, usesYpfBrand, config, escapeHtml, googleCalendarTemplateUrl, patientCommunicationsSql, consultationStatusSql,
       query: pool.query.bind(pool), recordAudit: async () => {},
       readAppointmentConsultationStatus: async () => 'not_applicable',
       createPatientAppointmentAccessLink: async () => ({ url: 'https://example.test/manage', meet_url: 'https://example.test/sala', bot_url: '' }),
@@ -1374,6 +1384,9 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     await context.actions.notifyConfirmedAppointment(row.id);
     const patientMail = messages.find(message => message.to === row.patient_email);
     assert.ok(patientMail);
+    assert.match(patientMail.html, /YPF Obra Social/);
+    assert.match(patientMail.html, /Servicio brindado por/);
+    assert.match(patientMail.html, /#0451E4/);
     assert.doesNotMatch(patientMail.html, /Completar cuestionario|Cuestionario previo/);
     await assert.rejects(context.actions.notifyPatientTriageReminder(row.id, row.professional_id), /TRIAGE_REMINDER_NOT_AVAILABLE/);
   });

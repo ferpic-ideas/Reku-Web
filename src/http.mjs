@@ -20,6 +20,7 @@ export const mimeTypes = {
   ".gif": "image/gif",
   ".webp": "image/webp",
   ".pdf": "application/pdf",
+  ".woff2": "font/woff2",
   ".ico": "image/x-icon",
   ".txt": "text/plain; charset=utf-8",
   ".xml": "application/xml; charset=utf-8",
@@ -219,7 +220,7 @@ const publicMounts = [
   {
     prefix: "/turnos/",
     directory: join(root, "agenda"),
-    extensions: new Set([".html", ".css", ".js"]),
+    extensions: new Set([".html", ".css", ".js", ".png", ".woff2", ".pdf"]),
   },
   {
     prefix: "/profesional-turnos/",

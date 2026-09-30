@@ -205,7 +205,7 @@ test("managed appointments reuse the booking cobranded header", async () => {
   assert.match(header, /state\.management\.appointment\?\.agreement/);
   assert.match(header, /booking-brand-lockup cobranded/);
   assert.match(header, /agreement-brand-logo/);
-  assert.match(header, /cobranded-reku-logo/);
+  assert.match(header, /renderProviderBrand\(agreement\)/);
   assert.match(bookingSource, /LEFT JOIN agreements agreement ON agreement\.id = appointment\.agreement_id/);
   assert.match(bookingSource, /agreement_logo_path/);
 });
