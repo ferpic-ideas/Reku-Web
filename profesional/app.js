@@ -1349,13 +1349,13 @@
     return ranges.length ? ranges : [{ start_time: '09:00', end_time: '18:00' }];
   }
 
-  function availabilityRange(range) {
+  function availabilityRange(range, enabled = true) {
     return `
       <div class="availability-range">
-        <input data-field="start_time" type="time" value="${escapeHtml(range.start_time)}" />
+        <input data-field="start_time" type="time" value="${escapeHtml(range.start_time)}" ${enabled ? '' : 'readonly aria-disabled="true"'} />
         <span>a</span>
-        <input data-field="end_time" type="time" value="${escapeHtml(range.end_time)}" />
-        <button class="icon-button remove-range-button" data-action="remove-range" type="button" aria-label="Quitar horario" title="Quitar horario">−</button>
+        <input data-field="end_time" type="time" value="${escapeHtml(range.end_time)}" ${enabled ? '' : 'readonly aria-disabled="true"'} />
+        <button class="icon-button remove-range-button" data-action="remove-range" type="button" aria-label="Quitar horario" title="Quitar horario" ${enabled ? '' : 'aria-disabled="true"'}>−</button>
       </div>
     `;
   }
@@ -1376,10 +1376,10 @@
             .map(([day, label]) => {
               const enabled = state.availability.some((range) => Number(range.day_of_week) === day);
               return `
-                <div class="availability-day" data-day="${day}">
+                <div class="availability-day ${enabled ? '' : 'is-disabled'}" data-day="${day}">
                   <label class="check-row"><input data-field="enabled" type="checkbox" ${enabled ? 'checked' : ''} /> ${escapeHtml(label)}</label>
-                  <div class="availability-ranges">${rangesForDay(day).map(availabilityRange).join('')}</div>
-                  <button class="link-button" data-action="add-range" type="button">+ Horario</button>
+                  <div class="availability-ranges">${rangesForDay(day).map((range) => availabilityRange(range, enabled)).join('')}</div>
+                  <button class="link-button" data-action="add-range" type="button" ${enabled ? '' : 'aria-disabled="true"'}>+ Horario</button>
                 </div>
               `;
             })
@@ -1388,8 +1388,68 @@
         <div class="form-actions"><button class="primary-button" type="submit">Guardar horarios</button></div>
         ${renderStatus('availability')}
       </form>
+      <dialog id="availability-day-notice" class="availability-day-notice" aria-labelledby="availability-day-notice-title" aria-describedby="availability-day-notice-description">
+        <h2 id="availability-day-notice-title">Primero activá el día</h2>
+        <p id="availability-day-notice-description">Para configurar los horarios de este día, primero marcá la casilla junto a su nombre, a la izquierda.</p>
+        <form method="dialog" class="form-actions"><button class="primary-button" autofocus>Entendido</button></form>
+      </dialog>
       ${renderBlocksModal()}
     `;
+  }
+
+  function bindAvailabilityEditor() {
+    const form = document.getElementById('availability-form');
+    if (!form) return;
+    const notice = document.getElementById('availability-day-notice');
+    let noticeDay;
+    const showNotice = (day) => {
+      noticeDay = day;
+      if (!notice.open) notice.showModal();
+    };
+    notice.addEventListener('close', () => noticeDay?.querySelector('[data-field="enabled"]').focus());
+    const syncDay = (day) => {
+      const enabled = day.querySelector('[data-field="enabled"]').checked;
+      day.classList.toggle('is-disabled', !enabled);
+      day.querySelectorAll('input[type="time"], button').forEach((control) => {
+        if (control.matches('input')) control.readOnly = !enabled;
+        if (enabled) control.removeAttribute('aria-disabled');
+        else control.setAttribute('aria-disabled', 'true');
+      });
+    };
+    form.addEventListener('change', (event) => {
+      if (event.target.matches('[data-field="enabled"]')) syncDay(event.target.closest('.availability-day'));
+    });
+    form.addEventListener('keydown', (event) => {
+      const day = event.target.closest('.availability-day');
+      if (!day || !event.target.matches('input[type="time"]') || day.querySelector('[data-field="enabled"]').checked) return;
+      if (['Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Delete'].includes(event.key) || /^\d$/.test(event.key)) {
+        event.preventDefault();
+        showNotice(day);
+      }
+    });
+    form.addEventListener('click', (event) => {
+      const control = event.target.closest('input[type="time"], [data-action="add-range"], [data-action="remove-range"]');
+      const day = control?.closest('.availability-day');
+      if (!day) return;
+      const checkbox = day.querySelector('[data-field="enabled"]');
+      if (!checkbox.checked) {
+        event.preventDefault();
+        showNotice(day);
+        return;
+      }
+      const ranges = day.querySelector('.availability-ranges');
+      if (control.dataset.action === 'add-range') {
+        ranges.insertAdjacentHTML('beforeend', availabilityRange({ start_time: '09:00', end_time: '18:00' }));
+      } else if (control.dataset.action === 'remove-range') {
+        control.closest('.availability-range').remove();
+        if (!ranges.querySelector('.availability-range')) {
+          checkbox.checked = false;
+          ranges.insertAdjacentHTML('beforeend', availabilityRange({ start_time: '09:00', end_time: '18:00' }, false));
+          syncDay(day);
+          checkbox.focus();
+        }
+      }
+    });
   }
 
   function renderBlocksModal() {
@@ -1574,6 +1634,7 @@
     document.getElementById('logout-button')?.addEventListener('click', handleLogout);
     document.getElementById('profile-form')?.addEventListener('submit', handleProfile);
     document.getElementById('availability-form')?.addEventListener('submit', handleAvailability);
+    bindAvailabilityEditor();
     document.getElementById('block-form')?.addEventListener('submit', handleBlock);
     document.getElementById('password-form')?.addEventListener('submit', handlePassword);
     document.getElementById('patient-search-form')?.addEventListener('submit', handlePatientSearch);
@@ -1594,26 +1655,6 @@
       ?.addEventListener('click', handlePushActivationEmail);
     app.querySelectorAll('[data-action="remove-push-device"]').forEach((button) => {
       button.addEventListener('click', () => handlePushRemoveDevice(Number(button.dataset.id)));
-    });
-    app.querySelectorAll('[data-action="add-range"]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const day = button.closest('.availability-day');
-        const ranges = day.querySelector('.availability-ranges');
-        ranges.insertAdjacentHTML(
-          'beforeend',
-          availabilityRange({ start_time: '09:00', end_time: '18:00' }),
-        );
-        day.querySelector('[data-field="enabled"]').checked = true;
-        ranges
-          .lastElementChild
-          .querySelector('[data-action="remove-range"]')
-          .addEventListener('click', (event) =>
-            event.currentTarget.closest('.availability-range').remove(),
-          );
-      });
-    });
-    app.querySelectorAll('[data-action="remove-range"]').forEach((button) => {
-      button.addEventListener('click', () => button.closest('.availability-range').remove());
     });
     app.querySelectorAll('[data-action="delete-block"]').forEach((button) => {
       button.addEventListener('click', () => {

@@ -905,6 +905,54 @@ td a {
   gap: 8px;
 }
 
+.availability-day.is-disabled .availability-range {
+  color: #858b98;
+}
+
+.availability-day.is-disabled input[type="time"],
+.availability-day.is-disabled .remove-range-button,
+.availability-day.is-disabled .remove-range-button:hover {
+  color: #858b98;
+  background: #f1f2f5;
+  border-color: #dfe2e8;
+  cursor: not-allowed;
+}
+
+.availability-day.is-disabled input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: .4;
+}
+
+.availability-day.is-disabled [data-action="add-range"],
+.availability-day.is-disabled [data-action="add-range"]:hover {
+  color: #858b98;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.availability-day-notice {
+  width: min(440px, calc(100% - 32px));
+  padding: 26px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: 0 18px 60px #18213f30;
+}
+
+.availability-day-notice::backdrop {
+  background: #18213f66;
+}
+
+.availability-day-notice h2 {
+  margin: 0 0 12px;
+}
+
+.availability-day-notice p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .link-button {
   padding: 7px 0;
   color: var(--brand-dark);
