@@ -1509,3 +1509,16 @@ td a {
     width: 100%;
   }
 }
+
+
+.install-app-card {
+  border-color: #d9d3ff;
+  background: #f8f6ff;
+}
+
+.install-app-card h2 { margin: 8px 0; }
+.install-app-card p, .install-app-guide p { line-height: 1.6; }
+.install-app-card .field-help { margin-bottom: 0; }
+.install-app-steps { padding-left: 24px; line-height: 1.6; }
+.install-app-steps li { padding-left: 4px; margin: 14px 0; }
+.install-app-guide > .primary-button { width: 100%; }

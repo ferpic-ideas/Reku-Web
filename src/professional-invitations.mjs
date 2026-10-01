@@ -123,47 +123,54 @@ export const sendProfessionalInvitation = async ({
   }
 };
 
+const readInvitation = async (runQuery, token, { lock = false } = {}) => {
+  const normalizedToken = String(token || "").trim();
+  if (!/^[A-Za-z0-9_-]{43}$/.test(normalizedToken)) {
+    throw invitationError("PROFESSIONAL_INVITATION_INVALID", 401);
+  }
+  const result = await runQuery(
+    `
+      SELECT invitation.id AS invitation_id, invitation.professional_id,
+        invitation.user_id, invitation.email, invitation.accepted_at,
+        invitation.revoked_at, invitation.expires_at > NOW() AS unexpired,
+        professional.name AS professional_name, professional.email AS professional_email,
+        professional.active AS professional_active, professional.deleted_at,
+        account.role, account.is_active
+      FROM professional_invitations invitation
+      INNER JOIN professionals professional ON professional.id = invitation.professional_id
+      INNER JOIN users account ON account.id = invitation.user_id
+        AND account.professional_id = invitation.professional_id
+      WHERE invitation.token_hash = $1
+      ${lock ? 'FOR UPDATE OF invitation, professional, account' : ''}
+    `,
+    [hashToken(normalizedToken)],
+  );
+  const row = result.rows[0];
+  if (!row || row.deleted_at || !row.professional_active || row.role !== 'professional') {
+    throw invitationError("PROFESSIONAL_INVITATION_INVALID", 401);
+  }
+  // A completed invitation stays completed even after its original expiration date.
+  if (row.accepted_at) return { row, status: 'used' };
+  if (row.revoked_at || !row.unexpired || row.is_active) {
+    throw invitationError("PROFESSIONAL_INVITATION_INVALID", 401);
+  }
+  return { row, status: 'pending' };
+};
+
+export const getProfessionalInvitationStatus = async ({ token }) => {
+  const { status } = await readInvitation(query, token);
+  return { status };
+};
+
 export const acceptProfessionalInvitation = async ({ token, password }) => {
   const normalizedToken = String(token || "").trim();
-  if (!normalizedToken) throw invitationError("PROFESSIONAL_INVITATION_INVALID", 401);
+  if (!/^[A-Za-z0-9_-]{43}$/.test(normalizedToken)) throw invitationError("PROFESSIONAL_INVITATION_INVALID", 401);
   const validPassword = validateProfessionalPassword(password, { required: true });
   const passwordHash = await hashPassword(validPassword);
 
   return tx(async (client) => {
-    const result = await client.query(
-      `
-        SELECT
-          invitation.id AS invitation_id,
-          invitation.professional_id,
-          invitation.user_id,
-          invitation.email,
-          professional.name AS professional_name,
-          professional.email AS professional_email,
-          professional.active AS professional_active,
-          professional.deleted_at,
-          account.role,
-          account.is_active
-        FROM professional_invitations invitation
-        INNER JOIN professionals professional ON professional.id = invitation.professional_id
-        INNER JOIN users account ON account.id = invitation.user_id
-        WHERE invitation.token_hash = $1
-          AND invitation.accepted_at IS NULL
-          AND invitation.revoked_at IS NULL
-          AND invitation.expires_at > NOW()
-        FOR UPDATE OF invitation, professional, account
-      `,
-      [hashToken(normalizedToken)],
-    );
-    const row = result.rows[0];
-    if (
-      !row ||
-      row.deleted_at ||
-      !row.professional_active ||
-      row.role !== "professional" ||
-      row.is_active
-    ) {
-      throw invitationError("PROFESSIONAL_INVITATION_INVALID", 401);
-    }
+    const { row, status } = await readInvitation(client.query.bind(client), normalizedToken, { lock: true });
+    if (status === 'used') throw invitationError("PROFESSIONAL_INVITATION_USED", 409);
 
     const userResult = await client.query(
       `

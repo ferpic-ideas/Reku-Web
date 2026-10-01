@@ -4,7 +4,7 @@
   "description": "Agenda y avisos para profesionales de Reku",
   "lang": "es-AR",
   "id": "/profesional/",
-  "start_url": "/profesional/?activar-notificaciones=1",
+  "start_url": "/profesional/",
   "scope": "/profesional/",
   "display": "standalone",
   "background_color": "#f4f5fb",

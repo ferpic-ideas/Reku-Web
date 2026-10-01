@@ -28,6 +28,7 @@
   let appointmentsRefreshPromise = null;
   let meetWindowTimer = null;
   let waitingCounterTimer = null;
+  let deferredInstallPrompt = null;
   const state = {
     loading: true,
     user: null,
@@ -80,6 +81,7 @@
     statusType: '',
     statusContext: 'global',
     actionModal: null,
+    installation: { installed: false, dismissed: false, guideOpen: false, busy: false, message: '' },
     blocksMessageContext: '',
   };
 
@@ -228,6 +230,7 @@
       if (!response.ok) {
         const error = new Error(payload.error || 'No se pudo completar la acción.');
         error.status = response.status;
+        error.code = payload.code;
         throw error;
       }
       return payload;
@@ -874,6 +877,110 @@
     `;
   }
 
+  function shouldSuggestInstallation() {
+    return isMobileDevice() && !isStandaloneApp() && !state.installation.installed &&
+      !state.installation.dismissed && state.google?.connected && !state.google.needs_meet_reauthorization &&
+      state.push?.configured && Number(state.push.active_mobile_devices || 0) > 0;
+  }
+
+  function installationInstructions() {
+    const ua = navigator.userAgent || '';
+    const ios = isIosDevice();
+    const embedded = /FBAN|FBAV|Instagram|; wv\)/i.test(ua);
+    if (embedded) return {
+      device: ios ? 'iPhone o iPad' : 'Android',
+      steps: [`Abrí el menú de este navegador y elegí “Abrir en ${ios ? 'Safari' : 'Chrome'}”. Si no aparece, copiá la dirección y abrila en ese navegador.`,
+        'Ingresá a Reku y volvé a tocar “Instalar Reku” para ver los pasos.'],
+    };
+    if (ios) return {
+      device: /CriOS/i.test(ua) ? 'Chrome en iPhone o iPad' : 'iPhone o iPad',
+      steps: [
+        /CriOS/i.test(ua) ? 'Tocá Compartir junto a la dirección y luego “Ver más”, si aparece.' : 'Tocá el botón Compartir del navegador.',
+        'Elegí “Agregar a pantalla de inicio”. Si no aparece, buscala en “Editar acciones” o abrí esta página en Safari.',
+        'Si aparece “Abrir como app web”, dejalo activado. Confirmá con “Agregar”.',
+        'Abrí Reku desde el ícono nuevo en la pantalla de inicio.',
+      ],
+    };
+    return {
+      device: 'Android',
+      steps: [
+        /SamsungBrowser/i.test(ua) ? 'Abrí el menú de Samsung Internet (☰).' : /EdgA/i.test(ua) ? 'Abrí el menú de Edge (⋯).' : 'Abrí el menú del navegador (⋮).',
+        /SamsungBrowser/i.test(ua) ? 'Elegí “Agregar página a” y luego “Pantalla de inicio”.' : 'Elegí “Instalar app” o “Agregar a pantalla principal”.',
+        'Confirmá con “Instalar” o “Agregar”. Si no aparece la opción, abrí esta página en Chrome.',
+        'Abrí Reku desde el ícono nuevo en la pantalla de inicio.',
+      ],
+    };
+  }
+
+  function renderInstallationSuggestion() {
+    if (!shouldSuggestInstallation()) return '';
+    return `
+      <section class="panel install-app-card" aria-labelledby="install-app-heading">
+        <span class="eyebrow">Reku en tu celular</span>
+        <h2 id="install-app-heading">Tu consultorio, a un toque</h2>
+        <p>Ya conectaste tu calendario y las notificaciones. Agregá Reku a tu pantalla de inicio para entrar directo desde su ícono.</p>
+        <div class="form-actions">
+          <button class="primary-button" id="install-app-button" type="button" ${state.installation.busy ? 'disabled' : ''}>${state.installation.busy ? 'Abriendo instalación…' : 'Instalar Reku'}</button>
+          <button class="secondary-button" id="dismiss-install-app-button" type="button">Ahora no</button>
+        </div>
+        <p class="field-help">Si ya la instalaste, abrila desde el ícono de Reku.</p>
+      </section>
+    `;
+  }
+
+  function renderInstallationGuide() {
+    if (!state.installation.guideOpen) return '';
+    const instructions = installationInstructions();
+    return `
+      <div class="modal-backdrop" id="install-app-backdrop">
+        <section class="modal-panel action-modal install-app-guide" role="dialog" aria-modal="true" aria-labelledby="install-app-title">
+          <div class="modal-header">
+            <div><span class="eyebrow">${escapeHtml(instructions.device)}</span><h2 id="install-app-title">Instalar Reku</h2></div>
+            <button class="icon-button" id="close-install-app-button" type="button" aria-label="Cerrar">×</button>
+          </div>
+          <p>Usá Reku como una app, desde tu pantalla de inicio.</p>
+          ${state.installation.message ? `<p class="field-help" role="status">${escapeHtml(state.installation.message)}</p>` : ''}
+          <ol class="install-app-steps">${instructions.steps.map(step => `<li>${escapeHtml(step)}</li>`).join('')}</ol>
+          <p class="field-help">La primera vez puede pedirte que ingreses con tu mail y contraseña.</p>
+          <button class="primary-button" id="done-install-app-button" type="button">Entendido</button>
+        </section>
+      </div>
+    `;
+  }
+
+  function setInstallationGuide(open) {
+    state.installation.guideOpen = open;
+    render();
+    document.getElementById(open ? 'close-install-app-button' : 'install-app-button')?.focus();
+  }
+
+  async function handleInstallApp() {
+    if (state.installation.busy) return;
+    state.installation.message = '';
+    if (!deferredInstallPrompt) return setInstallationGuide(true);
+    const prompt = deferredInstallPrompt;
+    deferredInstallPrompt = null;
+    state.installation.busy = true;
+    render();
+    try {
+      await prompt.prompt();
+      const choice = await prompt.userChoice;
+      if (choice.outcome === 'accepted') {
+        state.installation.installed = true;
+      } else {
+        state.installation.message = 'Podés instalarla más adelante siguiendo estos pasos.';
+        state.installation.guideOpen = true;
+      }
+    } catch {
+      state.installation.message = 'Podés agregar Reku desde el menú del navegador.';
+      state.installation.guideOpen = true;
+    } finally {
+      state.installation.busy = false;
+      render();
+      if (state.installation.guideOpen) document.getElementById('close-install-app-button')?.focus();
+    }
+  }
+
   function renderOverview() {
     const upcoming = upcomingAppointments();
     return `
@@ -891,6 +998,7 @@
       </section>
       ${state.google?.connected ? '' : renderGoogleIntegration()}
       ${state.push?.configured && (Number(state.push.active_mobile_devices || 0) === 0 || state.pushActivationRequested) ? renderPushIntegration({ attention: true }) : ''}
+      ${renderInstallationSuggestion()}
       <section class="panel">
         <div class="panel-header"><h2>Próximos turnos</h2></div>
         ${renderAppointmentsTable(upcoming.slice(0, 8))}
@@ -1572,6 +1680,7 @@
       </main>
       ${renderPatientDetails(selectedPatientDetails())}
       ${renderActionModal()}
+      ${renderInstallationGuide()}
     `;
     bindEvents();
     syncWaitingCounter();
@@ -1621,6 +1730,17 @@
   }
 
   function bindEvents() {
+    document.getElementById('install-app-button')?.addEventListener('click', handleInstallApp);
+    document.getElementById('dismiss-install-app-button')?.addEventListener('click', () => {
+      state.installation.dismissed = true;
+      render();
+    });
+    for (const id of ['close-install-app-button', 'done-install-app-button']) {
+      document.getElementById(id)?.addEventListener('click', () => setInstallationGuide(false));
+    }
+    document.getElementById('install-app-backdrop')?.addEventListener('click', event => {
+      if (event.target === event.currentTarget) setInstallationGuide(false);
+    });
     app.querySelectorAll('[data-appointment-scope]').forEach((button) => {
       button.addEventListener('click', () => {
         if (!['upcoming', 'all'].includes(button.dataset.appointmentScope)) return;
@@ -1780,6 +1900,30 @@
     }
   }
 
+  function showUsedInvitationLogin() {
+    state.invitationToken = '';
+    state.passwordResetToken = '';
+    state.authView = 'login';
+    state.user = null;
+    state.loading = false;
+    window.history.replaceState({}, '', '/profesional/');
+    setStatus('Tu cuenta ya está activada. Ingresá con tu mail y contraseña.', 'ok');
+  }
+
+  async function checkInvitation() {
+    try {
+      const result = await api('/api/professional/invitations/status', {
+        method: 'POST', body: { token: state.invitationToken },
+      });
+      if (result.status === 'used') return showUsedInvitationLogin();
+    } catch (error) {
+      state.status = error.message;
+      state.statusType = 'error';
+    }
+    state.loading = false;
+    render();
+  }
+
   async function handleInvitation(event) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -1804,6 +1948,7 @@
       await loadData();
       render();
     } catch (error) {
+      if (error.code === 'PROFESSIONAL_INVITATION_USED') return showUsedInvitationLogin();
       setStatus(error.message, 'error');
     }
   }
@@ -2297,6 +2442,16 @@
     if (shouldPollAppointments()) refreshAppointments();
   });
   document.addEventListener?.('keydown', (event) => {
+    if (state.installation.guideOpen) {
+      if (event.key === 'Escape') setInstallationGuide(false);
+      if (event.key === 'Tab') {
+        const first = document.getElementById('close-install-app-button');
+        const last = document.getElementById('done-install-app-button');
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+      return;
+    }
     if (event.key !== 'Escape') return;
     if (state.actionModal) {
       closeActionModal();
@@ -2309,7 +2464,24 @@
       render();
     }
   });
-  if (state.invitationToken || state.passwordResetToken) {
+  window.addEventListener?.('beforeinstallprompt', event => {
+    if (!isMobileDevice() || isStandaloneApp()) return;
+    event.preventDefault();
+    deferredInstallPrompt = event;
+  });
+  window.addEventListener?.('appinstalled', () => {
+    deferredInstallPrompt = null;
+    state.installation.installed = true;
+    state.installation.guideOpen = false;
+    render();
+  });
+  window.matchMedia?.('(display-mode: standalone)')?.addEventListener?.('change', () => {
+    if (isStandaloneApp()) state.installation.guideOpen = false;
+    render();
+  });
+  if (state.invitationToken) {
+    checkInvitation();
+  } else if (state.passwordResetToken) {
     state.loading = false;
     render();
   } else {

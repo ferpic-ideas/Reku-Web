@@ -34,7 +34,7 @@ import {
   finishGoogleOAuth,
   getGoogleConnectionStatus,
 } from "./google-calendar.mjs";
-import { acceptProfessionalInvitation } from "./professional-invitations.mjs";
+import { acceptProfessionalInvitation, getProfessionalInvitationStatus } from "./professional-invitations.mjs";
 import { PROFESSIONAL_PASSWORD_MIN_LENGTH } from "./professional-users.mjs";
 import {
   mapAppointmentDocument,
@@ -1249,6 +1249,16 @@ export const handleProfessionalApi = async (request, response, url) => {
       }
       return true;
     }
+    if (pathname === '/api/professional/invitations/status') {
+      if (request.method !== 'POST') {
+        sendJson(response, 405, { error: 'Método no permitido.' }, { Allow: 'POST' });
+        return true;
+      }
+      await consumeRateLimit({ scope: 'professional.invitation.status', key: getClientIp(request), limit: 60, windowSeconds: 900 });
+      const payload = await parseJsonBody(request);
+      sendJson(response, 200, await getProfessionalInvitationStatus({ token: payload.token }));
+      return true;
+    }
     if (
       pathname === "/api/professional/invitations/accept" &&
       request.method === "POST"
@@ -1595,9 +1605,17 @@ export const handleProfessionalApi = async (request, response, url) => {
       sendJson(response, 403, { error: "No tenés permiso para realizar esta acción." });
       return true;
     }
+    if (error.message === "PROFESSIONAL_INVITATION_USED") {
+      sendJson(response, 409, {
+        code: 'PROFESSIONAL_INVITATION_USED',
+        error: 'Tu cuenta ya está activada. Ingresá con tu mail y contraseña.',
+      });
+      return true;
+    }
     if (error.message === "PROFESSIONAL_INVITATION_INVALID") {
       sendJson(response, 401, {
-        error: "La invitación venció, ya fue usada o no es válida. Pedí que te envíen una nueva.",
+        code: 'PROFESSIONAL_INVITATION_INVALID',
+        error: "La invitación venció o no es válida. Pedí que te envíen una nueva.",
       });
       return true;
     }
