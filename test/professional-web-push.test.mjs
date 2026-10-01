@@ -47,8 +47,8 @@ test("professional Web Push is installable, user-visible and manageable", async 
   assert.match(worker, /showNotification/);
   assert.match(worker, /notificationclick/);
   assert.match(worker, /clients\.openWindow/);
-  assert.match(portal, /Activar en este teléfono/);
-  assert.match(portal, /Agregar a inicio/);
+  assert.match(portal, /Activar notificaciones/);
+  assert.match(portal, /Agregar a pantalla de inicio/);
   assert.match(portal, /Enviarme el link al celular/);
   assert.match(portal, /Enviar prueba/);
   assert.match(portal, /Promise\.allSettled/);

@@ -57,7 +57,7 @@
       permission: 'default',
       current_device_active: false,
       current_endpoint: '',
-      show_install_guide: false,
+      show_setup: false,
       busy: false,
       message: '',
       message_type: '',
@@ -311,13 +311,90 @@
     'PushManager' in window &&
     'Notification' in window;
 
+  const isEmbeddedBrowser = () => /FBAN|FBAV|Instagram|; wv\)/i.test(navigator.userAgent || '');
+  const androidBrowserName = () => /SamsungBrowser/i.test(navigator.userAgent || '') ? 'Samsung Internet'
+    : /Firefox/i.test(navigator.userAgent || '') ? 'Firefox'
+      : /EdgA/i.test(navigator.userAgent || '') ? 'Edge' : 'Chrome';
+
   const pushPermissionError = (permission) => permission === 'denied'
-    ? isIosDevice()
-      ? 'Las notificaciones están bloqueadas. Abrí Ajustes → Notificaciones → Reku (o el nombre de tu ícono) y habilitá Permitir notificaciones. Después volvé y tocá Volver a comprobar.'
-      : /android/i.test(navigator.userAgent || '')
-        ? 'Las notificaciones están bloqueadas. En Chrome, tocá el ícono a la izquierda de la dirección → Permisos → Notificaciones → Permitir. Después volvé y tocá Volver a comprobar.'
-        : 'Las notificaciones están bloqueadas. Habilitalas en los permisos de este sitio y después tocá Volver a comprobar.'
-    : 'El navegador no concedió el permiso. Volvé a tocar Activar en este teléfono y elegí Permitir cuando aparezca el aviso.';
+    ? 'Las notificaciones están bloqueadas. Habilitá el permiso siguiendo los pasos de abajo y después tocá “Volver a comprobar”.'
+    : 'No se concedió el permiso. Tocá “Activar notificaciones” otra vez y elegí “Permitir” cuando aparezca el aviso.';
+
+  function pushSetupHelp() {
+    const ios = isIosDevice();
+    const installed = isStandaloneApp();
+    const embedded = isEmbeddedBrowser();
+    if (ios && !installed && embedded) return {
+      title: 'Continuá en Safari',
+      intro: 'El navegador dentro de esta aplicación no permite completar la instalación de Reku.',
+      steps: ['Abrí el menú y elegí “Abrir en Safari”. Si no aparece, copiá la dirección del portal y pegala en Safari.',
+        'Si te pide iniciar sesión, ingresá con tu cuenta. En Inicio, tocá “Activar notificaciones” y seguí los pasos para agregar Reku a tu pantalla de inicio.'],
+      copy: true,
+    };
+    if (ios && !installed) {
+      const instructions = installationInstructions();
+      return {
+        title: 'Activar notificaciones en iPhone o iPad',
+        intro: 'Para recibir avisos, Reku tiene que abrirse como app. Si ya la instalaste, abrila desde su ícono; no hace falta agregarla de nuevo.',
+        steps: [...instructions.steps, 'Si te pide iniciar sesión, ingresá con tu cuenta. En Inicio, tocá “Activar notificaciones” y elegí “Permitir”.'],
+      };
+    }
+    if (embedded || !pushSupported()) {
+      if (ios && installed) return {
+        title: 'Actualizá tu iPhone o iPad',
+        intro: 'Reku ya está abierta como app, pero este dispositivo no ofrece notificaciones compatibles.',
+        steps: ['Revisá Ajustes → General → Actualización de software. Se necesita iOS o iPadOS 16.4 o posterior.',
+          'Después de actualizar, volvé a abrir Reku desde su ícono y tocá “Activar notificaciones”.'],
+      };
+      return {
+        title: 'Abrí Reku en un navegador compatible',
+        intro: embedded ? 'El navegador dentro de esta aplicación no permite activar estos avisos.' : 'Este navegador no ofrece las notificaciones que necesita Reku.',
+        steps: ['Abrí el menú y elegí “Abrir en Chrome”. Si no aparece, copiá la dirección con el botón de abajo y pegala en Chrome actualizado.',
+          'Si te pide iniciar sesión, ingresá con tu cuenta. Después tocá “Activar notificaciones” y aceptá el permiso.'],
+        copy: true,
+      };
+    }
+    if (state.push.permission === 'denied') return {
+      title: 'Habilitá el permiso de notificaciones',
+      intro: 'El permiso se cambia en la configuración del dispositivo o del navegador.',
+      steps: ios
+        ? ['Abrí Ajustes → Notificaciones → Reku (o el nombre que le pusiste al ícono).',
+          'Activá “Permitir notificaciones”.', 'Volvé a esta app y tocá “Volver a comprobar”.']
+        : [installed
+          ? `En Ajustes de Android → Aplicaciones → Reku → Notificaciones, habilitá los avisos. Si Reku no aparece, revisá ${androidBrowserName()}.`
+          : androidBrowserName() === 'Chrome'
+            ? 'En Chrome, abrí los permisos de este sitio desde el ícono junto a la dirección o desde Configuración → Configuración de sitios → Notificaciones.'
+            : `En ${androidBrowserName()}, abrí los permisos de este sitio desde el ícono junto a la dirección o la configuración del navegador.`,
+          installed
+            ? `Si sigue bloqueado, abrí este portal en ${androidBrowserName()} y permití las notificaciones en la configuración del sitio.`
+            : 'Permití las notificaciones para este sitio. Si Android bloquea las del navegador, habilitalas también en Ajustes → Aplicaciones → Notificaciones.',
+          'Volvé a Reku y tocá “Volver a comprobar”.'],
+    };
+    return null;
+  }
+
+  function renderPushSetupHelp() {
+    const help = pushSetupHelp();
+    if (!help) return '';
+    return `<div class="push-install-guide" id="push-setup-guide" tabindex="-1">
+      <strong>${escapeHtml(help.title)}</strong><p>${escapeHtml(help.intro)}</p>
+      <ol>${help.steps.map(step => `<li>${escapeHtml(step)}</li>`).join('')}</ol>
+      ${help.copy ? '<button id="push-copy-portal-button" class="secondary-button" type="button">Copiar dirección del portal</button>' : ''}
+    </div>`;
+  }
+
+  async function copyPushPortalUrl() {
+    const url = new URL('/profesional/', window.location.origin).href;
+    try {
+      await navigator.clipboard.writeText(url);
+      state.push.message = `Dirección copiada. Pegala en ${isIosDevice() ? 'Safari' : 'Chrome'} para continuar.`;
+      state.push.message_type = 'ok';
+    } catch {
+      state.push.message = `Copiá esta dirección y abrila en ${isIosDevice() ? 'Safari' : 'Chrome'}: ${url}`;
+      state.push.message_type = '';
+    }
+    render();
+  }
 
   const waitWithTimeout = (promise, timeoutMs, message) => {
     let timeoutId;
@@ -348,7 +425,7 @@
     state.push.permission = 'Notification' in window ? Notification.permission : 'unsupported';
     state.push.current_device_active = false;
     state.push.current_endpoint = '';
-    if (!state.push.configured || !state.push.supported) return;
+    if (!state.push.configured || !state.push.supported || (isIosDevice() && !isStandaloneApp()) || isEmbeddedBrowser()) return;
     try {
       const registration = await ensurePushServiceWorker();
       const subscription = await registration?.pushManager.getSubscription();
@@ -809,57 +886,48 @@
     const mobile = isMobileDevice();
     const iosNeedsInstall = mobile && isIosDevice() && !isStandaloneApp();
     const permissionDenied = push.permission === 'denied';
+    const needsHelp = iosNeedsInstall || isEmbeddedBrowser() || !push.supported;
     const needsPhone = Number(push.active_mobile_devices || 0) === 0;
     const devices = push.devices || [];
-    let description = 'Recibí un aviso inmediato cuando un paciente esté esperando para entrar a la videollamada.';
-    if (push.current_device_active) {
-      description = 'Las notificaciones están activas en este dispositivo.';
-    } else if (iosNeedsInstall) {
-      description = 'Para recibir avisos en iPhone, agregá Reku a inicio desde Safari o Chrome y abrilo desde el nuevo ícono.';
-    } else if (!push.supported && mobile) {
-      description = 'Este navegador no admite notificaciones Web Push. Probá con Safari actualizado en iPhone o Chrome en Android.';
-    } else if (permissionDenied) {
-      description = pushPermissionError('denied');
+    let description = 'Enviate un enlace por mail y abrilo desde tu celular para activar los avisos de pacientes en espera. El enlace no te pide iniciar sesión.';
+    if (!push.configured) {
+      description = 'Las notificaciones no están disponibles por el momento. Volvé a intentar más tarde.';
+    } else if (push.current_device_active) {
+      description = mobile ? 'Las notificaciones ya están activas en este teléfono. Podés enviar una prueba para comprobar que llegan.'
+        : 'Esta computadora recibe avisos. Para recibirlos también en tu celular, enviate el enlace y abrilo desde el teléfono.';
+    } else if (mobile) {
+      description = iosNeedsInstall ? 'Ya estás en tu celular. Para activar los avisos en iPhone o iPad, abrí Reku desde su ícono en la pantalla de inicio.'
+        : needsHelp ? 'Este dispositivo necesita un paso previo para activar los avisos. Revisá las indicaciones de abajo.'
+          : permissionDenied ? pushPermissionError('denied')
+            : isStandaloneApp() ? 'Reku ya está abierta como app. Tocá “Activar notificaciones” y, si aparece el aviso, elegí “Permitir”.'
+              : 'Ya estás en tu celular. Tocá “Activar notificaciones” y elegí “Permitir” cuando aparezca el aviso. No hace falta enviarte un enlace.';
     }
     return `
       <section class="panel push-panel ${attention ? 'push-panel-attention' : ''}" id="push-notifications-panel">
         <div class="integration-card">
           <div>
             <span class="eyebrow">Avisos importantes</span>
-            <h2>Notificaciones en el teléfono</h2>
+            <h2>${mobile ? 'Notificaciones en este teléfono' : 'Notificaciones en el teléfono'}</h2>
             <p class="muted">${escapeHtml(description)}</p>
-            ${needsPhone ? '<p class="push-warning">Falta activar al menos un teléfono para no perder avisos de pacientes en espera.</p>' : '<p class="push-success">Ya hay un teléfono activo.</p>'}
+            ${needsPhone ? '<p class="push-warning">Falta activar al menos un teléfono para no perder avisos de pacientes en espera.</p>' : mobile && !push.current_device_active ? '<p class="muted">Ya tenés otro teléfono conectado. Activá también este para recibir los avisos acá.</p>' : '<p class="push-success">Ya hay un teléfono activo.</p>'}
           </div>
           <div class="push-primary-actions">
             ${
-              mobile && !push.current_device_active && (push.supported || iosNeedsInstall)
-                ? `<button id="push-enable-button" class="primary-button" type="button" ${push.busy ? 'disabled' : ''}>${iosNeedsInstall ? 'Ver cómo activarlas' : permissionDenied ? 'Volver a comprobar' : 'Activar en este teléfono'}</button>`
+              mobile && push.configured && !push.current_device_active
+                ? `<button id="push-enable-button" class="primary-button" type="button" ${push.busy ? 'disabled' : ''}>${push.busy ? 'Activando…' : permissionDenied && !needsHelp ? 'Volver a comprobar' : 'Activar notificaciones'}</button>`
                 : ''
             }
             ${
-              !mobile || !push.current_device_active
-                ? `<button id="push-activation-email-button" class="secondary-button" type="button" ${push.busy ? 'disabled' : ''}>Enviarme el link al celular</button>`
+              !mobile && push.configured
+                ? `<button id="push-activation-email-button" class="primary-button" type="button" ${push.busy ? 'disabled' : ''}>Enviarme el link al celular</button>`
                 : ''
             }
-            ${push.current_device_active ? `<button id="push-test-button" class="primary-button" type="button" ${push.busy ? 'disabled' : ''}>Enviar prueba</button>` : ''}
+            ${push.current_device_active && push.configured ? `<button id="push-test-button" class="primary-button" type="button" ${push.busy ? 'disabled' : ''}>Enviar prueba</button>` : ''}
             ${push.current_device_active ? `<button id="push-disable-current-button" class="secondary-button" type="button" ${push.busy ? 'disabled' : ''}>Desactivar en este dispositivo</button>` : ''}
           </div>
         </div>
-        ${
-          (push.show_install_guide || iosNeedsInstall) && mobile && isIosDevice()
-            ? `<div class="push-install-guide">
-                <strong>Activación en iPhone</strong>
-                <ol>
-                  <li>Abrí esta página en Safari o Chrome.</li>
-                  <li>Tocá Compartir y luego “Agregar a inicio”.</li>
-                  <li>Si aparece “Abrir como app web”, dejalo activado.</li>
-                  <li>Abrí Reku desde el ícono nuevo de la pantalla de inicio.</li>
-                  <li>Volvé a tocar “Activar en este teléfono” y aceptá el permiso.</li>
-                </ol>
-              </div>`
-            : ''
-        }
-        ${push.message ? `<div class="status-message ${escapeHtml(push.message_type)}">${escapeHtml(push.message)}</div>` : ''}
+        ${mobile && push.configured && !push.current_device_active ? renderPushSetupHelp() : ''}
+        ${push.message && push.message !== description ? `<div class="status-message ${escapeHtml(push.message_type)}" role="status">${escapeHtml(push.message)}</div>` : ''}
         ${
           devices.length
             ? `<div class="push-devices">
@@ -880,7 +948,7 @@
   function shouldSuggestInstallation() {
     return isMobileDevice() && !isStandaloneApp() && !state.installation.installed &&
       !state.installation.dismissed && state.google?.connected && !state.google.needs_meet_reauthorization &&
-      state.push?.configured && Number(state.push.active_mobile_devices || 0) > 0;
+      state.push?.configured && state.push.current_device_active;
   }
 
   function installationInstructions() {
@@ -997,7 +1065,7 @@
         </button>
       </section>
       ${state.google?.connected ? '' : renderGoogleIntegration()}
-      ${state.push?.configured && (Number(state.push.active_mobile_devices || 0) === 0 || state.pushActivationRequested) ? renderPushIntegration({ attention: true }) : ''}
+      ${state.push?.configured && (Number(state.push.active_mobile_devices || 0) === 0 || state.pushActivationRequested || state.push.show_setup || (isMobileDevice() && !state.push.current_device_active)) ? renderPushIntegration({ attention: Number(state.push.active_mobile_devices || 0) === 0 }) : ''}
       ${renderInstallationSuggestion()}
       <section class="panel">
         <div class="panel-header"><h2>Próximos turnos</h2></div>
@@ -1766,6 +1834,7 @@
       openActionModal({ type: 'disconnect-google' });
     });
     document.getElementById('push-enable-button')?.addEventListener('click', handlePushEnable);
+    document.getElementById('push-copy-portal-button')?.addEventListener('click', copyPushPortalUrl);
     document.getElementById('push-test-button')?.addEventListener('click', handlePushTest);
     document
       .getElementById('push-disable-current-button')
@@ -2227,12 +2296,13 @@
   };
 
   async function handlePushEnable() {
-    if (state.push.busy) return;
-    if (isIosDevice() && !isStandaloneApp()) {
-      state.push.show_install_guide = true;
-      state.push.message = 'Primero agregá Reku a la pantalla de inicio siguiendo estos pasos.';
+    if (state.push.busy || !state.push.configured) return;
+    state.push.show_setup = true;
+    if ((isIosDevice() && !isStandaloneApp()) || isEmbeddedBrowser() || !pushSupported()) {
+      state.push.message = '';
       state.push.message_type = '';
       render();
+      document.getElementById('push-setup-guide')?.focus();
       return;
     }
     state.push.busy = true;
@@ -2341,6 +2411,8 @@
   }
 
   async function handlePushActivationEmail() {
+    if (isMobileDevice()) return handlePushEnable();
+    if (state.push.busy || !state.push.configured) return;
     state.push.busy = true;
     state.push.message = '';
     render();

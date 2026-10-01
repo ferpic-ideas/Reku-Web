@@ -198,14 +198,14 @@ test('portal requests permission synchronously before waiting for its worker and
   for (const permission of ['default', 'denied', 'granted']) {
     for (const answer of permission === 'default' ? ['default', 'denied', 'granted'] : [permission]) {
       const events = [];
-      const state = { push: { busy: false, public_key: 'AQID' } };
+      const state = { push: { configured: true, busy: false, public_key: 'AQID' } };
       const registration = { pushManager: {
         async getSubscription() { return null; },
         async subscribe() { events.push('subscribe'); return { toJSON: () => ({ endpoint: 'https://push.example.test/browser' }) }; },
       } };
       const enable = vm.runInNewContext(`(${portalSource.slice(start, end).trim()})`, {
         state, isIosDevice: () => false, isStandaloneApp: () => false, isMobileDevice: () => true,
-        pushSupported: () => true, pushPermissionError: value => `Permission: ${value}`, render() {},
+        isEmbeddedBrowser: () => false, pushSupported: () => true, pushPermissionError: value => `Permission: ${value}`, render() {},
         Notification: { permission, async requestPermission() { events.push('permission'); return answer; } },
         async ensurePushServiceWorker() { events.push('worker'); return registration; },
         urlBase64ToUint8Array: () => new Uint8Array(), pushDeviceLabel: () => 'Android',
