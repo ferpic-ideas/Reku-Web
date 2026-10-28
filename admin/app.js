@@ -2951,6 +2951,11 @@
           </select>
           <span class="field-help">Se omiten la selección de práctica y profesional. Se ofrece la primera disponibilidad del acuerdo.</span>
         </label>
+        <label>
+          Anticipación mínima para reservar (horas)
+          <input name="minimum_booking_notice_hours" type="number" min="0" max="8760" step="1" required value="${escapeHtml(item.minimum_booking_notice_hours ?? 4)}" />
+          <span class="field-help">Se ofrecen turnos a partir de esta cantidad de horas desde el momento de la reserva. Usá 0 para permitir reservas sin anticipación mínima.</span>
+        </label>
         </div>
         <div class="agreement-form-stack agreement-form-options">
           <label class="check-row">

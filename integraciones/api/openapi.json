@@ -152,6 +152,7 @@
           "direct_treatment": { "type": "boolean" },
           "treatment_service_id": { "type": ["integer", "null"] },
           "medical_order_required": { "type": "boolean" },
+          "minimum_booking_notice_hours": { "type": "integer", "minimum": 0, "maximum": 8760, "default": 4, "description": "Anticipación mínima desde la hora actual. Se aplica a disponibilidad, pre-reserva, confirmación y reprogramación. 0 permite reservar sin anticipación mínima; no permite horarios pasados." },
           "identifier_label": { "type": "string", "description": "Nombre del identificador de Nómina; usar Identificador si está vacío." },
           "timezone": { "type": "string" },
           "capabilities": { "type": "array", "items": { "type": "string" } }

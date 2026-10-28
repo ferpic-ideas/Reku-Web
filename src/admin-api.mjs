@@ -1,4 +1,5 @@
 import { consultationStatusSql } from './consultation-status.mjs';
+import { minimumBookingNoticeHours, parseMinimumBookingNoticeHours } from './agreement-policy.mjs';
 import { adminReportUrl, adminReHubTriageUrl } from './consultation-links.mjs';
 import { readAdminBotReport } from './consultation-bot-access.mjs';
 import {
@@ -676,6 +677,7 @@ const mapAgreement = (row) => ({
   direct_treatment: Boolean(row.direct_treatment),
   treatment_service_id: row.treatment_service_id ? Number(row.treatment_service_id) : null,
   medical_order_required: Boolean(row.medical_order_required),
+  minimum_booking_notice_hours: minimumBookingNoticeHours(row),
   identifier_label: row.identifier_label || '',
   access_mode: row.access_mode || 'web',
   communication_sender: row.communication_sender || 'reku',
@@ -753,6 +755,7 @@ const agreementPayloadFromMultipart = async (request) => {
       direct_treatment: directTreatment,
       treatment_service_id: treatmentServiceId,
       medical_order_required: fields.medical_order_required === "true" || fields.medical_order_required === "on",
+      minimum_booking_notice_hours: parseMinimumBookingNoticeHours(fields.minimum_booking_notice_hours),
       type,
       identifier_label: identifierLabel,
       payment_evaluation_url:
@@ -792,9 +795,10 @@ const createAgreement = async (request, response, user) => {
           direct_treatment,
           treatment_service_id,
           medical_order_required,
-          identifier_label, access_mode, communication_sender, email_verification_required, brand_theme
+          identifier_label, access_mode, communication_sender, email_verification_required, brand_theme,
+          minimum_booking_notice_hours
         )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING *
     `,
     [
@@ -815,6 +819,7 @@ const createAgreement = async (request, response, user) => {
       payload.fields.communication_sender,
       payload.fields.email_verification_required,
       payload.fields.brand_theme || "",
+      minimumBookingNoticeHours(payload.fields),
     ],
   );
   await recordAudit("agreement.created", {
@@ -873,6 +878,7 @@ const updateAgreement = async (request, response, user, id) => {
           communication_sender = $16,
           email_verification_required = $17,
           brand_theme = $18,
+          minimum_booking_notice_hours = $19,
           updated_at = NOW()
       WHERE id = $10
         AND deleted_at IS NULL
@@ -897,6 +903,7 @@ const updateAgreement = async (request, response, user, id) => {
       payload.fields.communication_sender,
       payload.fields.email_verification_required,
       payload.fields.brand_theme ?? current.brand_theme ?? "",
+      payload.fields.minimum_booking_notice_hours ?? minimumBookingNoticeHours(current),
     ],
   );
   await recordAudit("agreement.updated", {
@@ -3138,6 +3145,7 @@ export const handlePublicAgreementApi = async (request, response, url) => {
       logo_url: agreement.cobranded ? agreement.logo_url : "",
       pdf_url: agreement.pdf_url,
       identifier_label: agreement.identifier_label || '',
+      minimum_booking_notice_hours: minimumBookingNoticeHours(agreement),
     },
   });
   return true;
@@ -3751,6 +3759,10 @@ export const handleAdminApi = async (request, response, url) => {
     }
     if (error.message === 'AGREEMENT_IDENTIFIER_LABEL_INVALID') {
       sendJson(response, 422, { error: 'El tipo de identificador debe tener hasta 80 caracteres y no incluir saltos de línea.' });
+      return true;
+    }
+    if (error.message === 'AGREEMENT_BOOKING_NOTICE_INVALID') {
+      sendJson(response, 422, { error: 'La anticipación mínima debe ser un número entero de horas entre 0 y 8760.' });
       return true;
     }
     if (error.message === 'AGREEMENT_TREATMENT_SERVICE_REQUIRED') {

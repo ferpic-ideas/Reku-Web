@@ -1,5 +1,5 @@
 import { one, query, recordAudit, tx } from "./db.mjs";
-import { requiresAgreementEmailVerification } from './agreement-policy.mjs';
+import { minimumBookingNoticeHours, requiresAgreementEmailVerification } from './agreement-policy.mjs';
 import { consultationStatusSql, readAppointmentConsultationStatus } from './consultation-status.mjs';
 import {
   getClientIp,
@@ -152,20 +152,20 @@ const currentDateInCalendarTimeZone = () => {
 export const filterSlotsByMinimumNotice = ({
   slots,
   date,
-  minimumNoticeMinutes = 30,
+  minimumNoticeMinutes = minimumBookingNoticeHours() * 60,
   now = new Date(),
   timeZone = config.googleCalendarTimeZone,
 }) => {
-  const parts = calendarDateTimeParts(now, timeZone);
-  const currentDate = `${parts.year}-${parts.month}-${parts.day}`;
-  if (date < currentDate) return [];
-  if (date > currentDate) return slots;
-  const currentMinutes =
+  const cutoff = new Date(now.getTime() + Math.max(0, Number(minimumNoticeMinutes) || 0) * 60_000);
+  const parts = calendarDateTimeParts(cutoff, timeZone);
+  const cutoffDate = `${parts.year}-${parts.month}-${parts.day}`;
+  if (date < cutoffDate) return [];
+  if (date > cutoffDate) return slots;
+  const earliestStart =
     Number(parts.hour) * 60 +
     Number(parts.minute) +
     Number(parts.second) / 60 +
-    now.getMilliseconds() / 60_000;
-  const earliestStart = currentMinutes + Math.max(0, Number(minimumNoticeMinutes) || 0);
+    cutoff.getMilliseconds() / 60_000;
   return slots.filter((slot) => timeToMinutes(slot) >= earliestStart);
 };
 
@@ -313,6 +313,7 @@ const requireAccessLink = async (token) => {
         a.direct_treatment,
         a.treatment_service_id,
         a.medical_order_required,
+        a.minimum_booking_notice_hours,
         a.identifier_label,
         a.access_mode, a.communication_sender, a.email_verification_required,
         a.logo_path AS current_agreement_logo_path,
@@ -360,6 +361,7 @@ const requireAccessLink = async (token) => {
       direct_treatment: Boolean(link.direct_treatment),
       treatment_service_id: link.treatment_service_id ? Number(link.treatment_service_id) : null,
       medical_order_required: Boolean(link.medical_order_required),
+      minimum_booking_notice_hours: minimumBookingNoticeHours(link),
       identifier_label: link.identifier_label || '',
       access_mode: link.access_mode || 'web',
       communication_sender: link.communication_sender || 'reku',
@@ -417,6 +419,7 @@ const mapAgreement = (agreement) => ({
   direct_treatment: Boolean(agreement.direct_treatment),
   treatment_service_id: agreement.treatment_service_id ? Number(agreement.treatment_service_id) : null,
   medical_order_required: Boolean(agreement.medical_order_required),
+  minimum_booking_notice_hours: minimumBookingNoticeHours(agreement),
   identifier_label: agreement.identifier_label || '',
   access_mode: agreement.access_mode || 'web',
   communication_sender: agreement.communication_sender || 'reku',
@@ -780,6 +783,13 @@ export const professionalSupportsService = async (
     [professionalId, serviceId, agreementId, config.googleCalendarRequired],
   );
 
+const loadMinimumNoticeMinutes = async agreementId => {
+  const agreement = agreementId
+    ? await one('SELECT minimum_booking_notice_hours FROM agreements WHERE id = $1', [agreementId])
+    : null;
+  return minimumBookingNoticeHours(agreement) * 60;
+};
+
 export const computeSlots = async ({
   serviceId,
   professionalId,
@@ -788,7 +798,7 @@ export const computeSlots = async ({
   preloadedService = null,
   selectionValidated = false,
   excludeAppointmentId = null,
-  minimumNoticeMinutes = 30,
+  minimumNoticeMinutes = null,
   agreementId = null,
 }) => {
   const parsedDate = new Date(`${date}T00:00:00Z`);
@@ -892,16 +902,17 @@ export const computeSlots = async ({
       durationMinutes: Number(service.duration_minutes),
     }),
     date,
-    minimumNoticeMinutes,
+    minimumNoticeMinutes: minimumNoticeMinutes ?? await loadMinimumNoticeMinutes(agreementId),
   });
 
   return { service, slots };
 };
 
 const computeFirstAvailableSlots = async ({ serviceId, date, agreementId = null }) => {
-  const [service, professionals] = await Promise.all([
+  const [service, professionals, minimumNoticeMinutes] = await Promise.all([
     loadService(serviceId),
     loadEligibleProfessionals(serviceId, agreementId),
+    loadMinimumNoticeMinutes(agreementId),
   ]);
   if (!service) {
     const error = new Error("BOOKING_SELECTION_INVALID");
@@ -919,6 +930,7 @@ const computeFirstAvailableSlots = async ({ serviceId, date, agreementId = null 
           preloadedService: service,
           selectionValidated: true,
           agreementId,
+          minimumNoticeMinutes,
         })
       ).slots,
     })),
@@ -999,6 +1011,7 @@ const listDays = async (url, response, agreementId = null) => {
     ]),
   );
   const googleBusyByProfessional = new Map(googleBusyEntries);
+  const minimumNoticeMinutes = await loadMinimumNoticeMinutes(agreementId);
   const days = [];
   for (let day = 1; day <= daysInMonth; day += 1) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
@@ -1013,6 +1026,7 @@ const listDays = async (url, response, agreementId = null) => {
           preloadedService: service,
           selectionValidated: firstAvailable,
           agreementId,
+          minimumNoticeMinutes,
         });
       }),
     );
@@ -1783,13 +1797,14 @@ const listPatientManagementDays = async (request, url, response) => {
     monthNumber === 12
       ? `${year + 1}-01-01`
       : `${year}-${String(monthNumber + 1).padStart(2, "0")}-01`;
-  const [service, googleBusyByDate] = await Promise.all([
+  const [service, googleBusyByDate, minimumNoticeMinutes] = await Promise.all([
     loadService(Number(appointment.service_id)),
     getBookingGoogleBusyRanges({
       professionalId: Number(appointment.professional_id),
       startDate,
       endDateExclusive,
     }),
+    loadMinimumNoticeMinutes(appointment.agreement_id),
   ]);
   const days = [];
   for (let day = 1; day <= daysInMonth; day += 1) {
@@ -1802,6 +1817,7 @@ const listPatientManagementDays = async (request, url, response) => {
       preloadedService: service,
       selectionValidated: true,
       excludeAppointmentId: Number(appointment.id),
+      minimumNoticeMinutes,
     });
     if (slots.length) days.push({ date, slots_count: slots.length });
   }
@@ -1817,6 +1833,7 @@ const listPatientManagementSlots = async (request, url, response) => {
     professionalId: Number(appointment.professional_id),
     date,
     excludeAppointmentId: Number(appointment.id),
+    agreementId: appointment.agreement_id,
   });
   sendJson(response, 200, { slots });
 };
@@ -1848,6 +1865,7 @@ const reschedulePatientAppointment = async (request, response) => {
     professionalId: Number(appointment.professional_id),
     date,
     excludeAppointmentId: Number(appointment.id),
+    agreementId: appointment.agreement_id,
   });
   if (!slots.includes(startTime)) {
     sendJson(response, 409, { error: "Ese horario ya no está disponible." });

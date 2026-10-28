@@ -9,3 +9,16 @@ export const patientCommunicationsSql = (alias = 'a') => {
       AND communication_agreement.access_mode = 'api'
       AND communication_agreement.communication_sender = 'integrator')`;
 };
+export const defaultMinimumBookingNoticeHours = 4;
+
+export const minimumBookingNoticeHours = agreement =>
+  Number(agreement?.minimum_booking_notice_hours ?? defaultMinimumBookingNoticeHours);
+
+export const parseMinimumBookingNoticeHours = value => {
+  if (value === undefined) return undefined;
+  const hours = Number(value);
+  if (!/^\d+$/.test(String(value).trim()) || !Number.isInteger(hours) || hours < 0 || hours > 8760) {
+    throw Object.assign(new Error('AGREEMENT_BOOKING_NOTICE_INVALID'), { statusCode: 422 });
+  }
+  return hours;
+};

@@ -57,6 +57,7 @@ test("same-day slots require at least 30 minutes notice", () => {
     filterSlotsByMinimumNotice({
       slots,
       date: "2026-08-24",
+      minimumNoticeMinutes: 30,
       now: new Date("2026-08-24T17:00:00.000Z"),
       timeZone: "America/Argentina/Buenos_Aires",
     }),
@@ -67,6 +68,7 @@ test("same-day slots require at least 30 minutes notice", () => {
     filterSlotsByMinimumNotice({
       slots,
       date: "2026-08-24",
+      minimumNoticeMinutes: 30,
       now: new Date("2026-08-24T17:00:01.000Z"),
       timeZone: "America/Argentina/Buenos_Aires",
     }),
@@ -80,11 +82,43 @@ test("the 30-minute cutoff does not remove future-day slots", () => {
     filterSlotsByMinimumNotice({
       slots,
       date: "2026-08-25",
+      minimumNoticeMinutes: 30,
       now: new Date("2026-08-24T23:59:59.000Z"),
       timeZone: "America/Argentina/Buenos_Aires",
     }),
     slots,
   );
+});
+
+test('the default four-hour notice includes the exact boundary and excludes elapsed seconds', () => {
+  const options = {
+    slots: ['11:00', '12:00', '13:00', '15:59', '16:00', '16:30'],
+    date: '2026-10-28', timeZone: 'America/Argentina/Buenos_Aires',
+  };
+  assert.deepEqual(filterSlotsByMinimumNotice({ ...options, now: new Date('2026-10-28T15:00:00Z') }), ['16:00', '16:30']);
+  assert.deepEqual(filterSlotsByMinimumNotice({ ...options, now: new Date('2026-10-28T15:00:00.001Z') }), ['16:30']);
+});
+
+test('zero notice allows upcoming slots but never past times or dates', () => {
+  const options = {
+    slots: ['11:59', '12:00', '12:01'], date: '2026-10-28', minimumNoticeMinutes: 0,
+    now: new Date('2026-10-28T15:00:00Z'), timeZone: 'America/Argentina/Buenos_Aires',
+  };
+  assert.deepEqual(filterSlotsByMinimumNotice(options), ['12:00', '12:01']);
+  assert.deepEqual(filterSlotsByMinimumNotice({ ...options, now: new Date('2026-10-28T15:00:01Z') }), ['12:01']);
+  assert.deepEqual(filterSlotsByMinimumNotice({ ...options, date: '2026-10-27' }), []);
+});
+
+test('notice crosses midnight, month and year boundaries and can span several days', () => {
+  const options = {
+    slots: ['00:00', '01:00', '01:59', '02:00', '08:00'],
+    now: new Date('2026-12-31T22:00:00-03:00'), timeZone: 'America/Argentina/Buenos_Aires',
+  };
+  assert.deepEqual(filterSlotsByMinimumNotice({ ...options, date: '2026-12-31' }), []);
+  assert.deepEqual(filterSlotsByMinimumNotice({ ...options, date: '2027-01-01' }), ['02:00', '08:00']);
+  assert.deepEqual(filterSlotsByMinimumNotice({ ...options, date: '2027-01-02' }), options.slots);
+  assert.deepEqual(filterSlotsByMinimumNotice({ ...options, date: '2027-01-01', minimumNoticeMinutes: 28 * 60 }), []);
+  assert.deepEqual(filterSlotsByMinimumNotice({ ...options, date: '2027-01-02', minimumNoticeMinutes: 28 * 60 }), ['02:00', '08:00']);
 });
 
 test("Google availability failures fall back to Reku availability", async () => {

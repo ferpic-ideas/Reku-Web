@@ -18,6 +18,7 @@ import { consultationStatusSql } from '../src/consultation-status.mjs';
 import { escapeHtml } from '../src/http.mjs';
 import { googleCalendarTemplateUrl } from '../src/appointment-calendar.mjs';
 import { testArtroDemo } from './artro-demo-flow.mjs';
+import { testBookingNotice } from './booking-notice-flow.mjs';
 
 const { Pool } = pg;
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -1403,5 +1404,8 @@ test("agreement API completes its full HTTP lifecycle against PostgreSQL", async
     assert.equal(payload.verification_required, false);
     assert.ok(payload.booking_expires_at);
     assert.match(result.headers.get('set-cookie'), /reku_booking_access=/);
+  });
+  await t.test('configurable notice is enforced across public bookings, partner holds and rescheduling', async () => {
+    await testBookingNotice({ pool, baseUrl, apiRequest });
   });
 });

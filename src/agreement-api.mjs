@@ -1,9 +1,11 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { one, query, recordAudit, tx } from "./db.mjs";
+import { minimumBookingNoticeHours } from './agreement-policy.mjs';
 import { getClientIp, readBody, sendJson } from "./http.mjs";
 import { hashToken } from "./security.mjs";
 import {
   computeSlots,
+  filterSlotsByMinimumNotice,
   loadEligibleProfessionals,
   loadProfessional,
   loadService,
@@ -317,7 +319,7 @@ const requireCredential = async (request) => {
         agreement.type AS agreement_type,
         agreement.cobranded AS agreement_cobranded,
         agreement.direct_treatment, agreement.treatment_service_id,
-        agreement.medical_order_required, agreement.identifier_label,
+        agreement.medical_order_required, agreement.identifier_label, agreement.minimum_booking_notice_hours,
         agreement.access_mode, agreement.communication_sender, agreement.email_verification_required
       FROM agreement_api_credentials credential
       INNER JOIN agreements agreement ON agreement.id = credential.agreement_id
@@ -694,6 +696,7 @@ const listAvailability = async (credential, url, response, requestId) => {
             professionalId: Number(professional.id),
             date,
             agreementId: credential.agreement_id,
+            minimumNoticeMinutes: minimumBookingNoticeHours(credential) * 60,
             preloadedService: service,
             selectionValidated: true,
           })
@@ -748,6 +751,7 @@ const bookingCandidates = async ({ credential, serviceId, professionalId, date, 
       professionalId: Number(professional.id),
       date,
       agreementId: credential.agreement_id,
+      minimumNoticeMinutes: minimumBookingNoticeHours(credential) * 60,
       preloadedService: service,
       selectionValidated: !professionalId,
     });
@@ -1017,6 +1021,12 @@ const createAppointment = async (request, credential, payload, response, request
         const date = hold.hold_date;
         const startTime = hold.start_time;
         const endTime = hold.end_time;
+        if (!filterSlotsByMinimumNotice({
+          slots: [startTime], date,
+          minimumNoticeMinutes: minimumBookingNoticeHours(credential) * 60,
+        }).length) {
+          throw apiError("slot_unavailable", "Ese horario ya no está disponible.", 409);
+        }
         const service = {
           id: serviceId,
           name: hold.service_name,
@@ -1303,6 +1313,7 @@ const updateAppointment = async (
       date,
       agreementId: credential.agreement_id,
       excludeAppointmentId: Number(initial.id),
+      minimumNoticeMinutes: minimumBookingNoticeHours(credential) * 60,
     });
     if (!available.slots.includes(startTime)) {
       throw apiError("slot_unavailable", "Ese horario ya no está disponible.", 409);
@@ -1727,6 +1738,7 @@ export const handleAgreementApi = async (request, response, url) => {
             direct_treatment: credential.direct_treatment,
             treatment_service_id: credential.treatment_service_id ? Number(credential.treatment_service_id) : null,
             medical_order_required: credential.medical_order_required,
+            minimum_booking_notice_hours: minimumBookingNoticeHours(credential),
             identifier_label: credential.identifier_label || "",
             access_mode: credential.access_mode,
             communication_sender: credential.communication_sender,

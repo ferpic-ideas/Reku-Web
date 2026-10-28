@@ -11,6 +11,12 @@ const render = (overrides = {}) => vm.runInNewContext(`${renderSource}\nrenderAg
   state: { services: [{ id: 2, name: 'Tratamiento', active: true }] },
 });
 
+test('agreement notice input defaults to four and preserves saved zero and custom hours', () => {
+  assert.match(render(), /name="minimum_booking_notice_hours"[^>]*min="0"[^>]*value="4"/);
+  assert.match(render({ minimum_booking_notice_hours: 0 }), /name="minimum_booking_notice_hours"[^>]*value="0"/);
+  assert.match(render({ minimum_booking_notice_hours: 48, access_mode: 'api' }), /name="minimum_booking_notice_hours"[^>]*value="48"/);
+});
+
 test('agreement form groups requested pairs in stable rows', () => {
   const html = render();
   const rows = html.split(/<div class="grid-two agreement-form-row"(?: data-web-only)?>/).slice(1);
